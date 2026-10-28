@@ -84,6 +84,32 @@ describe('mux', () => {
     expect(body.byteLength).toBe(64 * 1024);
   });
 
+  it('keeps a half-closed stream routable while the response body streams', async () => {
+    // Regression: a GET request half-closes immediately (END). The stream must
+    // stay routable so the response can consume more than one window of credit.
+    const payload = new Uint8Array(300_000).fill(9);
+    const { edge } = pair({
+      onStream: (stream: Stream) => {
+        void (async () => {
+          for await (const _chunk of stream.body()) {
+            // No request body on a GET; draining ends the iterator.
+          }
+          stream.sendHead({ status: 200, headers: [['content-length', String(payload.byteLength)]] });
+          await stream.write(payload);
+          await stream.end();
+        })();
+      },
+    }, 256 * 1024);
+
+    const stream = edge.open(httpOpen('/large'));
+    await stream.end();
+    expect((await stream.head()).status).toBe(200);
+    const body = await collect(stream);
+    expect(body.byteLength).toBe(payload.byteLength);
+    expect(body[0]).toBe(9);
+    expect(body[payload.byteLength - 1]).toBe(9);
+  });
+
   it('relays WebSocket frames in both directions', async () => {
     const { edge } = pair({
       onStream: (stream: Stream) => {

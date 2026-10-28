@@ -1,0 +1,39 @@
+services:
+  edge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DSHLINK_PUBLIC_URL: ${DSHLINK_PUBLIC_URL:?set DSHLINK_PUBLIC_URL, e.g. https://link.example.com}
+      DSHLINK_TRUST_PROXY: "1"
+      DSHLINK_SETUP_CODE: ${DSHLINK_SETUP_CODE:-}
+      DSHLINK_LOG_LEVEL: ${DSHLINK_LOG_LEVEL:-info}
+    volumes:
+      - dsh-link-data:/data
+    expose:
+      - "8787"
+    networks: [edge]
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on: [edge]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DSHLINK_DOMAIN: ${DSHLINK_DOMAIN:?set DSHLINK_DOMAIN, e.g. link.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
+
+volumes:
+  dsh-link-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  edge:

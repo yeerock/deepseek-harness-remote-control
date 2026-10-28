@@ -1,0 +1,35 @@
+# DSH Link edge behind Caddy. Caddy obtains and renews TLS automatically and
+# forwards the original scheme so the edge can mint Secure cookies and correct
+# absolute URLs. WebSocket upgrades pass through untouched.
+
+{$DSHLINK_DOMAIN} {
+	encode zstd gzip
+
+	# Long-lived tunnel + DSH stream mux: disable buffering and timeouts that
+	# would cut an idle-but-healthy connection.
+	reverse_proxy edge:8787 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			dial_timeout 5s
+		}
+	}
+
+	# The DSH UI streams model output as NDJSON over one WebSocket; never let a
+	# proxy retry or buffer a POST that may have already reached the desktop.
+	@nonIdempotent method POST PUT PATCH DELETE
+	handle @nonIdempotent {
+		reverse_proxy edge:8787 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

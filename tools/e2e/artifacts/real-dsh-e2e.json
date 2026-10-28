@@ -1,0 +1,80 @@
+{
+  "steps": [
+    {
+      "name": "dsh web booted",
+      "detail": {
+        "origin": "http://127.0.0.1:55144"
+      },
+      "at": 1793168933754
+    },
+    {
+      "name": "edge booted",
+      "detail": {
+        "edgeUrl": "http://127.0.0.1:55145"
+      },
+      "at": 1793168933869
+    },
+    {
+      "name": "owner configured",
+      "at": 1793168933947
+    },
+    {
+      "name": "agent spawned",
+      "detail": {
+        "stateDir": "/var/folders/3p/vj0z2pbx17vbmh7cj4tt8w8m0000gn/T/dshlink-e2e-FzYSvk/agent-state"
+      },
+      "at": 1793168933948
+    },
+    {
+      "name": "agent reported pairing",
+      "detail": {
+        "deviceId": "dev_hjnxxtyx7a5fciewihqf",
+        "pairUrl": "http://127.0.0.1:55145/pair?code=ybfx-4y6a"
+      },
+      "at": 1793168934201
+    },
+    {
+      "name": "browser paired",
+      "detail": {
+        "location": "/d/dev_hjnxxtyx7a5fciewihqf/"
+      },
+      "at": 1793168934205
+    },
+    {
+      "name": "index through the edge",
+      "detail": {
+        "bytes": 37907,
+        "hasTitle": true,
+        "hasBoot": true,
+        "leaksLoopback": false
+      },
+      "at": 1793168936263
+    },
+    {
+      "name": "remote.mux websocket",
+      "detail": {
+        "status": "open"
+      },
+      "at": 1793168936268
+    },
+    {
+      "name": "browser render",
+      "detail": {
+        "screenshot": "/Users/drleong/Documents/deepseek-harness/default-workspace/dsh-link/tools/e2e/artifacts/dsh-through-edge.png",
+        "sockets": [
+          "ws://127.0.0.1:55145/d/dev_hjnxxtyx7a5fciewihqf/api/remote.mux"
+        ],
+        "rendered": true,
+        "consoleErrors": [],
+        "finishedRequests": 22,
+        "pendingRequests": [
+          "http://127.0.0.1:55145/d/dev_hjnxxtyx7a5fciewihqf/plugins/events"
+        ],
+        "textSample": "New Session\n⌥\n⌘\nN\nPlugins\nAutomation tasks\nMore\nWorkspaces\nDefault workspace\nNew Session\nMore\nInto the Unknown\nPreview\nDefault workspace\nStandard mode\nDescribe what you want to build, / commands, @ fi"
+      },
+      "at": 1793168945826
+    }
+  ],
+  "ok": true,
+  "startedAt": 1793168933124
+}

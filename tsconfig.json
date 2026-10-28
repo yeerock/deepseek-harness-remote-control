@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/protocol" },
+    { "path": "./packages/mux" },
+    { "path": "./packages/shared" },
+    { "path": "./apps/edge" },
+    { "path": "./apps/agent" },
+    { "path": "./packages/plugin" }
+  ]
+}

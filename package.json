@@ -13,17 +13,23 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -b --pretty false",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json --pretty false",
+    "clean": "tsc -b tsconfig.json --clean",
     "test": "vitest run",
+    "test:unit": "vitest run packages",
     "test:watch": "vitest",
     "dev:edge": "tsx apps/edge/src/main.ts",
     "dev:agent": "tsx apps/agent/src/main.ts",
-    "lint": "tsc -b --pretty false"
+    "bench": "tsx tools/bench/bench.ts",
+    "bench:quick": "tsx tools/bench/bench.ts --quick",
+    "e2e": "npm run build && node tools/e2e/real-dsh.mjs",
+    "e2e:fast": "node tools/e2e/real-dsh.mjs --no-browser"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
     "@types/ws": "^8.18.1",
+    "playwright-core": "^1.55.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

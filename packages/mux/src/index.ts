@@ -79,7 +79,7 @@ interface QueuedFrame {
 }
 
 const HIGH_WATER_BYTES = 2 * 1024 * 1024;
-const MAX_QUEUED_FRAMES = 4096;
+const MAX_QUEUED_FRAMES = 2048;
 
 export interface MuxStats {
   bytesIn: number;
@@ -191,6 +191,9 @@ export class Stream {
     const run = this.writeChain.then(() => {
       if (this.closed) return;
       this.mux.enqueueData(this, encodeFrame(FrameType.End, this.id, payload === undefined ? undefined : encodeJson(payload)));
+      // HTTP streams are bidirectional: the request half ending says nothing
+      // about the response half. Release only once both halves are done.
+      this.maybeRelease();
     });
     this.writeChain = run.catch(() => undefined);
     return run;
@@ -361,6 +364,17 @@ export class Stream {
     }
     this.wakeBody();
     this.endResolve?.();
+    this.maybeRelease();
+  }
+
+  /**
+   * Drop the stream from the routing table only when neither direction can
+   * produce more frames. Deleting on the first END would strand the opposite
+   * half (a GET with no body would lose every response WINDOW update and
+   * stall at exactly one stream window).
+   */
+  private maybeRelease(): void {
+    if (this.localEnded && this.remoteEnded) this.mux.releaseStream(this.id);
   }
 
   receiveReset(reset: Reset): void {
@@ -607,9 +621,7 @@ export class Mux {
       }
       case FrameType.End: {
         const end = payload.byteLength === 0 ? {} : decodeJson(payload, isEnd);
-        const stream = this.requireStream(streamId);
-        stream.receiveEnd(end);
-        this.closeStream(streamId);
+        this.requireStream(streamId).receiveEnd(end);
         return;
       }
       case FrameType.Reset: {
@@ -638,9 +650,14 @@ export class Mux {
     this.streams.delete(streamId);
   }
 
-  /** Whether a stream is still attached to this mux (not yet ended/reset). */
+  /** Whether a stream is still attached to this mux (not fully ended/reset). */
   hasStream(streamId: number): boolean {
     return this.streams.has(streamId);
+  }
+
+  /** Remove a fully closed stream from routing. Safe to call twice. */
+  releaseStream(streamId: number): void {
+    this.streams.delete(streamId);
   }
 
   private heartbeat(): void {
