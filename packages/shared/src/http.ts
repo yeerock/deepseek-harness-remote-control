@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { TLSSocket } from 'node:tls';
 
 export const MAX_JSON_BODY_BYTES = 256 * 1024;
 
@@ -154,6 +155,11 @@ export function clientAddress(request: IncomingMessage, trustProxy: boolean): st
   return request.socket.remoteAddress ?? 'unknown';
 }
 
+/** Whether this request arrived over TLS at this process (not behind a proxy). */
+export function isSecureSocket(socket: import('node:net').Socket): boolean {
+  return socket instanceof TLSSocket && socket.encrypted;
+}
+
 export function isLoopbackAddress(address: string | undefined): boolean {
   if (address === undefined) return false;
   if (address === '::1' || address.startsWith('127.')) return true;
@@ -164,7 +170,9 @@ export function isLoopbackAddress(address: string | undefined): boolean {
 /** Absolute origin the browser used, from headers, for redirects and cookies. */
 export function requestOrigin(request: IncomingMessage, publicUrl: string, trustProxy: boolean): string {
   if (publicUrl !== '') return publicUrl.replace(/\/$/, '');
-  const proto = trustProxy ? (requestHeader(request, 'x-forwarded-proto') ?? 'http') : (request.socket.encrypted === true ? 'https' : 'http');
+  const proto = trustProxy
+    ? (requestHeader(request, 'x-forwarded-proto') ?? 'http')
+    : (isSecureSocket(request.socket) ? 'https' : 'http');
   const host = requestHeader(request, 'host') ?? '127.0.0.1';
   return `${proto}://${host}`;
 }

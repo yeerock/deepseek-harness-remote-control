@@ -3,42 +3,42 @@
     {
       "name": "dsh web booted",
       "detail": {
-        "origin": "http://127.0.0.1:55144"
+        "origin": "http://127.0.0.1:50744"
       },
-      "at": 1793168933754
+      "at": 1793169738671
     },
     {
       "name": "edge booted",
       "detail": {
-        "edgeUrl": "http://127.0.0.1:55145"
+        "edgeUrl": "http://127.0.0.1:50745"
       },
-      "at": 1793168933869
+      "at": 1793169738760
     },
     {
       "name": "owner configured",
-      "at": 1793168933947
+      "at": 1793169738800
     },
     {
       "name": "agent spawned",
       "detail": {
-        "stateDir": "/var/folders/3p/vj0z2pbx17vbmh7cj4tt8w8m0000gn/T/dshlink-e2e-FzYSvk/agent-state"
+        "stateDir": "/var/folders/3p/vj0z2pbx17vbmh7cj4tt8w8m0000gn/T/dshlink-e2e-WaTPYB/agent-state"
       },
-      "at": 1793168933948
+      "at": 1793169738801
     },
     {
       "name": "agent reported pairing",
       "detail": {
-        "deviceId": "dev_hjnxxtyx7a5fciewihqf",
-        "pairUrl": "http://127.0.0.1:55145/pair?code=ybfx-4y6a"
+        "deviceId": "dev_2bhvmud5n6dessu2socg",
+        "pairUrl": "http://127.0.0.1:50745/pair?code=pt3f-5dzq"
       },
-      "at": 1793168934201
+      "at": 1793169739052
     },
     {
       "name": "browser paired",
       "detail": {
-        "location": "/d/dev_hjnxxtyx7a5fciewihqf/"
+        "location": "/d/dev_2bhvmud5n6dessu2socg/"
       },
-      "at": 1793168934205
+      "at": 1793169739056
     },
     {
       "name": "index through the edge",
@@ -48,33 +48,33 @@
         "hasBoot": true,
         "leaksLoopback": false
       },
-      "at": 1793168936263
+      "at": 1793169741109
     },
     {
       "name": "remote.mux websocket",
       "detail": {
         "status": "open"
       },
-      "at": 1793168936268
+      "at": 1793169741114
     },
     {
       "name": "browser render",
       "detail": {
         "screenshot": "/Users/drleong/Documents/deepseek-harness/default-workspace/dsh-link/tools/e2e/artifacts/dsh-through-edge.png",
         "sockets": [
-          "ws://127.0.0.1:55145/d/dev_hjnxxtyx7a5fciewihqf/api/remote.mux"
+          "ws://127.0.0.1:50745/d/dev_2bhvmud5n6dessu2socg/api/remote.mux"
         ],
         "rendered": true,
         "consoleErrors": [],
         "finishedRequests": 22,
         "pendingRequests": [
-          "http://127.0.0.1:55145/d/dev_hjnxxtyx7a5fciewihqf/plugins/events"
+          "http://127.0.0.1:50745/d/dev_2bhvmud5n6dessu2socg/plugins/events"
         ],
         "textSample": "New Session\n⌥\n⌘\nN\nPlugins\nAutomation tasks\nMore\nWorkspaces\nDefault workspace\nNew Session\nMore\nInto the Unknown\nPreview\nDefault workspace\nStandard mode\nDescribe what you want to build, / commands, @ fi"
       },
-      "at": 1793168945826
+      "at": 1793169750685
     }
   ],
   "ok": true,
-  "startedAt": 1793168933124
+  "startedAt": 1793169738067
 }

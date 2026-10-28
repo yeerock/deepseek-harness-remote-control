@@ -16,6 +16,8 @@ import {
   FrameType,
   INITIAL_CONNECTION_WINDOW,
   INITIAL_STREAM_WINDOW,
+  MAX_CONCURRENT_STREAMS,
+  MAX_WS_STREAM_BUDGET_BYTES,
   ProtocolError,
   WINDOW_UPDATE_THRESHOLD,
   decodeCloseBody,
@@ -209,6 +211,9 @@ export class Stream {
       /* transport already gone */
     }
     this.failLocal(new Error(`${code}: ${message}`));
+    // RESET is terminal for both directions: holding the entry would leak one
+    // Stream (and its buffered body) per aborted request.
+    this.mux.releaseStream(this.id);
   }
 
   /** Agent → edge: signal that the upstream WebSocket handshake succeeded. */
@@ -318,9 +323,14 @@ export class Stream {
     }
   }
 
-  /** Called by the mux when a WINDOW frame arrives. */
+  /**
+   * Called by the mux when a WINDOW frame arrives. Credit replenishes a window,
+   * it never grows one: a peer cannot inflate our allowance to bypass
+   * backpressure or force the transport buffer to grow without bound.
+   */
   addCredit(amount: number): void {
-    this.sendCredit += amount;
+    if (!Number.isInteger(amount) || amount <= 0) return;
+    this.sendCredit = Math.min(this.sendCredit + amount, this.mux.initialStreamWindow);
     this.wake();
   }
 
@@ -390,7 +400,14 @@ export class Stream {
     for (const listener of this.resetListeners) listener(reset);
   }
 
+  private wsBytes = 0;
+
   receiveFrame(opcode: WsOpcodeValue, data: Uint8Array): void {
+    this.wsBytes += data.byteLength;
+    if (this.wsBytes > MAX_WS_STREAM_BUDGET_BYTES) {
+      this.reset('WS_STREAM_BUDGET', 'WebSocket stream exceeded its byte budget');
+      return;
+    }
     if (this.frameListeners.length === 0) {
       this.earlyFrameBytes += data.byteLength;
       if (this.earlyFrameBytes > 1024 * 1024) {
@@ -466,6 +483,7 @@ export class Mux {
   private pumpRunning = false;
   private pumpWake: (() => void) | undefined;
   private schedulerTick = 0;
+  private backpressureSince: number | undefined;
 
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private lastReceivedAt: number;
@@ -516,6 +534,9 @@ export class Mux {
   open(open: Open): Stream {
     if (this.role !== 'edge') throw new Error('only the edge may open streams');
     if (this.closed) throw new Error('mux is closed');
+    if (this.streams.size >= MAX_CONCURRENT_STREAMS) {
+      throw new ProtocolError('STREAM_LIMIT', `too many concurrent streams (${String(MAX_CONCURRENT_STREAMS)})`);
+    }
     const id = this.nextStreamId++;
     if (this.nextStreamId > 0xffff_fffe) throw new Error('stream id space exhausted');
     const stream = new Stream(this, id, open, this.initialStreamWindow);
@@ -571,7 +592,7 @@ export class Mux {
       case FrameType.Window: {
         if (streamId === 0) {
           const delta = decodeUint32(payload);
-          this.sendCredit += delta;
+          if (delta > 0) this.sendCredit = Math.min(this.sendCredit + delta, this.initialConnectionWindow);
           for (const stream of this.streams.values()) stream.wake();
           return;
         }
@@ -581,7 +602,16 @@ export class Mux {
       }
       case FrameType.Open: {
         if (this.role !== 'agent') throw new ProtocolError('PROTOCOL_BAD_FRAME', 'edge received OPEN');
+        if (streamId === 0) throw new ProtocolError('PROTOCOL_BAD_FRAME', 'stream id 0 is reserved for connection frames');
         if (this.streams.has(streamId)) throw new ProtocolError('PROTOCOL_BAD_FRAME', `duplicate stream ${String(streamId)}`);
+        if (this.streams.size >= MAX_CONCURRENT_STREAMS) {
+          this.enqueueControl(encodeFrame(FrameType.Reset, streamId, encodeJson({
+            code: 'STREAM_LIMIT',
+            message: `too many concurrent streams (${String(MAX_CONCURRENT_STREAMS)})`,
+            retryable: true,
+          } satisfies Reset)));
+          return;
+        }
         const open = decodeJson(payload, isOpen);
         const stream = new Stream(this, streamId, open, this.initialStreamWindow);
         this.streams.set(streamId, stream);
@@ -726,7 +756,15 @@ export class Mux {
         this.transport.send(item.frame);
         this.bytesOut += item.frame.byteLength;
         if (this.transport.bufferedAmount > HIGH_WATER_BYTES) {
+          this.backpressureSince ??= this.now();
+          // A peer that stops reading must not turn into unbounded memory.
+          if (this.now() - this.backpressureSince > 15_000) {
+            this.close(1013, 'transport backpressure timeout');
+            return;
+          }
           await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        } else {
+          this.backpressureSince = undefined;
         }
       }
     } catch (error) {

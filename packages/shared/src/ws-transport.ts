@@ -8,9 +8,11 @@ import type { RawData, WebSocket } from 'ws';
 import { Mux, type MuxTransport } from '@dsh-link/mux';
 
 function toBytes(data: RawData): Uint8Array {
-  if (Buffer.isBuffer(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data));
-  return new Uint8Array(data);
+  // Copy: DATA payloads are queued and consumed after the socket callback
+  // returns, so a view into a pooled Buffer is not safe to retain.
+  if (Buffer.isBuffer(data)) return Uint8Array.from(data);
+  if (Array.isArray(data)) return Uint8Array.from(Buffer.concat(data));
+  return Uint8Array.from(new Uint8Array(data));
 }
 
 export function webSocketTransport(socket: WebSocket): MuxTransport {

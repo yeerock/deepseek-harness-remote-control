@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FrameType, decodeFrame, type Open } from '@dsh-link/protocol';
+import { FrameType, decodeFrame, encodeFrame, encodeUint32, type Open } from '@dsh-link/protocol';
 import { Mux, type MuxOptions, type Stream, type MuxTransport } from '../src/index.js';
 
 interface Pair {
@@ -171,6 +171,35 @@ describe('mux', () => {
     expect(firstHighData).toBeGreaterThanOrEqual(0);
     expect(firstLowData).toBeGreaterThanOrEqual(0);
     expect(firstHighData).toBeLessThan(firstLowData);
+  });
+
+  it('releases a locally reset stream instead of leaking it', async () => {
+    const { edge } = pair({
+      onStream: (stream: Stream) => {
+        stream.sendHead({ status: 200, headers: [] });
+      },
+    });
+    for (let index = 0; index < 5; index += 1) {
+      const stream = edge.open(httpOpen(`/abort-${String(index)}`));
+      await stream.head();
+      stream.reset('CLIENT_ABORTED', 'browser left', true);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(edge.stats().streamsActive).toBe(0);
+  });
+
+  it('refuses to open more than the concurrent stream cap', () => {
+    const transport: MuxTransport = { send() {}, close() {}, bufferedAmount: 0 };
+    const mux = new Mux({ transport, role: 'edge' });
+    for (let index = 0; index < 256; index += 1) mux.open(httpOpen(`/s/${String(index)}`));
+    expect(() => mux.open(httpOpen('/overflow'))).toThrow(/too many concurrent streams/);
+  });
+
+  it('clamps WINDOW credit so a peer cannot inflate the window', () => {
+    const transport: MuxTransport = { send() {}, close() {}, bufferedAmount: 0 };
+    const mux = new Mux({ transport, role: 'edge', initialConnectionWindow: 1024 * 1024 });
+    mux.handleMessage(encodeFrame(FrameType.Window, 0, encodeUint32(0xffff_ffff)));
+    expect(mux.stats().sendCredit).toBeLessThanOrEqual(1024 * 1024);
   });
 
   it('closes the mux when the heartbeat goes stale', async () => {

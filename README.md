@@ -1,96 +1,240 @@
 # DSH Link
 
-**Reliable remote access for the DeepSeek Harness desktop app — from any browser,
-through any network, with no second client to install.**
+**Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
+the browser you already have.**
 
-DSH Link serves your existing Harness web UI over one authenticated
-HTTPS/WebSocket tunnel. There is no mobile app, no WebRTC negotiation, no
-protocol re-implementation. Your desktop stays the source of truth; the browser
-in front of you is a window into it.
+DSH Link serves the *unmodified* Harness web UI over a single outbound
+connection. The desktop agent dials the edge; the edge proxies HTTP and
+WebSocket streams to it; your browser opens the real DSH interface. No WebRTC,
+no UDP, no inbound port, no port forwarding, and no second client to install on
+the machine in front of you.
 
-> **Status: pre-release.** The protocol, multiplexer, edge and agent are being
-> built in the open. Expect the API and flags to move until `v0.1.0`.
+![The unmodified DeepSeek Harness UI, served through a DSH Link edge from another origin](docs/images/desktop-through-edge.png)
+
+That screenshot is not a mockup: it is the real Harness 0.2.1 session, loaded
+from `http://<edge>/d/<device>/` in headless Chromium by
+[`tools/e2e/real-dsh.mjs`](tools/e2e/real-dsh.mjs), with owner setup, device
+registration and pairing all driven over HTTP first. Reproduction command is in
+[Verification](#verification).
+
+> **Status: v0.1.0.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 168 automated tests are green, the real-DSH end-to-end proof
+> passes, and the benchmark numbers below are measured. It is pre-release
+> software: treat the plugin as beta and read
+> [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
 
 ## Why another remote plugin?
 
-The WebRTC-first approach that existing DSH remote plugins take has three
-structural costs: ICE negotiation on networks that filter UDP, a relay that is
-often on the wrong continent, and a separate client that re-implements the
-Harness UI. In practice that reads as *"it hangs, then it disconnects."*
+Existing DSH remote plugins are WebRTC-first: ICE, STUN/TURN, a custom client
+for every platform, and a relay that may be a continent away. When UDP is
+filtered or the relay is far, the experience is "it hangs, then it disconnects".
 
 DSH Link makes the opposite bet:
 
-- **One transport.** Outbound WSS on 443. No inbound ports, no UDP, no STUN/TURN.
-- **One client.** The browser loads the real DSH web app. Feature parity is
-  automatic, including tools, files, terminal and streaming.
-- **One place to supervise.** Heartbeats, backoff, flow control and priority
-  scheduling live in the tunnel, not in three fallback paths.
-- **Real backpressure.** 256 KiB per stream, 8 MiB per tunnel, credit returned
-  only as bytes are consumed; interactive traffic outranks bulk downloads.
+- **One transport.** Outbound WSS on 443. No UDP, no STUN/TURN, no ICE
+  negotiation, no native `wrtc` addon. It works on hotel Wi-Fi, corporate TLS
+  inspection, CGNAT and IPv6-only networks.
+- **One client.** The browser loads the real DSH app. Chat streaming, tools,
+  files, terminal and every future feature arrive with the desktop; there is no
+  RPC projection to drift.
+- **One thing to supervise.** Heartbeats, backoff, flow control and priority
+  live in the tunnel. There is no three-path fallback whose first path costs
+  eight seconds before giving up.
+- **Real backpressure.** 256 KiB per stream and 8 MiB per tunnel, credit
+  returned only as bytes are consumed. A 16 MiB download cannot add latency to a
+  keystroke; measured p95 is 3.1 ms under four concurrent 16 MiB transfers.
 
-Read the reasoning in [ADR-0001](docs/adr/0001-no-webrtc.md) and the design in
-[ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The trade-off is explicit: the edge terminates TLS and therefore sees plaintext
+proxied traffic. It is a **trusted relay**. Self-hosting is a first-class
+deployment, and [THREAT-MODEL.md](docs/THREAT-MODEL.md) states exactly what that
+trust buys and costs. If you need end-to-end encryption against the relay, this
+is the wrong design for you — and [ADR-0001](docs/adr/0001-no-webrtc.md) explains
+why we chose it anyway.
+
+## Architecture
 
 ```
-
-browser (anywhere) ──HTTPS/WSS──▶ edge ──one multiplexed WSS──▶ agent ──HTTP/WS──▶ DSH desktop
-                                  │                              │
-                                  auth · pairing                 mints the DSH cookie,
-                                  presence · audit               proxies loopback only
+┌─────────────┐   HTTPS + WSS (443)   ┌──────────────┐   one multiplexed WSS   ┌───────────┐   loopback HTTP/WS   ┌─────────────┐
+│   browser   │ ────────────────────▶ │     edge     │ ◀────────────────────── │   agent   │ ───────────────────▶ │ DSH desktop │
+│ (anywhere)  │ ◀──────────────────── │  (self-host) │ ──────────────────────▶ │ (desktop) │ ◀─────────────────── │ web server  │
+└─────────────┘                       └──────────────┘                         └───────────┘                      └─────────────┘
+                                       auth · pairing                          mints the DSH                     unchanged
+                                       presence · audit                        cookie, proxies
 ```
+
+- **Browser → edge:** ordinary HTTPS/WSS on 443. Sub-path mount
+  `/d/<deviceId>/`; the app's own relative URLs and `<base href="./">` do the
+  rest.
+- **Edge → agent:** one WebSocket per device, multiplexed into independent HTTP
+  and WebSocket streams, with per-stream flow control and a weighted scheduler
+  (high/normal/low) so bulk traffic cannot starve the UI.
+- **Agent → DSH:** `127.0.0.1:<port>` only, with a cookie obtained from the DSH
+  launch token. The token and cookie never leave the desktop.
+
+Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+[PROTOCOL.md](docs/PROTOCOL.md) ·
+[ADR-0001: no WebRTC](docs/adr/0001-no-webrtc.md).
+
+## Requirements
+
+| Component | Requirement |
+| --- | --- |
+| Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.0`) |
+| Edge | Node.js ≥ 22.13 (or the Docker image), a domain for TLS in production |
+| Browser | Any current Chromium, Firefox or Safari |
+| Network | Outbound 443 from the desktop; no inbound ports, no UDP |
 
 ## Quick start
 
-Three pieces: an **edge** (public relay), an **agent** (on the desktop), and the
-**DSH plugin** (starts the agent and shows pairing in the Harness UI).
+### 1. Edge
+
+On a small VPS (or your laptop for a demo):
 
 ```bash
-# 1. Edge — on a VPS or your laptop
+git clone https://github.com/openvapt-ai/dsh-link && cd dsh-link
 npm ci && npm run build
-node apps/edge/dist/main.js --host 0.0.0.0 --port 8787 \
+
+node apps/edge/dist/main.js \
+  --host 0.0.0.0 --port 8787 \
   --data-dir ~/.dsh-link --public-url https://link.example.com
-
-# 2. Agent — on the desktop, pointed at your local Harness
-node apps/agent/dist/main.js --edge https://link.example.com \
-  --dsh-url "http://127.0.0.1:49295/?token=…" --state-dir ~/.dsh-link/agent
-
-# 3. Or let the plugin do (2) for you: install it into your DSH profile and
-#    enable it in settings. The plugin mints the authenticated URL itself.
 ```
 
-Full instructions: [docs/DEPLOY.md](docs/DEPLOY.md). First-run setup and
-pairing: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+It prints a one-time **setup code** (rotated each boot until setup completes).
+Put TLS in front with the included [Caddy + Docker setup](docker/docker-compose.yml),
+or terminate TLS at your load balancer and run with `--trust-proxy`.
+
+### 2. Agent (or let the plugin do it)
+
+```bash
+node apps/agent/dist/main.js \
+  --edge https://link.example.com \
+  --dsh-url-file ~/.dsh-link/upstream.json \
+  --state-dir ~/.dsh-link/agent \
+  --name my-desktop \
+  --status-file ~/.dsh-link/agent/status.json
+```
+
+`upstream.json` is `{ "url": "http://127.0.0.1:<port>/?token=…" }`, mode 0600.
+The token is deliberately **not** accepted on argv. On first run the agent
+prints `DSH_LINK_PAIR_URL=…`; open it while signed in as the owner to approve
+the device and pair the browser. The DSH UI is then at
+`https://link.example.com/d/<deviceId>/`.
+
+### 3. Desktop plugin (recommended)
+
+The plugin mints the authenticated URL from the running DSH desktop, writes it
+to a 0600 file, spawns and supervises the agent, and shows a status panel in the
+Harness sidebar: state, device id, latency, reconnects, a QR pairing link, and
+start/restart/stop controls.
+
+![DSH Link status panel in Harness: state, device, latency, QR pairing and controls](docs/images/plugin-panel.png)
+
+```bash
+dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
+```
+
+Enable the `dsh-link` entry with:
+
+```yaml
+config:
+  enabled: true
+  edgeUrl: https://link.example.com
+  deviceName: my-desktop
+  autoStart: true
+```
+
+Full install, configuration and troubleshooting:
+[packages/plugin/README.md](packages/plugin/README.md). Deployment shapes,
+flags and systemd: [DEPLOY.md](docs/DEPLOY.md).
 
 ## Security in one paragraph
 
-TLS 1.3 to the edge; device secrets are random 32 bytes stored only as SHA-256;
-pairing codes are single-use and expire in 10 minutes; the Harness launch token
-never leaves the desktop — the agent exchanges it once for a loopback-bound
-cookie and holds it in memory; the browser never receives a Harness credential.
-The edge terminates TLS and therefore sees proxied plaintext: treat it as a
-trusted relay, self-host it if that matters. Details and residual risk:
-[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+TLS to the edge; **device secrets are 32 random bytes stored only as SHA-256**;
+**pair codes are 8 characters, single-use, 10-minute TTL**, and cannot be
+redeemed without an owner session or the owner password. The **DSH launch token
+never leaves the desktop**: the agent exchanges it once for a loopback-bound
+cookie held in memory. The browser never receives a Harness credential, and the
+agent refuses non-loopback upstreams, absolute URLs, `..` segments and encoded
+traversal even if the edge is compromised. The edge sees proxied plaintext;
+self-host it if that matters. Residual risk and the full STRIDE pass:
+[THREAT-MODEL.md](docs/THREAT-MODEL.md). Report issues per
+[SECURITY.md](docs/SECURITY.md).
+
+![Edge dashboard: devices, online state and audit tail](docs/images/edge-dashboard.png)
+
+## Verification
+
+```bash
+npm run typecheck        # tsc -b across all workspaces
+npm test                 # 168 tests: unit + integration
+npm run bench:quick      # tools/bench, JSON + markdown to tools/bench/results
+npm run e2e              # boots a real DSH web profile, edge and agent, then Chromium
+```
+
+`npm run e2e` is the proof behind the screenshot: isolated `DSH_HOME`, real
+`dsh --profile web`, real edge, real agent, owner setup, pairing, index fetch,
+`/api/remote.mux` upgrade and a Chromium render. It asserts the proxied HTML is
+the Harness shell, contains no loopback origin, and that the UI renders.
+
+Measured on an Apple M4 Pro (24 GiB, macOS 26, Node 24.18.0, 2026-10-28),
+**loopback edge — these measure tunnel overhead, not internet RTT**:
+
+| Metric | Value |
+| --- | ---: |
+| TTFB through edge, median / p95 | 2.1 ms / 2.9 ms |
+| Throughput, 1 MiB / 16 MiB | 157 / 299 MiB/s |
+| 200 sequential requests | 505 req/s (p95 2.1 ms) |
+| 50 concurrent requests | 16.6 ms total (p95 ~19 ms) |
+| Interactive p95 during 4 × 16 MiB bulk | 3.1 ms |
+| Tunnel connect after agent restart | 2.7 ms |
+| Reconnect after forced 4004 replacement | 49 ms |
+
+Real-DSH smoke: index 37,907 B byte-identical, main JS bundle 941,436 B
+SHA-256-equal through the tunnel, `remote.mux` OPEN.
 
 ## What it deliberately does not do
 
-- No mobile apps. The browser is the client.
-- No WebRTC data path in v1 (see [ADR-0001](docs/adr/0001-no-webrtc.md)).
-- No replay of Harness mutations after an unknown outcome.
-- No second chat/files/terminal UI.
+- **No mobile apps.** The browser is the client.
+- **No WebRTC data path in v1.** See [ADR-0001](docs/adr/0001-no-webrtc.md) for
+  the trade-off and the conditions under which that changes.
+- **No replay of Harness mutations** after an unknown outcome.
+- **No second chat/files/terminal UI.** That is the point.
+- **No multi-tenant SaaS.** Self-host first; hosted accounts and OAuth are
+  roadmap, not v1.
 
 ## Repository layout
 
 | Path | What |
 | --- | --- |
-| `packages/protocol` | Wire format, frame guards, path/header policy |
-| `packages/mux` | Streams, flow control, priority scheduler, heartbeat |
-| `packages/shared` | WebSocket adapter, tokens, cookies, logging |
-| `apps/edge` | Public HTTPS/WSS relay, auth, pairing, dashboard |
-| `apps/agent` | Desktop tunnel client and loopback proxy |
-| `packages/plugin` | DeepSeek Harness plugin (host + sidebar UI) |
-| `tests`, `tools/bench` | Integration, fault injection, benchmarks |
-| `docs` | Architecture, protocol, ADRs, threat model, runbooks |
+| [`packages/protocol`](packages/protocol) | Wire format, frame guards, path/header policy |
+| [`packages/mux`](packages/mux) | Streams, flow control, priority scheduler, heartbeat |
+| [`packages/shared`](packages/shared) | WebSocket adapter, tokens, cookies, logging |
+| [`apps/edge`](apps/edge) | Public HTTPS/WSS relay, auth, pairing, SQLite, dashboard |
+| [`apps/agent`](apps/agent) | Desktop tunnel client and loopback proxy |
+| [`packages/plugin`](packages/plugin) | DeepSeek Harness plugin (host + sidebar UI) |
+| [`tests`](tests), [`tools/bench`](tools/bench) | Integration, fault injection, benchmarks |
+| [`docs`](docs) | Architecture, protocol, ADRs, threat model, deployment, runbook |
+
+## FAQ
+
+**Does my DSH token leave the machine?** No. It is exchanged in-process for a
+loopback-bound cookie; the browser never sees it and it is never written to
+disk or argv.
+
+**Why not P2P?** Because the reported failure is networks where P2P cannot
+work, and because a browser cannot speak WebRTC to an HTTP origin without a
+second client. The full argument: [ADR-0001](docs/adr/0001-no-webrtc.md).
+
+**What happens on a flaky network?** Heartbeats every 15 s, a 45 s idle
+deadline, full-jitter reconnect from 250 ms to 20 s, 30 s presence grace, and
+no message replay. A desktop crash cannot leave two agents fighting: a
+per-state-dir lock refuses the second one.
+
+**Can I self-host the edge?** That is the intended deployment. One Docker
+Compose file, Caddy for TLS, a SQLite file to back up.
+
+More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
 
 ## License
 
-MIT.
+MIT. See [LICENSE](LICENSE).

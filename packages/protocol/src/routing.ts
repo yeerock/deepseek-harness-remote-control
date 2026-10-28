@@ -97,12 +97,21 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   'strict-transport-security', // the edge owns HSTS for its own host
 ]);
 
+export type HeaderInput =
+  | Record<string, string | string[] | undefined>
+  | Iterable<readonly [string, string | string[] | undefined]>;
+
+function headerEntries(headers: HeaderInput): Iterable<readonly [string, string | string[] | undefined]> {
+  if (Symbol.iterator in headers) return headers as Iterable<readonly [string, string | string[] | undefined]>;
+  return Object.entries(headers as Record<string, string | string[] | undefined>);
+}
+
 export function filterRequestHeaders(
-  headers: Iterable<[string, string | string[] | undefined]>,
+  headers: HeaderInput,
   options: { upgrade?: boolean } = {},
 ): Array<[string, string]> {
   const out: Array<[string, string]> = [];
-  for (const [rawName, value] of headers) {
+  for (const [rawName, value] of headerEntries(headers)) {
     if (value === undefined) continue;
     const name = rawName.toLowerCase();
     if (STRIPPED_REQUEST_HEADERS.has(name)) continue;
@@ -116,11 +125,9 @@ export function filterRequestHeaders(
   return out;
 }
 
-export function filterResponseHeaders(
-  headers: Iterable<[string, string | string[] | undefined]>,
-): Array<[string, string]> {
+export function filterResponseHeaders(headers: HeaderInput): Array<[string, string]> {
   const out: Array<[string, string]> = [];
-  for (const [rawName, value] of headers) {
+  for (const [rawName, value] of headerEntries(headers)) {
     if (value === undefined) continue;
     const name = rawName.toLowerCase();
     if (STRIPPED_RESPONSE_HEADERS.has(name)) continue;
@@ -131,7 +138,7 @@ export function filterResponseHeaders(
   return out;
 }
 
-export function headerValue(headers: Array<[string, string]>, name: string): string | undefined {
+export function headerValue(headers: ReadonlyArray<readonly [string, string]>, name: string): string | undefined {
   const lower = name.toLowerCase();
   for (const [key, value] of headers) if (key.toLowerCase() === lower) return value;
   return undefined;

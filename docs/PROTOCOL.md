@@ -62,6 +62,11 @@ JSON payloads are UTF-8, schema-checked on receipt, and rejected with
 
 ### 4.1 Handshake
 
+The handshake happens **before** the multiplexer is attached: `HELLO` and
+`HELLO_ACK` are single binary frames on the raw WebSocket, not mux frames.
+Only after `HELLO_ACK.ok` does either side construct a `Mux` over the socket
+(buffered bytes are replayed into it, so no frame is lost in between).
+
 1. Agent opens the socket and immediately sends `HELLO`:
    ```json
    { "protocol": 1, "deviceId": "dev_…", "token": "<device secret>",

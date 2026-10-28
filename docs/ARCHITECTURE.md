@@ -105,7 +105,7 @@ upstream socket is open.
 ## 5. Authentication and trust
 
 ```
-owner ──setup code (printed once)──▶ edge session cookie (HttpOnly, Secure, SameSite=Lax, 30 d)
+owner ──setup code (rolled per boot until setup completes)──▶ edge session cookie (HttpOnly, Secure, SameSite=Lax, 30 d)
 agent ──device secret (32 B, hashed at rest)──▶ tunnel + device API
 browser ──pair code (8 chars, 10 min, single use)──▶ access to that device
 ```
