@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "DSH 远程访问",
+    "description": "通过自建的 DSH Link 边缘节点远程访问此 DeepSeek Harness。"
+  },
+  "hints": {
+    "pair": "扫码在浏览器中打开配对链接。",
+    "paired": "此设备已配对。请重启代理以获取新的配对码。"
+  }
+}

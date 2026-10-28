@@ -1,0 +1,23 @@
+{
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
+  "id": "com.dshlink.plugin",
+  "name": "@dsh-link/plugin",
+  "version": "0.1.0",
+  "manifestVersion": "0.15",
+  "facets": {
+    "host": {
+      "entry": "dist/index.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": []
+  },
+  "contributes": {},
+  "permissions": [],
+  "subscriptions": [],
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/dsh-link/dsh-link"
+  }
+}

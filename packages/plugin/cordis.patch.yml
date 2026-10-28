@@ -1,0 +1,16 @@
+- insert:
+    - id: dsh-link
+      name: '@dsh-link/plugin'
+      config:
+        # Off by default: installing the plugin adds the status panel and the
+        # `dsh-link` service, but starts no child process until enabled.
+        enabled: false
+        edgeUrl: 'http://127.0.0.1:8787'
+        # Empty means the machine hostname is used.
+        deviceName: ''
+        autoStart: true
+        # Optional overrides:
+        # agentEntry: '/absolute/path/to/apps/agent/dist/main.js'
+        # insecure: false
+        # logLevel: info
+        # stateDir: '/custom/state/dir'

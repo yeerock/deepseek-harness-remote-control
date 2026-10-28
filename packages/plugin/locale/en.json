@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "DSH Link",
+    "description": "Remote access to this DeepSeek Harness through a self-hosted DSH Link edge."
+  },
+  "hints": {
+    "pair": "Scan to open the pairing link in a browser.",
+    "paired": "This device is paired. Restart the agent to issue a new pair code."
+  }
+}
