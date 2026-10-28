@@ -162,7 +162,16 @@ export async function proxyDeviceHttp(input: DeviceHttpRequest): Promise<void> {
   }
 
   const method = (request.method ?? 'GET').toUpperCase();
-  const headers = filterRequestHeaders(request.headers);
+  let headers = filterRequestHeaders(request.headers);
+  // Guest HTML must reach the injector uncompressed. DSH honours
+  // Accept-Encoding even for documents; ask for identity only on guest
+  // navigations, leaving assets and APIs compressed.
+  if (input.guest === true) {
+    const accept = headers.find(([name]) => name.toLowerCase() === 'accept')?.[1] ?? '';
+    if (accept.includes('text/html')) {
+      headers = headers.filter(([name]) => name.toLowerCase() !== 'accept-encoding');
+    }
+  }
   const priority = classifyPriority(input.rest, headers, 'http');
   let stream;
   try {

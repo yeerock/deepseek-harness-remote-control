@@ -4,6 +4,7 @@
  * entries without the plugin importing `@deepseek-ai/schemastery`.
  */
 
+import { existsSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -155,9 +156,19 @@ export function resolveDshHome(configured?: string): string {
   return join(homedir(), '.dsh');
 }
 
-/** Default agent state directory: `<DSH home>/rc`. */
+/**
+ * Agent state directory: `<DSH home>/rc`, with a compatibility fallback to the
+ * pre-rename `<DSH home>/link` when that is where the approved identity lives.
+ * Without this, upgrading a working install would register a new device and
+ * orphan the owner's share invites.
+ */
 export function resolveStateDir(config: PluginConfig): string {
-  return join(resolveDshHome(config.stateDir), 'rc');
+  const home = resolveDshHome(config.stateDir);
+  const modern = join(home, 'rc');
+  if (existsSync(join(modern, 'device.json'))) return modern;
+  const legacy = join(home, 'link');
+  if (existsSync(join(legacy, 'device.json'))) return legacy;
+  return modern;
 }
 
 /**

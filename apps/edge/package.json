@@ -22,5 +22,8 @@
     "start": "node --import tsx src/main.ts",
     "build": "tsc -b",
     "test": "npm --prefix ../.. run test -- apps/edge"
+  },
+  "bin": {
+    "dsh-rc-edge-passwd": "./dist/passwd.js"
   }
 }

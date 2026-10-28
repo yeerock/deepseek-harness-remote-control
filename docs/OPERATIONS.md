@@ -379,9 +379,15 @@ whenever a laptop changes hands.
 - **Log out one browser**: `POST /logout` from that browser.
 - **Invalidate every session**: delete/rotate the `session_secret` setting and
   restart the edge. Every `dshrc_session` cookie becomes unverifiable.
-- **Change the owner password**: re-run setup is not available once an owner
-  exists in v1; rotate by deleting the owner row (§1.2) and setting a new
-  password. This is a known limitation, recorded in `docs/FAQ.md`.
+- **Change the owner password**: use the `dsh-rc-edge-passwd` command; no
+  database surgery and no restart:
+  ```bash
+  read -s NEW_PW
+  DSHRC_NEW_PASSWORD="$NEW_PW" node apps/edge/dist/passwd.js --data-dir ~/.dsh-rc/edge
+  ```
+  The password is read from the environment (never argv, never logged), must be
+  12-256 characters, and replaces the owner hash in place. The next login uses
+  it; existing owner sessions remain valid until logout or secret rotation.
 
 ## 7. Reading audit rows
 

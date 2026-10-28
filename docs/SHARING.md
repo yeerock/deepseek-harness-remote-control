@@ -173,3 +173,34 @@ The panel polls `GET /v1/devices/me/sharing` every 2 s while open.
 - Per-guest file or terminal scoping (the whole DSH UI is the unit).
 - Automatic guest expiry (sessions persist until revoked).
 - Hosted shared edge service.
+## 10. Invariants and failure modes
+
+These are the properties the implementation is expected to hold, and where to
+look when it does not:
+
+| Invariant | Enforcement |
+| --- | --- |
+| An invite token is opaque and stored only as SHA-256 | `apps/edge/src/db.ts` `insertInvite`, `getInviteByTokenHash` |
+| An invite cannot be over-used under concurrency | conditional `UPDATE … WHERE uses < max_uses` inside `consumeInviteUse` |
+| An approval is decided once | `decideApproval` checks `status = 'pending'` inside a transaction |
+| A guest session is scoped to one device | `checkDeviceAccess` + `guestAccessAllowed`; admin routes 403 |
+| Revocation takes effect immediately | guest rows deleted, live sockets closed with 1008 |
+| Guest sessions never expire | `sessions.expires_at NULL`, 10-year cookie, no idle sweep |
+| Sharing off invalidates invites and guests | `SharingService.setEnabled` transaction |
+| Browser forms pass CSRF | `Origin`/Fetch-Metadata + double-submit cookie; `Origin: null` accepted only with `Sec-Fetch-Site: same-origin` |
+| Guest HTML carries a Disconnect control | `proxy-http` injects the pill for uncompressed guest `text/html`; `/i/session` is the fallback |
+
+| Failure | Behaviour |
+| --- | --- |
+| Edge restarts | Sessions and invites are in SQLite; guests reconnect without re-approval |
+| Agent tunnel drops | Browser shows the reconnecting page; the DSH client reconnects; session survives |
+| Guest laptop sleeps / reboots | Cookie has a 10-year Max-Age; reopening the device URL resumes the same session |
+| Guest cookie stolen | **Permanent access until revoked.** Revoke that guest or Revoke all, then turn sharing off |
+| Owner turns sharing off | All invites revoked, pending approvals expired, guest sessions deleted, live WS closed |
+| Device revoked | Guest sessions for that device deleted, sockets closed |
+| Edge database deleted | Every session, invite and owner row is gone; `setup` starts over |
+| Mac asleep or edge process stopped | The connection drops; the session stays valid and resumes when the edge returns |
+| Compressed/large guest HTML | The Disconnect pill is skipped; `/i/session` remains available |
+
+The permanence rule is deliberate: a guest is a remote seat, not a demo. It is
+also the largest residual risk in the product — see `docs/THREAT-MODEL.md` §7.12.
