@@ -174,6 +174,21 @@ Full install, configuration and troubleshooting:
 [packages/plugin/README.md](packages/plugin/README.md). Deployment shapes,
 flags and systemd: [DEPLOY.md](docs/DEPLOY.md).
 
+## Pair another DeepSeek Harness
+
+A Harness is a host computer running DSH. To bring another one onto the same
+edge, open **Remote Control → Harnesses → Build setup prompt** on this host,
+copy the one-paragraph prompt, and paste it into the other Harness's agent.
+The prompt clones the pinned release, installs the plugin into that machine's
+profile, points its agent at this edge, and asks you to restart. When it
+registers it appears as a pending Harness in the edge dashboard; approve it,
+and its UI is available at `https://<edge>/d/<deviceId>/`.
+
+The prompt contains no password, device secret or invite token. Pairing is
+authorized by your **approval** on the edge, not by a shared secret. This is
+different from guest sharing below: a Harness is a host you own and can open
+directly; a guest is a browser you have granted control of one host.
+
 ## Share this Harness with a guest
 
 Sharing lets another person remote-control your Harness from a browser without

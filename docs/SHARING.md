@@ -9,6 +9,22 @@ Every user who installs DSH RC can flip one switch — **Share this Harness** �
 and let another person remote-control *their* DSH from a browser. The guest
 installs nothing. The host never shares the owner password.
 
+## 1.1 Harness pairing vs guest sharing
+
+Two different things share this edge:
+
+| | Pair a Harness (host) | Share with a guest (browser) |
+| --- | --- | --- |
+| What joins | Another computer running DSH + DSH RC | A browser with no install |
+| Authorization | Owner approves the pending device | Owner approves each invite claim |
+| Lifetime | Device stays until revoked | Guest session stays until disconnected/revoked |
+| Access | `/d/<deviceId>/` for the owner; the host can then share it | `/d/<deviceId>/` only, device-scoped |
+| Secret in the setup text | None: public edge URL + pinned version only | Single-use invite token |
+
+Harness pairing is the primary multi-computer flow: the prompt is generated in
+**Remote Control → Harnesses** and executed by the other Harness's agent, then
+approved in the edge dashboard.
+
 ## 2. Model
 
 ```

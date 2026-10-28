@@ -137,7 +137,7 @@ const EN: Record<string, string> = {
   stoppedHint: 'The agent is not running.',
   qrHint: 'Scan to open the pairing link in a browser.',
   unconfigured: 'Set edgeUrl in the plugin config before starting.',
-  sharingTitle: 'Share this Harness',
+  sharingTitle: 'Share this Harness with guests',
   sharingOffHint: 'Off — nobody else can connect.',
   sharingOnHint: 'On — anyone with an invite link can request access. You approve every guest.',
   sharingOn: 'On',
@@ -166,6 +166,18 @@ const EN: Record<string, string> = {
   sharingMultiWarning: 'Multiple guests share this one desktop — workspace, terminal and tools. They can interfere with each other.',
   sharingLoopbackWarning: 'Guests need a public edge URL. This edge advertises a loopback or unknown address, so an invite link will not open from another machine. Use Tailscale Funnel or a VPS edge.',
   sharingInvites: 'Outstanding invites',
+  harnessTitle: 'Harnesses',
+  harnessManage: 'Manage / approve',
+  harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; when it registers, approve it in the edge dashboard.',
+  sharingJoinTitle: 'Add another DeepSeek Harness',
+  sharingJoinHint: 'The prompt installs DSH RC on that Harness, points its agent at this edge, and waits for your approval. It contains no password or secret.',
+  sharingJoinButton: 'Build setup prompt',
+  sharingJoinBuilding: 'Building…',
+  sharingJoinCopy: 'Copy prompt',
+  sharingJoinCopied: 'Copied',
+  sharingJoinShown: 'Setup prompt (paste into the other Harness)',
+  sharingJoinPublicUrl: 'Set a public edge URL (Tailscale Funnel or a VPS) before adding another computer.',
+  sharingJoinUnavailable: 'Could not build the setup prompt.',
   sharingNoInvites: 'No outstanding invites.',
   sharingRevokeInvite: 'Revoke invite',
   sharingConfirmRevokeInvite: 'Revoke this invite link?',
@@ -215,7 +227,7 @@ const ZH: Record<string, string> = {
   stoppedHint: '代理未运行。',
   qrHint: '扫码在浏览器中打开配对链接。',
   unconfigured: '请先在插件配置中设置 edgeUrl。',
-  sharingTitle: '共享此 Harness',
+  sharingTitle: '与访客共享此 Harness',
   sharingOffHint: '已关闭——其他人无法连接。',
   sharingOnHint: '已开启——任何持有邀请链接的人都可以申请访问。每位访客都需要你批准。',
   sharingOn: '开',
@@ -244,6 +256,18 @@ const ZH: Record<string, string> = {
   sharingMultiWarning: '多位访客共享同一台桌面——工作区、终端和工具都可被操作，他们可能互相干扰。',
   sharingLoopbackWarning: '访客需要可公开访问的边缘地址。当前边缘节点广播的是回环或未知地址，因此邀请链接无法从其他机器打开。请使用 Tailscale Funnel 或 VPS 边缘节点。',
   sharingInvites: '未使用的邀请',
+  harnessTitle: 'Harness 主机',
+  harnessManage: '管理 / 批准',
+  harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它注册后，在 edge 仪表盘批准。',
+  sharingJoinTitle: '添加另一台 DeepSeek Harness',
+  sharingJoinHint: '提示会在那台 Harness 上安装 DSH RC、把 agent 指向此 edge，并等待你的批准。提示中不含密码或密钥。',
+  sharingJoinButton: '生成安装提示',
+  sharingJoinBuilding: '生成中…',
+  sharingJoinCopy: '复制提示',
+  sharingJoinCopied: '已复制',
+  sharingJoinShown: '安装提示（粘贴到另一台 Harness）',
+  sharingJoinPublicUrl: '请先配置公开 edge 地址（Tailscale Funnel 或 VPS），再添加另一台电脑。',
+  sharingJoinUnavailable: '无法生成安装提示。',
   sharingNoInvites: '没有未使用的邀请。',
   sharingRevokeInvite: '撤销邀请',
   sharingConfirmRevokeInvite: '撤销此邀请链接？',
@@ -681,6 +705,9 @@ function createComponent(React: any): (props: AnyProps) => any {
     const [sharing, setSharing] = ReactUse.useState(undefined as SharingView | undefined);
     const [sharingError, setSharingError] = ReactUse.useState(undefined as string | undefined);
     const [sharingBusy, setSharingBusy] = ReactUse.useState(false);
+    const [joinPrompt, setJoinPrompt] = ReactUse.useState(undefined as string | undefined);
+    const [joinCopied, setJoinCopied] = ReactUse.useState(false);
+    const [joinError, setJoinError] = ReactUse.useState(undefined as string | undefined);
     const [ttlSeconds, setTtlSeconds] = ReactUse.useState(900);
     const [invite, setInvite] = ReactUse.useState(undefined as CreatedInviteView | undefined);
     const [inviteCopied, setInviteCopied] = ReactUse.useState(false);
@@ -851,6 +878,51 @@ function createComponent(React: any): (props: AnyProps) => any {
         }
         setInviteCopied(true);
         window.setTimeout(() => setInviteCopied(false), 1500);
+      } catch (reason) {
+        setSharingError(messageOf(reason));
+      }
+    };
+
+    const dashboardUrl = (() => {
+      const publicUrl = typeof sharing?.publicUrl === 'string' ? sharing.publicUrl : '';
+      if (publicUrl !== '' && !isLoopbackPublicUrl(publicUrl)) return publicUrl.replace(/\/+$/, '');
+      return (status?.edgeUrl ?? '').replace(/\/+$/, '');
+    })();
+
+    const openDashboard = (): void => {
+      if (dashboardUrl === '') return;
+      window.open(`${dashboardUrl}/`, '_blank', 'noopener,noreferrer');
+    };
+
+    const createJoinPrompt = (): void => {
+      void withSharingBusy(async () => {
+        setJoinError(undefined);
+        const result = (await call('sharing.joinPrompt')) as { prompt?: string; reason?: string };
+        if (typeof result.prompt === 'string' && result.prompt !== '') {
+          setJoinPrompt(result.prompt);
+          setJoinCopied(false);
+        } else {
+          setJoinError(result.reason === 'public-url-required' ? t('sharingJoinPublicUrl') : t('sharingJoinUnavailable'));
+        }
+      });
+    };
+
+    const copyJoinPrompt = async (): Promise<void> => {
+      if (joinPrompt === undefined || joinPrompt === '') return;
+      try {
+        if (navigator.clipboard !== undefined) await navigator.clipboard.writeText(joinPrompt);
+        else {
+          const area = document.createElement('textarea');
+          area.value = joinPrompt;
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+        }
+        setJoinCopied(true);
+        window.setTimeout(() => setJoinCopied(false), 1500);
       } catch (reason) {
         setSharingError(messageOf(reason));
       }
@@ -1089,6 +1161,43 @@ function createComponent(React: any): (props: AnyProps) => any {
         : null,
     );
 
+    const harnessSection = h(
+      'div',
+      { style: styles.divider },
+      h(
+        'div',
+        { style: styles.sectionHeader },
+        h('div', { style: styles.sectionTitle }, t('harnessTitle')),
+        dashboardUrl !== ''
+          ? h('button', { type: 'button', style: styles.smallButton, onClick: openDashboard }, t('harnessManage'))
+          : null,
+      ),
+      h('div', { style: styles.sectionHint }, t('harnessHint')),
+      h('div', { style: styles.subheading }, t('sharingJoinTitle')),
+      h('div', { style: styles.footerHint }, t('sharingJoinHint')),
+      h(
+        'button',
+        { type: 'button', style: styles.button(false), disabled: sharingBusy || unavailable, onClick: createJoinPrompt },
+        sharingBusy ? t('sharingJoinBuilding') : t('sharingJoinButton'),
+      ),
+      joinError !== undefined ? h('div', { style: sharingWarningStyle('#f59e0b') }, joinError) : null,
+      joinPrompt !== undefined
+        ? h(
+            'div',
+            { style: { marginTop: '10px' } },
+            h('div', { style: styles.label }, t('sharingJoinShown')),
+            h('textarea', {
+              style: { ...styles.input, width: '100%', minHeight: '120px', resize: 'vertical', fontFamily: 'inherit', fontSize: '11px', lineHeight: '16px' },
+              readOnly: true,
+              value: joinPrompt,
+              'aria-label': t('sharingJoinShown'),
+              onFocus: (event: any) => event.target.select(),
+            }),
+            h('button', { type: 'button', style: styles.smallButton, onClick: () => void copyJoinPrompt() }, joinCopied ? t('sharingJoinCopied') : t('sharingJoinCopy')),
+          )
+        : null,
+    );
+
     return h(
       'div',
       null,
@@ -1195,6 +1304,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               ),
               status?.state === 'stopped' && !unavailable ? h('div', { style: styles.footerHint }, t('stoppedHint')) : null,
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,
+              harnessSection,
               sharingSection,
             ),
           )

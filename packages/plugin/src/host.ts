@@ -10,6 +10,7 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
@@ -29,6 +30,7 @@ import type { DshRcStatus, RpcReply } from './contract.js';
 import { normalizeConfig, resolveDeviceName, resolveStateDir } from './config.js';
 import type { PluginConfig } from './config.js';
 import { SharingClient, sharingErrorCode } from './sharing.js';
+import { buildJoinPrompt, isLoopbackOrigin, PLUGIN_VERSION } from './onboard.js';
 import type { CreatedInvite, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
@@ -454,6 +456,14 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       }
       case 'sharing.revokeAll':
         return rpcOk(await target.sharingRevokeAll());
+      case 'sharing.joinPrompt': {
+        const state = await target.sharingGet();
+        const publicUrl = typeof (state as { publicUrl?: unknown }).publicUrl === 'string' ? String((state as { publicUrl: string }).publicUrl) : '';
+        if (publicUrl === '' || isLoopbackOrigin(publicUrl)) {
+          return rpcOk({ prompt: null, reason: 'public-url-required' });
+        }
+        return rpcOk({ prompt: buildJoinPrompt({ publicUrl, hostname: hostname(), version: PLUGIN_VERSION }) });
+      }
       default:
         return rpcFail('not-found', `unknown dsh-rc endpoint ${JSON.stringify(endpoint)}`);
     }

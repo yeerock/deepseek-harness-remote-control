@@ -173,6 +173,14 @@ If the host half is not loaded (or its RPC route failed), the panel says
 panel polls every 4 s closed / 1.5 s open.
 
 
+## Harnesses
+
+`Add another DeepSeek Harness` builds a one-paragraph prompt from the current
+public edge URL. Paste it into another Harness; its agent clones the pinned
+release, installs the plugin, points its agent at this edge, and restarts. The
+device appears as pending in the edge dashboard and must be approved by the
+owner. The prompt contains no password or secret.
+
 ## Sharing this Harness with guests
 
 The panel has a **Share this Harness** switch (off by default) under the

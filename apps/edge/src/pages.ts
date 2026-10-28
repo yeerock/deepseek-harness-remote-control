@@ -162,7 +162,7 @@ export function dashboardPage(options: {
   publicOrigin: string;
 }): string {
   const rows = options.devices.length === 0
-    ? `<tr><td colspan="5" class="muted">No devices yet. Start the agent and it will register itself.</td></tr>`
+    ? `<tr><td colspan="5" class="muted">No Harnesses yet. Start the agent on a computer and it will register itself here.</td></tr>`
     : options.devices
         .map(({ device, online, reconnecting }) => {
           const state = device.status === 'revoked'
@@ -295,9 +295,10 @@ export function dashboardPage(options: {
 <form class="inline" method="post" action="/logout"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><button class="secondary" type="submit">Sign out</button></form>`)}
 <h1>Dashboard</h1>
 <p class="lede">Signed in as ${escapeHtml(options.ownerName)}. Public origin <code>${escapeHtml(options.publicOrigin)}</code>.</p>
-<h2>Devices</h2>
+<h2>Harnesses</h2>
+<p class="muted">Pair another DeepSeek Harness from <strong>Remote Control → Harnesses → Build setup prompt</strong>, paste the prompt into that Harness, then approve it here when it registers. A Harness is a host computer; guest browsers are managed under Sharing.</p>
 <div class="panel"><table>
-<thead><tr><th>Device</th><th>State</th><th>Last seen</th><th>Added</th><th></th></tr></thead>
+<thead><tr><th>Harness</th><th>State</th><th>Last seen</th><th>Added</th><th></th></tr></thead>
 <tbody>${rows}</tbody>
 </table></div>
 <h2>Sharing</h2>
@@ -305,7 +306,7 @@ export function dashboardPage(options: {
 ${sharingSections}
 <h2>Audit tail</h2>
 <div class="panel"><table>
-<thead><tr><th>When</th><th>Event</th><th>Device</th><th>Actor</th><th>Detail</th></tr></thead>
+<thead><tr><th>When</th><th>Event</th><th>Harness</th><th>Actor</th><th>Detail</th></tr></thead>
 <tbody>${auditRows}</tbody>
 </table></div>`,
   );
@@ -422,7 +423,7 @@ export function guestSessionPage(options: {
   <p><span class="badge online">connected</span></p>
   <table>
     <tbody>
-      <tr><th>Device</th><td>${escapeHtml(options.deviceName)} <span class="mono">${escapeHtml(options.deviceId)}</span></td></tr>
+      <tr><th>Harness</th><td>${escapeHtml(options.deviceName)} <span class="mono">${escapeHtml(options.deviceId)}</span></td></tr>
       <tr><th>Label</th><td>${escapeHtml(options.label)}</td></tr>
       <tr><th>Since</th><td>${escapeHtml(formatTime(options.since))}</td></tr>
       <tr><th>Expires</th><td>Never — the host revokes this session explicitly.</td></tr>
