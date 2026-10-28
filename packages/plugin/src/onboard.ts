@@ -8,8 +8,8 @@
  */
 
 export const REPO_URL = 'https://github.com/yeerock/deepseek-harness-remote-control';
-export const REPO_TAG = 'v0.2.1';
-export const PLUGIN_VERSION = '0.2.1';
+export const REPO_TAG = 'v0.2.2';
+export const PLUGIN_VERSION = '0.2.2';
 
 export interface JoinPromptOptions {
   /** Public edge origin; loopback URLs are rejected by the caller. */
@@ -45,7 +45,7 @@ export function buildJoinPrompt(options: JoinPromptOptions): string {
     `You are on a DeepSeek Harness desktop. Pair this Harness as a DSH RC ${version} host on the existing edge at ${edge}, using this computer's hostname as its device name, end to end, without asking for the owner password or any secret.`,
     `(1) If ~/dsh-rc does not exist, run: git clone --branch ${tag} ${repo} ~/dsh-rc ; otherwise run: cd ~/dsh-rc && git fetch --tags && git checkout ${tag}.`,
     `(2) Run: ~/dsh-rc/scripts/join-edge.sh "${edge}" "$(hostname)" . That script installs DSH RC into the profile this Harness instance uses, points its agent at the edge, and prints the restart step.`,
-    `(3) Ask me to restart DeepSeek Harness; after the restart confirm that ~/.dsh/rc/status.json reaches state "online" and report its deviceId.`,
-    `(4) Stop and wait: I will approve this Harness as a device in Remote Control or the edge dashboard. Do not enable sharing, do not request or share the owner password, do not use a guest invite link, and do not modify other profile entries. Report every command you ran and any error.`,
+    `(3) Ask me to restart DeepSeek Harness; after the restart confirm that ~/.dsh/rc/status.json reaches state "online" and report its deviceId. The edge auto-approves paired Harnesses, so no dashboard approval is needed.`,
+    `(4) Do not enable sharing, do not request or share the owner password, do not use a guest invite link, and do not modify other profile entries. Report every command you ran and any error.`,
   ].join(' ');
 }

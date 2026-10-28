@@ -3,7 +3,33 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.1 — 2026-10-28
+## v0.2.2 — 2026-10-28
+
+Auto-approval, version display and auto-update.
+
+### Added
+
+- **Version in the Remote Control modal** — the plugin version is a status row.
+- **Automatic update check and install** — the host checks the latest GitHub
+  release on start and every six hours, then runs `scripts/self-update.sh`
+  detached (checkout tag, `npm ci`, build, edge bundle, launchd restart). The
+  modal shows the update state and asks for the Harness restart needed to load
+  the new host code. `DSHRC_AUTO_UPDATE=0` opts out.
+- **Auto-approve paired Harnesses** — `--auto-approve-devices` /
+  `DSHRC_AUTO_APPROVE_DEVICES=1` makes `POST /v1/devices/register` return
+  `approved` immediately, so pairing needs no dashboard login/approval. The
+  reference launchd host enables it.
+
+### Changed
+
+- The join prompt and panel no longer mention a pending approval step.
+- README/handoff use the new `dsh-rc` origin and prompt-only flow.
+
+### Verification
+
+- 288 automated tests; the reference edge auto-approved a test Harness without
+  an approval route call.
+
 
 Prompt-only pairing and identifier cleanup.
 

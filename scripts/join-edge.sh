@@ -94,4 +94,4 @@ fi
 
 printf '\njoin-edge: installed. Restart DeepSeek Harness, then check:\n'
 printf '  cat ~/.dsh/rc/status.json\n'
-printf 'The owner must approve the device in Remote Control before it can be used.\n'
+printf 'The edge auto-approves paired Harnesses; no dashboard approval is needed.\n'

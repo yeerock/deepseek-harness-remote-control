@@ -34,6 +34,8 @@ export interface EdgeConfig {
   publicUrl: string;
   trustProxy: boolean;
   insecure: boolean;
+  /** Approve newly registered Harnesses immediately (no owner step). */
+  autoApproveDevices: boolean;
   setupCode: string | undefined;
   logLevel: LogLevel;
   /** How long a disconnected device is still presented as "reconnecting". */
@@ -65,6 +67,7 @@ export const DEFAULTS = {
   publicUrl: '',
   trustProxy: false,
   insecure: false,
+  autoApproveDevices: false,
   logLevel: 'info' as LogLevel,
 } as const;
 
@@ -87,6 +90,7 @@ const FLAG_TO_KEY: Record<string, keyof RawOptions> = {
   '--public-url': 'publicUrl',
   '--trust-proxy': 'trustProxy',
   '--insecure': 'insecure',
+  '--auto-approve-devices': 'autoApproveDevices',
   '--setup-code': 'setupCode',
   '--log-level': 'logLevel',
   '--audit-retention-days': 'auditRetentionDays',
@@ -99,6 +103,7 @@ interface RawOptions {
   publicUrl?: string;
   trustProxy?: boolean;
   insecure?: boolean;
+  autoApproveDevices?: boolean;
   setupCode?: string;
   logLevel?: string;
   auditRetentionDays?: string;
@@ -138,7 +143,7 @@ export function parseArgv(argv: readonly string[]): ParsedArgv {
     const inlineValue = equals === -1 ? undefined : token.slice(equals + 1);
     const key = FLAG_TO_KEY[flag];
     if (key === undefined) throw new Error(`unknown flag: ${flag}`);
-    if (key === 'trustProxy' || key === 'insecure') {
+    if (key === 'trustProxy' || key === 'insecure' || key === 'autoApproveDevices') {
       if (inlineValue !== undefined) {
         const parsed = parseBoolean(inlineValue);
         if (parsed === undefined) throw new Error(`${flag} expects true or false, got ${inlineValue}`);
@@ -209,6 +214,8 @@ export function loadConfig(options: LoadConfigOptions = {}): EdgeConfig {
   const publicUrl = publicUrlRaw.trim() === '' ? '' : parsePublicUrl(publicUrlRaw);
   const trustProxy = cli.trustProxy ?? envBoolean(env['DSHRC_TRUST_PROXY']) ?? DEFAULTS.trustProxy;
   const insecure = cli.insecure ?? envBoolean(env['DSHRC_INSECURE']) ?? DEFAULTS.insecure;
+  const autoApproveDevices =
+    cli.autoApproveDevices ?? envBoolean(env['DSHRC_AUTO_APPROVE_DEVICES']) ?? DEFAULTS.autoApproveDevices;
   const logLevelRaw = cli.logLevel ?? env['DSHRC_LOG_LEVEL'] ?? DEFAULTS.logLevel;
   if (!LOG_LEVELS.has(logLevelRaw)) throw new Error(`invalid log level: ${logLevelRaw}`);
   const logLevel = logLevelRaw as LogLevel;
@@ -250,6 +257,7 @@ export function loadConfig(options: LoadConfigOptions = {}): EdgeConfig {
     publicUrl,
     trustProxy,
     insecure,
+    autoApproveDevices,
     setupCode: setupCodeRaw,
     logLevel,
     presenceGraceMs: DEFAULT_PRESENCE_GRACE_MS,
@@ -280,6 +288,7 @@ Usage: node --import tsx apps/edge/src/main.ts [flags]
   --public-url <origin>  Public https origin when TLS terminates in front
   --trust-proxy          Honour X-Forwarded-Proto and forwarding headers
   --insecure             Plain HTTP demo mode, loopback bind only
+  --auto-approve-devices Approve new Harnesses immediately (no owner step)
   --setup-code <code>    8-128 char first-run code instead of a generated one
   --audit-retention-days <n>  Prune audit rows older than n days (default 30, 0 disables)
   --log-level <level>    debug|info|warn|error|silent (default info)

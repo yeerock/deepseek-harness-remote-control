@@ -58,6 +58,11 @@ export interface DshRcStatus extends AgentStatus {
   restarts: number;
   lastExit?: { code: number | null; signal: string | null; at: number };
   stateDir: string;
+  /** Plugin package version. */
+  version?: string;
+  latestVersion?: string;
+  updateState?: string;
+  updateMessage?: string;
 }
 
 /** RPC reply envelope expected by `ctx.connection.rpc.call` on the client. */

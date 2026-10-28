@@ -53,7 +53,7 @@ exec "$NODE_BIN" main.cjs \\
   --host 127.0.0.1 --port 8787 \\
   --data-dir "$DATA_DIR" \\
   --public-url "$PUBLIC_URL" \\
-  --trust-proxy --log-level info >> "$DATA_DIR/edge.log" 2>&1
+  --trust-proxy --auto-approve-devices --log-level info >> "$DATA_DIR/edge.log" 2>&1
 RUN
 chmod +x "$HOME_DIR/.dsh-rc/run-edge.sh"
 

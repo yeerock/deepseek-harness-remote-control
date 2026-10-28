@@ -119,6 +119,8 @@ const EN: Record<string, string> = {
   reconnects: 'Reconnects',
   restarts: 'Restarts',
   since: 'Up time',
+  version: 'Version',
+  update: 'Update',
   lastError: 'Last error',
   none: 'None',
   agentEntry: 'Agent',
@@ -168,8 +170,8 @@ const EN: Record<string, string> = {
   sharingInvites: 'Outstanding invites',
   harnessTitle: 'Harnesses',
   harnessManage: 'Manage / approve',
-  harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; when it registers, approve it in the edge dashboard.',
-  harnessPending: 'This Harness is waiting for approval. Open the edge dashboard to approve it.',
+  harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; it registers automatically and no approval step is needed.',
+  harnessPending: 'Waiting for the edge to finish registering this Harness…',
   sharingJoinTitle: 'Add another DeepSeek Harness',
   sharingJoinHint: 'The prompt installs DSH RC on that Harness, points its agent at this edge, and waits for your approval. It contains no password or secret.',
   sharingJoinButton: 'Build setup prompt',
@@ -210,6 +212,8 @@ const ZH: Record<string, string> = {
   reconnects: '重连次数',
   restarts: '重启次数',
   since: '运行时长',
+  version: '版本',
+  update: '更新',
   lastError: '最近错误',
   none: '无',
   agentEntry: '代理入口',
@@ -259,8 +263,8 @@ const ZH: Record<string, string> = {
   sharingInvites: '未使用的邀请',
   harnessTitle: 'Harness 主机',
   harnessManage: '管理 / 批准',
-  harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它注册后，在 edge 仪表盘批准。',
-  harnessPending: '此 Harness 正在等待批准。打开 edge 仪表盘批准它。',
+  harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它会自动注册，无需批准。',
+  harnessPending: '正在等待 edge 完成此 Harness 的注册…',
   sharingJoinTitle: '添加另一台 DeepSeek Harness',
   sharingJoinHint: '提示会在那台 Harness 上安装 DSH RC、把 agent 指向此 edge，并等待你的批准。提示中不含密码或密钥。',
   sharingJoinButton: '生成安装提示',
@@ -966,6 +970,7 @@ function createComponent(React: any): (props: AnyProps) => any {
     };
 
     const rows: any[] = [
+      [t('version'), status?.version ?? '—', true],
       [t('state'), h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px' } }, h('span', { style: styles.dot(color) }), stateLabel)],
       [t('device'), redact(status?.deviceName ?? '—')],
       [t('edge'), redact(status?.edgeUrl ?? '—')],
@@ -976,6 +981,9 @@ function createComponent(React: any): (props: AnyProps) => any {
     rows.push([t('restarts'), status?.restarts ?? 0]);
     rows.push([t('since'), formatSince(status?.since)]);
     if (status?.agentEntry !== undefined) rows.push([t('agentEntry'), shortAgentPath(status.agentEntry), true]);
+    if (status?.latestVersion !== undefined && status.latestVersion !== status.version) {
+      rows.push([t('update'), `${status.latestVersion} · ${status.updateState ?? ''}`]);
+    }
     if (status?.pid !== undefined) rows.push([t('pid'), String(status.pid), true]);
     if (status?.lastError !== undefined) rows.push([t('lastError'), redact(status.lastError)]);
 
@@ -1241,6 +1249,9 @@ function createComponent(React: any): (props: AnyProps) => any {
               ),
               unavailable ? h('div', { style: styles.banner('#ef4444') }, t('hostUnavailable')) : null,
               error !== undefined && !unavailable ? h('div', { style: styles.banner('#f59e0b') }, redact(error)) : null,
+              (status?.updateState === 'installing' || status?.updateState === 'installed') && status.updateMessage !== undefined
+                ? h('div', { style: styles.banner('#38bdf8') }, redact(status.updateMessage))
+                : null,
               h(
                 'div',
                 { style: styles.grid },

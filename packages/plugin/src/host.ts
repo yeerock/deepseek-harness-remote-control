@@ -11,7 +11,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import {
   AgentSupervisor,
@@ -30,6 +30,7 @@ import { normalizeConfig, resolveDeviceName, resolveStateDir } from './config.js
 import type { PluginConfig } from './config.js';
 import { SharingClient, sharingErrorCode } from './sharing.js';
 import { buildJoinPrompt, isLoopbackOrigin, PLUGIN_VERSION } from './onboard.js';
+import { UpdateManager } from './update.js';
 import type { CreatedInvite, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
@@ -94,6 +95,7 @@ class DshRcService {
   private readonly dshUrl: () => string;
   private readonly stateDir: string;
   private readonly edgeUrl: string;
+  private readonly updates: UpdateManager;
   private setupError: string | undefined;
 
   constructor(options: ServiceOptions) {
@@ -101,6 +103,12 @@ class DshRcService {
     this.dshUrl = options.dshUrl;
     this.stateDir = options.stateDir;
     this.edgeUrl = options.config.edgeUrl.replace(/\/+$/, '');
+    this.updates = new UpdateManager({
+      repoRoot: dirname(dirname(options.pluginRoot)),
+      currentVersion: PLUGIN_VERSION,
+      logger: options.logger,
+    });
+    this.updates.start();
     this.sharingClient = new SharingClient({
       stateDir: options.stateDir,
       edgeUrl: options.config.edgeUrl,
@@ -166,6 +174,11 @@ class DshRcService {
 
   status(): DshRcStatus {
     const status = this.supervisor.status();
+    status.version = PLUGIN_VERSION;
+    const update = this.updates.getSnapshot();
+    status.updateState = update.state;
+    if (update.latest !== undefined) status.latestVersion = update.latest;
+    if (update.message !== undefined) status.updateMessage = update.message;
     if (this.setupError !== undefined) status.lastError ??= this.setupError;
     return status;
   }

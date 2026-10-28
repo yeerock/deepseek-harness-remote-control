@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.2.1.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 280 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.2.2.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 288 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -184,8 +184,7 @@ profile, points its agent at this edge, and asks you to restart. When it
 registers it appears as a pending Harness in the edge dashboard; approve it,
 and its UI is available at `https://<edge>/d/<deviceId>/`.
 
-The prompt contains no password, device secret or invite token. Pairing is
-authorized by your **approval** on the edge, not by a shared secret. This is
+The prompt contains no password, device secret or invite token. This is
 different from guest sharing below: a Harness is a host you own and can open
 directly; a guest is a browser you have granted control of one host.
 

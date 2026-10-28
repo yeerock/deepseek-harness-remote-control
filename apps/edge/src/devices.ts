@@ -77,7 +77,7 @@ export class DeviceService {
         platform: input.platform,
         agentVersion: input.agentVersion,
         secretHash: sha256Hex(deviceSecret),
-        status: 'pending',
+        status: this.config.autoApproveDevices ? 'approved' : 'pending',
         createdAt: now,
       });
       this.db.insertPairCode(pairCodeHash(pairCode), deviceId, now, now + this.config.pairCodeTtlMs);
