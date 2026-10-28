@@ -128,7 +128,10 @@ export function redirect(response: ServerResponse, status: 302 | 303 | 307 | 308
 export function applySecurityHeaders(response: ServerResponse): void {
   response.setHeader('x-content-type-options', 'nosniff');
   response.setHeader('x-frame-options', 'DENY');
-  response.setHeader('referrer-policy', 'no-referrer');
+  // `no-referrer` makes Chromium send `Origin: null` on form POSTs, which the
+  // edge's CSRF origin check must then reject. `same-origin` keeps cross-origin
+  // referrers empty while preserving a real Origin for our own forms.
+  response.setHeader('referrer-policy', 'same-origin');
   response.setHeader('permissions-policy', 'interest-cohort=(), camera=(), microphone=(), geolocation=()');
   response.setHeader(
     'content-security-policy',

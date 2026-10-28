@@ -736,11 +736,9 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       sendErrorPage(response, 404, 'Invite not found', 'This invite link is not valid.');
       return;
     }
-    const reason = inviteUnavailableReason(invite, device, Date.now());
-    if (reason !== undefined) {
-      sendErrorPage(response, 410, 'Invite unavailable', reason);
-      return;
-    }
+    // A browser that already claimed this invite must keep seeing the waiting
+    // page even though the invite itself is now consumed. Check the claim
+    // cookie before the invite-availability guard.
     const claim = auth.readClaim(request);
     let pending = false;
     if (claim !== undefined) {
@@ -748,6 +746,13 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       if (approval !== undefined) {
         const status = sharing.approvalStatus(token, claim.aid);
         if (status.status === 'pending' || status.status === 'approved') pending = true;
+      }
+    }
+    if (!pending) {
+      const reason = inviteUnavailableReason(invite, device, Date.now());
+      if (reason !== undefined) {
+        sendErrorPage(response, 410, 'Invite unavailable', reason);
+        return;
       }
     }
     const csrf = auth.ensureCsrf(request, response);
