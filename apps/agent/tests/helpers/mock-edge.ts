@@ -10,8 +10,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { attachMux, newDeviceId, randomToken } from '@dsh-link/shared';
-import type { Mux, Stream } from '@dsh-link/mux';
+import { attachMux, newDeviceId, randomToken } from '@dsh-rc/shared';
+import type { Mux, Stream } from '@dsh-rc/mux';
 import {
   FrameType,
   INITIAL_CONNECTION_WINDOW,
@@ -25,7 +25,7 @@ import {
   isHello,
   type HelloAck,
   type Open,
-} from '@dsh-link/protocol';
+} from '@dsh-rc/protocol';
 
 export interface MockDevice {
   deviceId: string;

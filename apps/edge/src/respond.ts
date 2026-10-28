@@ -3,7 +3,7 @@
  * must never pass through here: they keep their own headers and CSP.
  */
 import type { ServerResponse } from 'node:http';
-import { applySecurityHeaders, sendHtml, sendJson } from '@dsh-link/shared';
+import { applySecurityHeaders, sendHtml, sendJson } from '@dsh-rc/shared';
 import { errorPage } from './pages.js';
 
 export function sendPage(response: ServerResponse, status: number, html: string, headers: Record<string, string> = {}): void {

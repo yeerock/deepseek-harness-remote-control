@@ -8,8 +8,8 @@
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Logger } from '@dsh-link/shared';
-import { isValidDeviceId } from '@dsh-link/protocol';
+import type { Logger } from '@dsh-rc/shared';
+import { isValidDeviceId } from '@dsh-rc/protocol';
 
 export const DEVICE_FILE_NAME = 'device.json';
 export const IDENTITY_VERSION = 1;

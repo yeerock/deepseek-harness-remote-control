@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-link/mux",
+  "name": "@dsh-rc/mux",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     }
   },
   "dependencies": {
-    "@dsh-link/protocol": "0.1.0"
+    "@dsh-rc/protocol": "0.1.0"
   },
   "scripts": {
     "build": "tsc -b"

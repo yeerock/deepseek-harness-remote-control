@@ -1,4 +1,4 @@
-# DSH Link verification suite
+# DSH RC verification suite
 
 Integration tests that run the **real edge process**, the **real agent** (through
 its public `startAgent()` API) and a **real HTTP/WebSocket mock DSH**. Nothing in
@@ -31,7 +31,7 @@ DSH_BIN=/path/to/@deepseek-ai/dsh/lib/bin.js npx tsx tests/smoke/real-dsh.ts
 
 Requirements: Node >= 22.13 (the edge uses `node:sqlite`), deps installed
 (`npm ci`), and the workspace packages built at least once (`npm run build`) so
-the spawned edge can resolve `@dsh-link/*` dist files. The bench and integration
+the spawned edge can resolve `@dsh-rc/*` dist files. The bench and integration
 harness fail with `apps/edge/src/main.ts …` / `apps/agent/src/index.ts …` in the
 message if a piece is missing.
 

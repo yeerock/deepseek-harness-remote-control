@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to DSH Link. The project follows a `0.y.z` scheme until the
+All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
 ## v0.1.0 — 2026-10-28

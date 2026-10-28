@@ -83,7 +83,7 @@ describe('pairing', () => {
     const device = await registerDevice(edge.base);
     const paired = await pairDevice(edge.base, device.pairCode, { password: TEST_PASSWORD });
     expect(paired.response.status).toBe(303);
-    expect(paired.jar.get('dshlink_session')).toBeTruthy();
+    expect(paired.jar.get('dshrc_session')).toBeTruthy();
     expect(await deviceStatus(edge.base, device)).toBe('approved');
 
     // Device-bound session: not an owner session, but it can open its device.
@@ -139,7 +139,7 @@ describe('device lifecycle', () => {
     const revoke = await http(edge.base, `/v1/devices/${device.deviceId}/revoke`, {
       method: 'POST',
       jar: owner.jar,
-      headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshlink_csrf') ?? '', accept: 'application/json' },
+      headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshrc_csrf') ?? '', accept: 'application/json' },
     });
     expect(revoke.status).toBe(200);
     const revokedBody = (await revoke.json()) as { ok: boolean };
@@ -182,7 +182,7 @@ describe('device lifecycle', () => {
     const approved = await http(edge.base, `/v1/devices/${device.deviceId}/approve`, {
       method: 'POST',
       jar: owner.jar,
-      headers: { accept: 'application/json', origin: edge.base, 'x-csrf-token': owner.jar.get('dshlink_csrf') ?? '' },
+      headers: { accept: 'application/json', origin: edge.base, 'x-csrf-token': owner.jar.get('dshrc_csrf') ?? '' },
     });
     expect(approved.status).toBe(200);
     expect(await deviceStatus(edge.base, device)).toBe('approved');

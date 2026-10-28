@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BACKOFF_BASE_MS, BACKOFF_CAP_MS, fullJitterDelay } from '../src/backoff.js';
 import { classifyTunnelClose } from '../src/tunnel.js';
 import { isTerminalHelloCode } from '../src/errors.js';
-import { CloseCode } from '@dsh-link/protocol';
+import { CloseCode } from '@dsh-rc/protocol';
 
 describe('full-jitter backoff', () => {
   it('stays below base on the first attempt and doubles the ceiling', () => {

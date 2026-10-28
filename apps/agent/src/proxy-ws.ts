@@ -15,9 +15,9 @@ import {
   filterRequestHeaders,
   type Open,
   type WsOpcodeValue,
-} from '@dsh-link/protocol';
-import type { Stream } from '@dsh-link/mux';
-import type { Logger } from '@dsh-link/shared';
+} from '@dsh-rc/protocol';
+import type { Stream } from '@dsh-rc/mux';
+import type { Logger } from '@dsh-rc/shared';
 import { AgentError, DshAuthError, messageOf } from './errors.js';
 import type { DshSession, DshTarget } from './dsh-session.js';
 import { toBytes } from './io.js';

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Stream } from '@dsh-link/mux';
+import type { Stream } from '@dsh-rc/mux';
 import { MockDsh } from './helpers/mock-dsh.js';
 import { MockEdge, waitUntil, type EdgeTunnel } from './helpers/mock-edge.js';
 import { readBody, startTestAgent, type TestAgent } from './helpers/agent.js';
 import type { RuntimeInternals } from '../src/runtime.js';
-import type { Open } from '@dsh-link/protocol';
+import type { Open } from '@dsh-rc/protocol';
 import { buildUpstreamHeaders } from '../src/proxy-http.js';
 import type { DshTarget } from '../src/dsh-session.js';
 
@@ -260,7 +260,7 @@ describe('DSH authentication failure handling', () => {
       expect(head.status).toBe(401);
       await readBody(stream);
       await waitUntil(() => testAgent.agent.status().state === 'error', 5_000, 'error status');
-      expect(testAgent.agent.status().lastError).toContain('DSH Link plugin');
+      expect(testAgent.agent.status().lastError).toContain('DSH RC plugin');
       expect(testAgent.agent.status().lastError).toContain('authenticated URL');
     } finally {
       await testAgent.cleanup();

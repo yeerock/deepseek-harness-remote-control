@@ -22,7 +22,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 import { isAgentState } from './contract.js';
-import type { AgentState, AgentStatus, DshLinkStatus } from './contract.js';
+import type { AgentState, AgentStatus, DshRcStatus } from './contract.js';
 import type { PluginConfig } from './config.js';
 
 export interface SupervisorLogger {
@@ -115,10 +115,10 @@ export class AgentSupervisor {
   readonly upstreamFile: string;
 
   /** Current merged status: supervisor facts win over a stale agent file. */
-  status(): DshLinkStatus {
+  status(): DshRcStatus {
     const running = this.child !== undefined;
     const state: AgentState = running ? (this.agentStatus?.state ?? 'starting') : this.localState;
-    const base: DshLinkStatus = {
+    const base: DshRcStatus = {
       state,
       enabled: this.options.config.enabled,
       autoStart: this.options.config.autoStart,
@@ -152,8 +152,8 @@ export class AgentSupervisor {
   }
 
   /** Start the agent if it is not already running. Operational failures become status. */
-  async start(): Promise<DshLinkStatus> {
-    if (this.disposed) throw new Error('dsh-link: plugin is disposed');
+  async start(): Promise<DshRcStatus> {
+    if (this.disposed) throw new Error('dsh-rc: plugin is disposed');
     if (this.child !== undefined) return this.status();
     this.stopping = false;
     this.localState = 'starting';
@@ -165,7 +165,7 @@ export class AgentSupervisor {
   }
 
   /** SIGTERM, then SIGKILL after a grace period. Always resolves. */
-  async stop(): Promise<DshLinkStatus> {
+  async stop(): Promise<DshRcStatus> {
     this.stopping = true;
     this.clearRestartTimer();
     this.stopPolling();
@@ -200,7 +200,7 @@ export class AgentSupervisor {
   }
 
   /** Stop then start, clearing the backoff counter. */
-  async restart(): Promise<DshLinkStatus> {
+  async restart(): Promise<DshRcStatus> {
     await this.stop();
     this.stopping = false;
     this.attempt = 0;
@@ -251,7 +251,7 @@ export class AgentSupervisor {
     if (target === undefined) {
       this.localState = 'error';
       this.localError =
-        'Agent entry not found. Set agentEntry, DSH_LINK_AGENT, build apps/agent (dist/main.js), or install the dsh-link CLI on PATH.';
+        'Agent entry not found. Set agentEntry, DSHRC_AGENT, build apps/agent (dist/main.js), or install the dsh-rc CLI on PATH.';
       this.logger.error('cannot start agent: no launch target');
       return;
     }
@@ -519,7 +519,7 @@ export class AgentSupervisor {
     if (explicit !== undefined && explicit !== '') {
       return targetFromSpec(explicit, this.options.pluginRoot) ?? undefined;
     }
-    const fromEnv = process.env['DSH_LINK_AGENT']?.trim();
+    const fromEnv = process.env['DSHRC_AGENT']?.trim();
     if (fromEnv !== undefined && fromEnv !== '') {
       const target = targetFromSpec(fromEnv, this.options.pluginRoot);
       if (target !== undefined) return target;
@@ -527,7 +527,7 @@ export class AgentSupervisor {
     for (const candidate of agentCandidates(this.options.pluginRoot)) {
       if (isFile(candidate)) return { ...resolveNodeCommand(), prefixArgs: [candidate], display: candidate };
     }
-    const onPath = findOnPath('dsh-link');
+    const onPath = findOnPath('dsh-rc');
     if (onPath !== undefined) return { command: onPath, prefixArgs: [], display: onPath };
     return undefined;
   }
@@ -541,7 +541,7 @@ function agentCandidates(pluginRoot: string): string[] {
     join(pluginRoot, 'apps', 'agent', 'dist', 'main.js'),
     join(pluginRoot, '..', 'apps', 'agent', 'dist', 'main.js'),
     join(pluginRoot, '..', '..', 'apps', 'agent', 'dist', 'main.js'),
-    join(pluginRoot, 'node_modules', '@dsh-link', 'agent', 'dist', 'main.js'),
+    join(pluginRoot, 'node_modules', '@dsh-rc', 'agent', 'dist', 'main.js'),
   ];
 }
 
@@ -581,7 +581,7 @@ export function targetFromSpec(spec: string, pluginRoot: string): LaunchTarget |
  * it without `ELECTRON_RUN_AS_NODE=1` starts another application instance
  * instead of a script host, so the preference order is:
  *
- * 1. `DSH_LINK_NODE` (explicit operator override),
+ * 1. `DSHRC_NODE` (explicit operator override),
  * 2. `DSH_NODE`,
  * 3. the DSH runtime wrapper at `<resources>/runtime/bin/node`,
  * 4. `process.execPath` with `ELECTRON_RUN_AS_NODE=1` (safe under plain Node:
@@ -590,7 +590,7 @@ export function targetFromSpec(spec: string, pluginRoot: string): LaunchTarget |
  * @returns the command stem for a launch target.
  */
 export function resolveNodeCommand(env: NodeJS.ProcessEnv = process.env): Pick<LaunchTarget, 'command' | 'electron' | 'runtimeWrapper'> {
-  for (const key of ['DSH_LINK_NODE', 'DSH_NODE']) {
+  for (const key of ['DSHRC_NODE', 'DSH_NODE']) {
     const candidate = env[key]?.trim();
     if (candidate !== undefined && candidate !== '' && isFile(candidate)) {
       return { command: candidate, electron: false, runtimeWrapper: false };
@@ -702,15 +702,15 @@ export interface InterpretedLine {
 /**
  * Interpret one stdout line. The agent contract says "print pair URL and
  * status transitions as JSON lines"; we also accept the plain
- * `DSH_LINK_PAIR_URL <url>` marker and a `Pair URL: <url>` human line so a
+ * `DSHRC_PAIR_URL <url>` marker and a `Pair URL: <url>` human line so a
  * partially-landed agent still works.
  */
 export function interpretAgentLine(line: string): InterpretedLine | undefined {
   const trimmed = line.trim();
   if (trimmed === '') return undefined;
 
-  if (trimmed.startsWith('DSH_LINK_PAIR_URL')) {
-    const url = trimmed.slice('DSH_LINK_PAIR_URL'.length).replace(/^[=:\s]+/, '').trim();
+  if (trimmed.startsWith('DSHRC_PAIR_URL')) {
+    const url = trimmed.slice('DSHRC_PAIR_URL'.length).replace(/^[=:\s]+/, '').trim();
     if (url !== '') return { pairUrl: url };
   }
 

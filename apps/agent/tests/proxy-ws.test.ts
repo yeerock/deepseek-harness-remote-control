@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MockDsh } from './helpers/mock-dsh.js';
 import { MockEdge, type EdgeTunnel } from './helpers/mock-edge.js';
 import { nextFrame, startTestAgent, type TestAgent } from './helpers/agent.js';
-import type { Open } from '@dsh-link/protocol';
+import type { Open } from '@dsh-rc/protocol';
 
 interface Harness {
   dsh: MockDsh;

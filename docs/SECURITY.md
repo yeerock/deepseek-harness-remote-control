@@ -6,7 +6,7 @@ security design in one place.
 ## Reporting a vulnerability
 
 Please use GitHub private vulnerability reporting:
-`https://github.com/<your-org>/dsh-link/security/advisories/new`. If that is not
+`https://github.com/<your-org>/dsh-rc/security/advisories/new`. If that is not
 available, open a minimal issue asking for a private channel and do not include
 exploit details.
 
@@ -82,7 +82,7 @@ are no inbound ports and no UDP.
 | --- | --- | --- |
 | Device secret | 32 random bytes, issued once at registration | Agent `device.json` (0600); edge stores SHA-256 only; `agent.lock` (0600) holds only pid/host |
 | Device id | `dev_` + 20 base32 chars (100 bits) | Edge SQLite |
-| Owner session | HMAC-SHA256 signed payload with expiry | Browser cookie `dshlink_session`, HttpOnly, SameSite=Lax, Secure on HTTPS, 30 days |
+| Owner session | HMAC-SHA256 signed payload with expiry | Browser cookie `dshrc_session`, HttpOnly, SameSite=Lax, Secure on HTTPS, 30 days |
 | Session HMAC key | Generated on first boot | Edge SQLite settings |
 | Pair code | 8 chars from a 31-char alphabet, single use, 10-minute TTL | Edge stores `SHA-256("pair:" + code)` |
 | Setup code | Generated 12 chars (or operator-supplied), single use, 24-hour TTL, rotated on each start until setup completes | Edge stores SHA-256 |

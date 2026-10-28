@@ -7,7 +7,7 @@ import { DEVICE_FILE_NAME, identityPath, loadIdentity, saveIdentity, type Device
 const tempDirs: string[] = [];
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'dsh-link-identity-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-rc-identity-'));
   tempDirs.push(dir);
   return dir;
 }

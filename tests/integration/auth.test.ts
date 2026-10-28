@@ -41,7 +41,7 @@ function pairPost(edgeUrl: string, options: {
   origin?: string;
   password?: string;
 }): Promise<Awaited<ReturnType<typeof rawRequest>>> {
-  const csrf = options.jar.get('dshlink_csrf') ?? '';
+  const csrf = options.jar.get('dshrc_csrf') ?? '';
   const form = new URLSearchParams({ code: options.code, csrf });
   if (options.password !== undefined) form.set('password', options.password);
   return rawRequest(edgeUrl, {
@@ -85,7 +85,7 @@ describe('edge auth and authorization', () => {
   });
 
   it('returns 401 for a forged session cookie', async () => {
-    const response = await browserFetch(stack, '/', { cookie: 'dshlink_session=forged.value' });
+    const response = await browserFetch(stack, '/', { cookie: 'dshrc_session=forged.value' });
     expect(response.status).toBe(401);
   });
 
@@ -128,7 +128,7 @@ describe('edge auth and authorization', () => {
     const paired = await pairBrowser(stack.edgeUrl, device.pairCode, { password: OWNER_PASSWORD });
     expect(paired.status).toBeGreaterThanOrEqual(300);
     expect(paired.status).toBeLessThan(400);
-    expect(paired.jar.get('dshlink_session')).toBeDefined();
+    expect(paired.jar.get('dshrc_session')).toBeDefined();
     expect((await deviceStatus(stack.edgeUrl, device.deviceSecret)).status).toBe('approved');
 
     // The device session reaches its own mount. No agent is online for this

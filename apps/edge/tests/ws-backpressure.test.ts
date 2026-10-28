@@ -7,9 +7,9 @@ import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket, { type WebSocketServer } from 'ws';
-import type { Mux, Stream } from '@dsh-link/mux';
-import type { Reset } from '@dsh-link/protocol';
-import { createLogger } from '@dsh-link/shared';
+import type { Mux, Stream } from '@dsh-rc/mux';
+import type { Reset } from '@dsh-rc/protocol';
+import { createLogger } from '@dsh-rc/shared';
 import type { EdgeConfig } from '../src/config.js';
 import type { DeviceRow } from '../src/db.js';
 import {
@@ -61,7 +61,7 @@ interface ChildEdge {
  * not the test's in-process fake agent and browser.
  */
 async function startChildEdge(): Promise<ChildEdge> {
-  const dataDir = await mkdtemp(path.join(tmpdir(), 'dshlink-edge-rss-'));
+  const dataDir = await mkdtemp(path.join(tmpdir(), 'dshrc-edge-rss-'));
   const entry = fileURLToPath(new URL('../src/main.ts', import.meta.url));
   const repoRoot = path.resolve(path.dirname(entry), '..', '..', '..');
   const child = spawn(
@@ -82,7 +82,7 @@ async function startChildEdge(): Promise<ChildEdge> {
       '--log-level',
       'silent',
     ],
-    { cwd: repoRoot, env: { ...process.env, DSHLINK_SETUP_CODE: TEST_SETUP_CODE }, stdio: ['ignore', 'pipe', 'pipe'] },
+    { cwd: repoRoot, env: { ...process.env, DSHRC_SETUP_CODE: TEST_SETUP_CODE }, stdio: ['ignore', 'pipe', 'pipe'] },
   ) as unknown as ChildProcessWithoutNullStreams;
 
   let output = '';

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createLogger } from '@dsh-link/shared';
+import { createLogger } from '@dsh-rc/shared';
 import { startAgent } from '../src/index.js';
 import { AgentRuntime } from '../src/runtime.js';
 import type { AgentOptions, AgentStatus } from '../src/types.js';
@@ -72,7 +72,7 @@ describe('Agent public API and status transitions', () => {
     await dsh.start();
     const edge = new MockEdge({ autoApprove: true });
     await edge.start();
-    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-runtime-'));
+    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-runtime-'));
     extraStateDirs.push(stateDir);
     const statuses: AgentStatus[] = [];
 
@@ -125,7 +125,7 @@ describe('Agent public API and status transitions', () => {
     await dsh.start();
     const edge = new MockEdge({ autoApprove: true });
     await edge.start();
-    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-runtime-'));
+    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-runtime-'));
     extraStateDirs.push(stateDir);
     const held = { pid: process.pid, startedAt: Date.now(), host: hostname() };
     await writeFile(join(stateDir, LOCK_FILE_NAME), JSON.stringify(held), { mode: 0o600 });
@@ -286,7 +286,7 @@ describe('identity reuse across restarts', () => {
     await dsh.start();
     const edge = new MockEdge({ autoApprove: true });
     await edge.start();
-    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-runtime-'));
+    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-runtime-'));
     extraStateDirs.push(stateDir);
     const options: AgentOptions = {
       edgeUrl: edge.url,
@@ -319,9 +319,9 @@ describe('dshUrlFile precedence and secret hygiene', () => {
     await dsh.start();
     const edge = new MockEdge({ autoApprove: true });
     await edge.start();
-    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-runtime-'));
+    const stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-runtime-'));
     extraStateDirs.push(stateDir);
-    const urlFileDir = await mkdtemp(join(tmpdir(), 'dsh-link-urlfile-'));
+    const urlFileDir = await mkdtemp(join(tmpdir(), 'dsh-rc-urlfile-'));
     const urlFile = join(urlFileDir, 'dsh-url.json');
     await writeFile(urlFile, JSON.stringify({ url: dsh.authenticatedUrl }), { mode: 0o600 });
     extraCleanups.push(async () => rm(urlFileDir, { recursive: true, force: true }));
@@ -359,7 +359,7 @@ describe('dshUrlFile precedence and secret hygiene', () => {
       AgentRuntime.start({
         edgeUrl: 'http://127.0.0.1:8787',
         dshUrl: 'http://example.com:8080/',
-        stateDir: join(tmpdir(), 'dsh-link-never-created'),
+        stateDir: join(tmpdir(), 'dsh-rc-never-created'),
         logger: createLogger('test', 'silent'),
       }),
     ).rejects.toThrow(/local DSH server/);

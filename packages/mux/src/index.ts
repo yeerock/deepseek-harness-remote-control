@@ -1,5 +1,5 @@
 /**
- * Stream multiplexer for the DSH Link tunnel.
+ * Stream multiplexer for the DSH RC tunnel.
  *
  * One transport, many logical HTTP and WebSocket streams, credit-based flow
  * control on both stream and connection level, and a weighted scheduler that
@@ -47,7 +47,7 @@ import {
   type Reset,
   type StreamKind,
   type WsOpcodeValue,
-} from '@dsh-link/protocol';
+} from '@dsh-rc/protocol';
 
 export interface MuxTransport {
   /** Queue one binary message. Throws when the transport is gone. */

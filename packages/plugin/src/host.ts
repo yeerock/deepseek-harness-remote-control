@@ -1,5 +1,5 @@
 /**
- * DSH host plugin: registers the `dsh-link` service, resolves the loopback
+ * DSH host plugin: registers the `dsh-rc` service, resolves the loopback
  * origin plus the authenticated DSH URL, and supervises the tunnel agent as a
  * child process.
  *
@@ -25,7 +25,7 @@ import {
   rpcOk,
   SERVICE_NAME,
 } from './contract.js';
-import type { DshLinkStatus, RpcReply } from './contract.js';
+import type { DshRcStatus, RpcReply } from './contract.js';
 import { normalizeConfig, resolveDeviceName, resolveStateDir } from './config.js';
 import type { PluginConfig } from './config.js';
 
@@ -62,13 +62,13 @@ interface CordisContextLike {
   [key: string]: unknown;
 }
 
-/** Public service face other host plugins can inject as `dsh-link`. */
-export interface DshLinkServiceApi {
-  status(): DshLinkStatus;
+/** Public service face other host plugins can inject as `dsh-rc`. */
+export interface DshRcServiceApi {
+  status(): DshRcStatus;
   pairUrl(): string | undefined;
-  start(): Promise<DshLinkStatus>;
-  restart(): Promise<DshLinkStatus>;
-  stop(): Promise<DshLinkStatus>;
+  start(): Promise<DshRcStatus>;
+  restart(): Promise<DshRcStatus>;
+  stop(): Promise<DshRcStatus>;
 }
 
 interface ServiceOptions {
@@ -83,8 +83,8 @@ interface ServiceOptions {
 const START_URL_WAIT_MS = 5_000;
 const START_URL_POLL_MS = 250;
 
-class DshLinkService {
-  readonly api: DshLinkServiceApi;
+class DshRcService {
+  readonly api: DshRcServiceApi;
   private readonly supervisor: AgentSupervisor;
   private readonly logger: SupervisorLogger;
   private readonly dshUrl: () => string;
@@ -112,7 +112,7 @@ class DshLinkService {
     };
   }
 
-  status(): DshLinkStatus {
+  status(): DshRcStatus {
     const status = this.supervisor.status();
     if (this.setupError !== undefined) status.lastError ??= this.setupError;
     return status;
@@ -122,17 +122,17 @@ class DshLinkService {
     return this.supervisor.pairUrlValue();
   }
 
-  async start(): Promise<DshLinkStatus> {
+  async start(): Promise<DshRcStatus> {
     await this.waitForDshUrl();
     return this.supervisor.start();
   }
 
-  async restart(): Promise<DshLinkStatus> {
+  async restart(): Promise<DshRcStatus> {
     await this.waitForDshUrl();
     return this.supervisor.restart();
   }
 
-  stop(): Promise<DshLinkStatus> {
+  stop(): Promise<DshRcStatus> {
     return this.supervisor.stop();
   }
 
@@ -165,7 +165,7 @@ class DshLinkService {
 /* ------------------------------- plugin ------------------------------- */
 
 /** Plugin display name; also the loader entry name in `cordis.patch.yml`. */
-export const name = '@dsh-link/plugin';
+export const name = '@dsh-rc/plugin';
 
 /**
  * Apply after the two services this plugin depends on exist. Cordis keeps the
@@ -174,7 +174,7 @@ export const name = '@dsh-link/plugin';
 export const inject = ['webServer', 'connection'];
 
 /**
- * Register the `dsh-link` service and wire auto-start.
+ * Register the `dsh-rc` service and wire auto-start.
  *
  * @param ctx cordis context (narrowed structurally so this package has no
  * `@deepseek-ai/cordis` dependency at build or install time).
@@ -189,7 +189,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
   const deviceName = resolveDeviceName(config);
   const stateDir = resolveStateDir(config);
 
-  const service = new DshLinkService({
+  const service = new DshRcService({
     config,
     deviceName,
     stateDir,
@@ -204,7 +204,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
     if (typeof ctx.provide !== 'function') throw new Error('cordis context has no provide()');
     ctx.provide(SERVICE_NAME, service.api);
   } catch (error) {
-    logger.error('could not register the dsh-link service', { message: messageOf(error) });
+    logger.error('could not register the dsh-rc service', { message: messageOf(error) });
   }
 
   let disposeRpc: (() => void) | undefined;
@@ -224,7 +224,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
         }
         void service.dispose();
       },
-      'dsh-link: agent supervisor lifecycle',
+      'dsh-rc: agent supervisor lifecycle',
     );
   } catch (error) {
     logger.warn('could not attach lifecycle disposer', { message: messageOf(error) });
@@ -256,7 +256,7 @@ const MAX_RPC_BODY_BYTES = 256 * 1024;
 const ENDPOINT_PATTERN = /^[A-Za-z0-9_$.-]+$/;
 
 /**
- * Register the authenticated `/dsh-link` RPC prefix.
+ * Register the authenticated `/dsh-rc` RPC prefix.
  *
  * This is deliberately a plain webServer prefix route rather than
  * `connection.rpc.handle()`: the service-side helper resolves `webServer`
@@ -269,7 +269,7 @@ const ENDPOINT_PATTERN = /^[A-Za-z0-9_$.-]+$/;
  */
 function registerRpcChannel(
   ctx: CordisContextLike,
-  service: DshLinkService,
+  service: DshRcService,
   logger: SupervisorLogger,
 ): () => void {
   const webServer = getService<WebServerLike>(ctx, 'webServer');
@@ -290,7 +290,7 @@ function registerRpcChannel(
 /** One POST `<channel>/<endpoint>` with the Connection RPC JSON envelope. */
 async function handleRpcRequest(
   connection: ConnectionLike,
-  service: DshLinkService,
+  service: DshRcService,
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<void> {
@@ -340,7 +340,7 @@ async function handleRpcRequest(
   writeRpcJson(response, 200, { type: 'server-response', rpcId, result });
 }
 
-async function dispatchEndpoint(service: DshLinkService, endpoint: string): Promise<RpcReply<unknown>> {
+async function dispatchEndpoint(service: DshRcService, endpoint: string): Promise<RpcReply<unknown>> {
   try {
     switch (endpoint) {
       case 'status':
@@ -354,7 +354,7 @@ async function dispatchEndpoint(service: DshLinkService, endpoint: string): Prom
       case 'pair-url':
         return rpcOk({ pairUrl: service.pairUrl() ?? null });
       default:
-        return rpcFail('not-found', `unknown dsh-link endpoint ${JSON.stringify(endpoint)}`);
+        return rpcFail('not-found', `unknown dsh-rc endpoint ${JSON.stringify(endpoint)}`);
     }
   } catch (error) {
     return rpcFail('internal', messageOf(error));
@@ -449,7 +449,7 @@ function getService<T>(ctx: CordisContextLike, name: string): T | undefined {
 /** Cordis logger → the small JSON-friendly face the supervisor wants. */
 export function createPluginLogger(base: LoggerLike | undefined): SupervisorLogger {
   const write = (level: 'debug' | 'info' | 'warn' | 'error', message: string, fields?: Record<string, unknown>): void => {
-    const text = fields === undefined ? `dsh-link: ${message}` : `dsh-link: ${message} ${JSON.stringify(redactFields(fields))}`;
+    const text = fields === undefined ? `dsh-rc: ${message}` : `dsh-rc: ${message} ${JSON.stringify(redactFields(fields))}`;
     try {
       const fn = base?.[level] ?? base?.info;
       fn?.(text);

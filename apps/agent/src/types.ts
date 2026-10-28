@@ -1,8 +1,8 @@
 /**
- * Public types for the DSH Link agent. `index.ts` re-exports these; the DSH
+ * Public types for the DSH RC agent. `index.ts` re-exports these; the DSH
  * plugin imports them to type the status file and the in-process handle.
  */
-import type { Logger } from '@dsh-link/shared';
+import type { Logger } from '@dsh-rc/shared';
 
 export type AgentState =
   | 'starting'

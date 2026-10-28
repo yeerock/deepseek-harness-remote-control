@@ -9,7 +9,7 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync, statSync } from 'node:fs';
-import type { Logger } from '@dsh-link/shared';
+import type { Logger } from '@dsh-rc/shared';
 import { AUTHENTICATION_HINT, AgentError, DshAuthError, TerminalAgentError, messageOf } from './errors.js';
 
 export const DEFAULT_TOKEN_EXCHANGE_TIMEOUT_MS = 10_000;
@@ -149,7 +149,7 @@ function exchangeRequest(target: DshTarget, token: string, timeoutMs: number): P
         method: 'GET',
         headers: {
           accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
-          'user-agent': 'dsh-link-agent/0.1.0',
+          'user-agent': 'dsh-rc-agent/0.1.0',
           connection: 'close',
         },
       },

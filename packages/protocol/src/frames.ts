@@ -1,5 +1,5 @@
 /**
- * DSH Link tunnel protocol v1 — frame constants, codec, and schema guards.
+ * DSH RC tunnel protocol v1 — frame constants, codec, and schema guards.
  *
  * This module is the single source of truth for both peers. Anything that must
  * agree on the wire lives here; anything that is policy lives in the edge or

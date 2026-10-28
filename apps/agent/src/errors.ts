@@ -1,14 +1,14 @@
 /**
- * Error taxonomy and close-code classification for the DSH Link agent.
+ * Error taxonomy and close-code classification for the DSH RC agent.
  *
  * The agent has exactly two reactions to a failure: retry with backoff, or
  * stop and explain why. Keeping that decision in one table means a new close
  * code cannot silently turn a revoked device into a reconnect loop.
  */
-import { CloseCode } from '@dsh-link/protocol';
+import { CloseCode } from '@dsh-rc/protocol';
 
 export const AUTHENTICATION_HINT =
-  'DSH requires authentication: start through the DSH Link plugin or pass an authenticated URL (http://127.0.0.1:<port>/?token=...).';
+  'DSH requires authentication: start through the DSH RC plugin or pass an authenticated URL (http://127.0.0.1:<port>/?token=...).';
 
 export class AgentError extends Error {
   readonly code: string;
@@ -75,7 +75,7 @@ export function describeCloseCode(code: number, reason: string): string {
     case CloseCode.AuthFailed:
       return `edge rejected this device's secret (AUTH_FAILED); delete ${'<state-dir>/device.json'} and restart to re-pair. ${reason}`;
     case CloseCode.DeviceRevoked:
-      return 'this device was revoked; pair a new device from the DSH Link dashboard.';
+      return 'this device was revoked; pair a new device from the DSH RC dashboard.';
     case CloseCode.HeartbeatTimeout:
       return `tunnel heartbeat timed out: ${reason}`;
     case CloseCode.TunnelReplaced:

@@ -43,4 +43,4 @@ await build({
   external: ['react'],
 });
 
-console.log('[dsh-link] built dist/index.js and dist/client.js');
+console.log('[dsh-rc] built dist/index.js and dist/client.js');

@@ -3,14 +3,14 @@ import { parseCli } from '../src/main.js';
 import type { AgentOptions } from '../src/types.js';
 
 const ENV_KEYS = [
-  'DSH_LINK_EDGE',
-  'DSH_LINK_DSH_URL',
-  'DSH_LINK_DSH_URL_FILE',
-  'DSH_LINK_STATE_DIR',
-  'DSH_LINK_NAME',
-  'DSH_LINK_INSECURE',
-  'DSH_LINK_STATUS_FILE',
-  'DSH_LINK_LOG_LEVEL',
+  'DSHRC_EDGE',
+  'DSHRC_DSH_URL',
+  'DSHRC_DSH_URL_FILE',
+  'DSHRC_STATE_DIR',
+  'DSHRC_NAME',
+  'DSHRC_INSECURE',
+  'DSHRC_STATUS_FILE',
+  'DSHRC_LOG_LEVEL',
 ] as const;
 
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
@@ -45,36 +45,36 @@ describe('agent CLI argument parsing', () => {
       '--dsh-url',
       'http://127.0.0.1:4567',
       '--dsh-url-file',
-      '/run/dsh-link/dsh-url.json',
+      '/run/dsh-rc/dsh-url.json',
       '--state-dir',
-      '/tmp/dsh-link-state',
+      '/tmp/dsh-rc-state',
       '--name',
       'laptop',
       '--insecure',
       '--status-file',
-      '/tmp/dsh-link-status.json',
+      '/tmp/dsh-rc-status.json',
       '--log-level',
       'debug',
     ]);
     expect(config.options).toMatchObject({
       edgeUrl: 'https://edge.example.com',
       dshUrl: 'http://127.0.0.1:4567',
-      dshUrlFile: '/run/dsh-link/dsh-url.json',
-      stateDir: '/tmp/dsh-link-state',
+      dshUrlFile: '/run/dsh-rc/dsh-url.json',
+      stateDir: '/tmp/dsh-rc-state',
       name: 'laptop',
       insecure: true,
     });
-    expect(config.statusFile).toBe('/tmp/dsh-link-status.json');
+    expect(config.statusFile).toBe('/tmp/dsh-rc-status.json');
   });
 
   it('prefers CLI flags over environment variables', () => {
-    process.env['DSH_LINK_EDGE'] = 'http://127.0.0.1:9999';
-    process.env['DSH_LINK_DSH_URL'] = 'http://127.0.0.1:1111';
-    process.env['DSH_LINK_DSH_URL_FILE'] = '/env/file.json';
-    process.env['DSH_LINK_STATE_DIR'] = '/env/state';
-    process.env['DSH_LINK_NAME'] = 'env-name';
-    process.env['DSH_LINK_INSECURE'] = '1';
-    process.env['DSH_LINK_LOG_LEVEL'] = 'error';
+    process.env['DSHRC_EDGE'] = 'http://127.0.0.1:9999';
+    process.env['DSHRC_DSH_URL'] = 'http://127.0.0.1:1111';
+    process.env['DSHRC_DSH_URL_FILE'] = '/env/file.json';
+    process.env['DSHRC_STATE_DIR'] = '/env/state';
+    process.env['DSHRC_NAME'] = 'env-name';
+    process.env['DSHRC_INSECURE'] = '1';
+    process.env['DSHRC_LOG_LEVEL'] = 'error';
 
     const config = configOf([
       '--edge',
@@ -95,12 +95,12 @@ describe('agent CLI argument parsing', () => {
   });
 
   it('falls back to environment variables and documented defaults', () => {
-    process.env['DSH_LINK_DSH_URL_FILE'] = '/env/file.json';
+    process.env['DSHRC_DSH_URL_FILE'] = '/env/file.json';
     const config = configOf([]);
     expect(config.options.edgeUrl).toBe('http://127.0.0.1:8787');
     expect(config.options.dshUrlFile).toBe('/env/file.json');
     expect(config.options.dshUrl).toBe('');
-    expect(config.options.stateDir).toContain('.dsh-link');
+    expect(config.options.stateDir).toContain('.dsh-rc');
     expect(config.options.insecure).toBeUndefined();
   });
 

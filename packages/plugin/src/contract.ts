@@ -8,7 +8,7 @@
  * the terminal state string; both are validated and normalised on read.
  */
 
-/** Terminal / lifecycle states a DSH Link agent reports. */
+/** Terminal / lifecycle states a DSH RC agent reports. */
 export const AGENT_STATES = [
   'starting',
   'pairing',
@@ -43,7 +43,7 @@ export interface AgentStatus {
 }
 
 /** What the sidebar and the RPC channel see. */
-export interface DshLinkStatus extends AgentStatus {
+export interface DshRcStatus extends AgentStatus {
   /** Config switch: whether the plugin is allowed to auto-start the agent. */
   enabled: boolean;
   /** Config switch: start on plugin apply (only when `enabled`). */
@@ -74,12 +74,12 @@ export function rpcFail(code: string, message: string): RpcReply<never> {
 }
 
 /** Browser-visible RPC channel; the client posts `<channel>/<endpoint>`. */
-export const RPC_CHANNEL = '/dsh-link';
+export const RPC_CHANNEL = '/dsh-rc';
 
 export type RpcEndpoint = 'status' | 'start' | 'restart' | 'stop' | 'pair-url';
 
 /** Locale namespace used by the host locale files and the client dictionaries. */
-export const LOCALE_NAMESPACE = 'dsh-link';
+export const LOCALE_NAMESPACE = 'dsh-rc';
 
 /** Service name other host plugins can inject to read/steer the agent. */
-export const SERVICE_NAME = 'dsh-link';
+export const SERVICE_NAME = 'dsh-rc';

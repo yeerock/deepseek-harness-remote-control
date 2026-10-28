@@ -1,7 +1,7 @@
 # Remote Control — DeepSeek Harness plugin
 
 Host plugin + browser half that expose this DeepSeek Harness through a
-self-hosted **DSH Link edge**. The plugin starts and supervises the tunnel
+self-hosted **DSH RC edge**. The plugin starts and supervises the tunnel
 agent, hands it the DSH launch URL without putting the token in `argv`, and
 adds a **Remote Control** entry to the sidebar with live state, a pair URL, a QR
 code, and start/restart/stop controls.
@@ -14,9 +14,9 @@ code, and start/restart/stop controls.
 
 | File | Role |
 | --- | --- |
-| `dist/index.js` | Host half (ESM bundle). Registers the `dsh-link` service, the authenticated RPC route, and the agent supervisor. |
-| `dist/client.js` | Client half (classic script). Calls `window.__ModuleLoader__.load({ id: '@dsh-link/plugin', factory })` and registers a `sidebar.footer.action`. |
-| `cordis.patch.yml` | Bundle patch that inserts the `dsh-link` loader entry. |
+| `dist/index.js` | Host half (ESM bundle). Registers the `dsh-rc` service, the authenticated RPC route, and the agent supervisor. |
+| `dist/client.js` | Client half (classic script). Calls `window.__ModuleLoader__.load({ id: '@dsh-rc/plugin', factory })` and registers a `sidebar.footer.action`. |
+| `cordis.patch.yml` | Bundle patch that inserts the `dsh-rc` loader entry. |
 | `dsh-plugin.json` | Plugin manifest (`manifestVersion` 0.15, host facet `dist/index.js`, `apiVersion` v1alpha1). |
 | `locale/{en,zh}.json` | Plugin title/description for the plugin inventory. |
 
@@ -46,15 +46,15 @@ The plugin is installed like any other DSH plugin; `link:` installs from a
 checkout (run from the repository root):
 
 ```bash
-dsh plugin --profile <profile> add link:/abs/path/dsh-link/packages/plugin
+dsh plugin --profile <profile> add link:/abs/path/dsh-rc/packages/plugin
 ```
 
-This adds `@dsh-link/plugin` to the profile's `package.json` **and** appends
-`@dsh-link/plugin` to `dsh.profile.bundles`, so its `cordis.patch.yml` becomes
+This adds `@dsh-rc/plugin` to the profile's `package.json` **and** appends
+`@dsh-rc/plugin` to `dsh.profile.bundles`, so its `cordis.patch.yml` becomes
 one of the profile's patch layers. Confirm the entry composed:
 
 ```bash
-dsh --profile <profile> --dump-config | grep -A8 'dsh-link'
+dsh --profile <profile> --dump-config | grep -A8 'dsh-rc'
 ```
 
 Defaults from the bundle patch: `enabled: false`, `edgeUrl:
@@ -68,14 +68,14 @@ Edit `$DSH_HOME/profiles/<profile>/cordis.patch.yml` (the user layer applied
 after every bundle layer):
 
 ```yaml
-- id: dsh-link
+- id: dsh-rc
   config:
     enabled: true
     autoStart: true
     edgeUrl: 'https://edge.example.com'
     deviceName: 'studio-mac'
     # Optional: explicit agent entry (default: resolve from the package/repo).
-    agentEntry: '/Users/me/dsh-link/apps/agent/dist/main.js'
+    agentEntry: '/Users/me/dsh-rc/apps/agent/dist/main.js'
     # insecure: false            # force/disable the agent --insecure flag
     # logLevel: info             # debug | info | warn | error
     # stateDir: '/custom/dsh-home'  # overrides DSH home; final dir is <stateDir>/link
@@ -84,7 +84,7 @@ after every bundle layer):
 or boot once with an overlay instead of editing the profile:
 
 ```bash
-dsh --profile <profile> --patch ./dsh-link.yml web --port 0 --no-open
+dsh --profile <profile> --patch ./dsh-rc.yml web --port 0 --no-open
 ```
 
 `enabled: false` keeps the service and sidebar panel available; **Start** /
@@ -95,12 +95,12 @@ dsh --profile <profile> --patch ./dsh-link.yml web --port 0 --no-open
 Launch target resolution order:
 
 1. `agentEntry` config (a `.js`/`.mjs` entry, a directory containing
-   `dist/main.js`, or a command such as `dsh-link-agent` on `PATH`).
-2. `$DSH_LINK_AGENT`.
+   `dist/main.js`, or a command such as `dsh-rc-agent` on `PATH`).
+2. `$DSHRC_AGENT`.
 3. `apps/agent/dist/main.js` relative to the plugin/repo checkout.
-4. `dsh-link` on `PATH`.
+4. `dsh-rc` on `PATH`.
 
-The Node runtime for a JavaScript entry is chosen as: `$DSH_LINK_NODE`, then
+The Node runtime for a JavaScript entry is chosen as: `$DSHRC_NODE`, then
 `$DSH_NODE`, then the DSH desktop runtime wrapper
 (`<resources>/runtime/bin/node`), then `process.execPath` with
 `ELECTRON_RUN_AS_NODE=1`. The Electron flag matters: in the desktop app
@@ -136,15 +136,15 @@ memory.
 
 - Source of truth: the agent's atomic `<stateDir>/status.json`
   (`AgentStatus` from `apps/agent`), read once per second. The pair URL comes
-  from `pairUrl` in that file; stdout (`DSH_LINK_PAIR_URL=<url>` or JSON
+  from `pairUrl` in that file; stdout (`DSHRC_PAIR_URL=<url>` or JSON
   status lines) is a fallback only.
 - Supervision: exit code 1 with an `error` status is terminal (revoked
   device, auth/protocol failure, state-dir lock) and is **not** retried; other
   exits restart with full-jitter backoff 500 ms → 30 s, and restarts are
   counted.
-- API (host): the `dsh-link` service exposes `status()`, `pairUrl()`,
+- API (host): the `dsh-rc` service exposes `status()`, `pairUrl()`,
   `start()`, `restart()`, `stop()`.
-- API (browser): authenticated `POST /dsh-link/<endpoint>` with the DSH
+- API (browser): authenticated `POST /dsh-rc/<endpoint>` with the DSH
   connection RPC envelope; endpoints `status`, `start`, `restart`, `stop`,
   `pair-url`. Unauthenticated requests get 401/403.
 
@@ -160,7 +160,7 @@ Clicking opens a modal with:
   pair URL with **Copy** and **Open**, plus a locally generated QR code for it
   (byte-mode QR, ECC M, versions 1–9, rendered as inline SVG). The QR opens
   the pairing link in another browser — scanning it on a phone is possible
-  with any camera app, but DSH Link ships no mobile client and does not
+  with any camera app, but DSH RC ships no mobile client and does not
   support mobile browsers;
 - once paired (`online` / `connecting` / `reconnecting`) the panel shows
   **Paired** with the device id instead of the consumed pair code and QR. A
@@ -189,9 +189,9 @@ Electron environment construction is covered by
 
 | Symptom | Check |
 | --- | --- |
-| Sidebar says "Host service unavailable" | `dsh --profile <p> --dump-config` shows the `dsh-link` entry? Look for `plugin-error.json` in `<stateDir>`; boot logs report a failed fiber. |
-| State `error`, "Agent entry not found" | Build the agent (`npx tsc -b apps/agent`) or set `agentEntry` / `DSH_LINK_AGENT`; the status row shows the resolved entry. |
-| Agent exits immediately in the desktop app | Set `DSH_LINK_NODE` to a real Node binary, or make sure the runtime wrapper exists; the supervisor already sets `ELECTRON_RUN_AS_NODE=1` for `process.execPath`. Check the last exit code and `lastError`. |
+| Sidebar says "Host service unavailable" | `dsh --profile <p> --dump-config` shows the `dsh-rc` entry? Look for `plugin-error.json` in `<stateDir>`; boot logs report a failed fiber. |
+| State `error`, "Agent entry not found" | Build the agent (`npx tsc -b apps/agent`) or set `agentEntry` / `DSHRC_AGENT`; the status row shows the resolved entry. |
+| Agent exits immediately in the desktop app | Set `DSHRC_NODE` to a real Node binary, or make sure the runtime wrapper exists; the supervisor already sets `ELECTRON_RUN_AS_NODE=1` for `process.execPath`. Check the last exit code and `lastError`. |
 | `another agent is already running for this state dir` | One agent per `stateDir`. Stop the other process or give each profile a distinct `stateDir`. |
 | Pair code expired or was already used | Codes are single-use and short-lived. **Restart** in the panel (or delete `<stateDir>/device.json` to re-register) to get a fresh pair URL. |
 | State stuck at `pairing` | Approve the device on the edge: open the pair URL as the owner (or the edge dashboard) and confirm the code. |

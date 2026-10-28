@@ -124,14 +124,14 @@ describe('DshSession token exchange', () => {
 
 describe('readDshUrlFile', () => {
   it('reads the url from a 0600 JSON file without logging it', async () => {
-    stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-urlfile-'));
+    stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-urlfile-'));
     const file = join(stateDir, 'dsh-url.json');
     await writeFile(file, JSON.stringify({ url: dsh.authenticatedUrl }), { mode: 0o600 });
     expect(readDshUrlFile(file)).toBe(dsh.authenticatedUrl);
   });
 
   it('rejects missing, malformed and key-less files without leaking contents', async () => {
-    stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-urlfile-'));
+    stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-urlfile-'));
     const missing = join(stateDir, 'missing.json');
     expect(() => readDshUrlFile(missing)).toThrow(TerminalAgentError);
 

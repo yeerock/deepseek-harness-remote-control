@@ -9,8 +9,8 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { IncomingHttpHeaders } from 'node:http';
-import type { Logger } from '@dsh-link/shared';
-import { isValidDeviceId } from '@dsh-link/protocol';
+import type { Logger } from '@dsh-rc/shared';
+import { isValidDeviceId } from '@dsh-rc/protocol';
 import { EdgeHttpError, TerminalAgentError, messageOf } from './errors.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -38,7 +38,7 @@ const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 /**
  * Accept a pair URL from the edge only if it is a single-line http(s) URL on
  * the edge's own origin. A compromised edge must not be able to inject newlines
- * into the CLI's `DSH_LINK_PAIR_URL=` line or publish a foreign/javascript URL.
+ * into the CLI's `DSHRC_PAIR_URL=` line or publish a foreign/javascript URL.
  * Returns undefined (and logs a value-free warning) on rejection.
  */
 export function sanitizePairUrl(pairUrl: unknown, edgeApiBase: string, logger?: Logger): string | undefined {
@@ -224,7 +224,7 @@ export class EdgeClient {
   }
 
   private async call(pathname: string, options: { method: 'GET' | 'POST'; secret?: string; body?: unknown }): Promise<JsonResponse> {
-    const headers: Record<string, string> = { 'user-agent': 'dsh-link-agent/0.1.0' };
+    const headers: Record<string, string> = { 'user-agent': 'dsh-rc-agent/0.1.0' };
     if (options.secret !== undefined) headers['authorization'] = `Bearer ${options.secret}`;
     try {
       return await requestJson(new URL(`${this.endpoint.apiBase}${pathname}`), {

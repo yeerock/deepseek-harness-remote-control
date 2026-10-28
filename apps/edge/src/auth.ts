@@ -23,12 +23,12 @@ import {
   isSecureSocket,
   requestOrigin,
   type Logger,
-} from '@dsh-link/shared';
+} from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow, EdgeDatabase, OwnerRow, SessionKind, SessionRow } from './db.js';
 
-export const SESSION_COOKIE = 'dshlink_session';
-export const CSRF_COOKIE = 'dshlink_csrf';
+export const SESSION_COOKIE = 'dshrc_session';
+export const CSRF_COOKIE = 'dshrc_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 export const CSRF_FIELD = 'csrf';
 

@@ -1,4 +1,4 @@
-# DSH Link documentation
+# DSH RC documentation
 
 Start here if you are new; the table maps each document to its audience.
 
@@ -10,7 +10,7 @@ Start here if you are new; the table maps each document to its audience.
 | [THREAT-MODEL.md](THREAT-MODEL.md) | You need assets, actors, trust boundaries, STRIDE and residual risk. |
 | [DEPLOY.md](DEPLOY.md) | You are installing an edge: laptop, VPS with Docker + Caddy, or Cloudflare. |
 | [OPERATIONS.md](OPERATIONS.md) | You are pairing, revoking, rotating, reading audit rows or diagnosing a failure. |
-| [COMPARISON.md](COMPARISON.md) | You are choosing between DSH Link and `liguobao/ds-harness-remote`. |
+| [COMPARISON.md](COMPARISON.md) | You are choosing between DSH RC and `liguobao/ds-harness-remote`. |
 | [SECURITY.md](SECURITY.md) | You are reporting a vulnerability or reviewing the security design. |
 | [FAQ.md](FAQ.md) | You want a short answer before reading a long document. |
 | [README.zh.md](README.zh.md) | 你需要简体中文的根 README。 |

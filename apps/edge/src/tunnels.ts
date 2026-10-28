@@ -1,6 +1,6 @@
 /**
  * The tunnel side of the edge: one WebSocket per device, a HELLO/HELLO_ACK
- * handshake outside the mux, then `@dsh-link/shared`'s attachMux for the
+ * handshake outside the mux, then `@dsh-rc/shared`'s attachMux for the
  * multiplexed streams.
  *
  * Presence is deliberate: after a disconnect the device stays "reconnecting"
@@ -23,8 +23,8 @@ import {
   encodeJson,
   isHello,
   type HelloAck,
-} from '@dsh-link/protocol';
-import { attachMux, clientAddress, requestHeader, tokenMatchesHash, type AttachedSocket, type Logger } from '@dsh-link/shared';
+} from '@dsh-rc/protocol';
+import { attachMux, clientAddress, requestHeader, tokenMatchesHash, type AttachedSocket, type Logger } from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow, EdgeDatabase } from './db.js';
 import type { DeviceService } from './devices.js';

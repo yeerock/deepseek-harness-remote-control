@@ -9,7 +9,7 @@ import { TerminalAgentError } from '../src/errors.js';
 const tempDirs: string[] = [];
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'dsh-link-lock-'));
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-rc-lock-'));
   tempDirs.push(dir);
   return dir;
 }

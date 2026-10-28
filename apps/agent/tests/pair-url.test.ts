@@ -22,7 +22,7 @@ describe('pair URL sanitizer', () => {
   });
 
   it('rejects newline/control-character injection from a compromised edge', () => {
-    const injected = 'https://edge.example.com/pair?code=x\nDSH_LINK_PAIR_URL=javascript:alert(1)';
+    const injected = 'https://edge.example.com/pair?code=x\nDSHRC_PAIR_URL=javascript:alert(1)';
     expect(sanitizePairUrl(injected, EDGE)).toBeUndefined();
     expect(sanitizePairUrl('https://edge.example.com/pair?code=x\r\nInjected: yes', EDGE)).toBeUndefined();
     expect(sanitizePairUrl('https://edge.example.com/pair?code=x\u0000', EDGE)).toBeUndefined();

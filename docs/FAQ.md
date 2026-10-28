@@ -1,4 +1,4 @@
-# DSH Link — FAQ
+# DSH RC — FAQ
 
 Answers are short; the linked documents carry the evidence.
 
@@ -22,7 +22,7 @@ Once it is in the path, peer-to-peer saves one hop of RTT for users who happen
 to be near each other, and adds a negotiation subsystem for everyone else —
 which is the reported failure case (`docs/adr/0001-no-webrtc.md:41-47`).
 
-On the same LAN, a direct path would be shorter. DSH Link accepts that
+On the same LAN, a direct path would be shorter. DSH RC accepts that
 regression in exchange for predictable setup on networks that block UDP. If you
 need the shortest LAN path, the reference plugin's WebRTC mode is the better
 tool (`docs/COMPARISON.md`).
@@ -35,7 +35,7 @@ tool (`docs/COMPARISON.md`).
   state instead of a hard offline page.
 - In-flight streams are reset with `retryable: true`; the browser shows the
   edge's 503 page with `Retry-After: 5` while the device is offline.
-- DSH's own client reconnects its `/api/remote.mux` stream. DSH Link does not
+- DSH's own client reconnects its `/api/remote.mux` stream. DSH RC does not
   replay application messages, ever (`docs/PROTOCOL.md:170-172`).
 - A half-open TCP connection is detected by the 15 s heartbeat and closed after
   45 s of silence.
@@ -84,7 +84,7 @@ the DSH plugin manifest format (`packages/plugin/dsh-plugin.json`).
 Builds inside that range are untested unless they are 0.2.1-rc.3; builds
 outside it are unsupported. A compatibility matrix is **TBD**.
 If you run a different build and the UI loads but its WebSocket does not, check
-`/api/remote.mux` first — DSH Link proxies it opaquely and cannot compensate for
+`/api/remote.mux` first — DSH RC proxies it opaquely and cannot compensate for
 a changed app protocol.
 
 ## Why desktop-only?
@@ -113,7 +113,7 @@ secret in clear (it stores only a SHA-256). It cannot make the agent connect to
 an origin other than the configured loopback target.
 
 If that trust is unacceptable, self-host the edge on hardware you control, or
-use a design with application-layer end-to-end encryption. DSH Link v1 has no
+use a design with application-layer end-to-end encryption. DSH RC v1 has no
 E2EE layer; `docs/COMPARISON.md` §6 explains the trade-off.
 
 ## Is the traffic encrypted?

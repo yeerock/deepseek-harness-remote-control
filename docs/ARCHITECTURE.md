@@ -1,4 +1,4 @@
-# DSH Link — architecture
+# DSH RC — architecture
 
 > Remote access to a DeepSeek Harness desktop that does not hang when the
 > network is bad, does not need a second client, and does not need WebRTC.
@@ -149,7 +149,7 @@ browser ──pair code (8 chars, 10 min, single use)──▶ access to that de
 
 | Shape | Edge | Notes |
 | --- | --- | --- |
-| Laptop demo | `dsh-link edge` on `127.0.0.1:8787` | Plain HTTP allowed only for loopback |
+| Laptop demo | `dsh-rc edge` on `127.0.0.1:8787` | Plain HTTP allowed only for loopback |
 | Single VPS | Docker + Caddy (automatic TLS) | Simplest production; one region |
 | Multi-region | One edge per region, same SQLite snapshot or Postgres (roadmap) | Agent latency-probes and connects to the nearest; hop tokens carry a browser between edges |
 | Behind Cloudflare | `TRUST_PROXY=1`, origin certificate | Anycast + HTTP/3 without owning PoPs |

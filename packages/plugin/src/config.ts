@@ -168,7 +168,7 @@ export function resolveStateDir(config: PluginConfig): string {
 export const Config = {
   '~standard': {
     version: 1 as const,
-    vendor: 'dsh-link',
+    vendor: 'dsh-rc',
     validate(value: unknown): { value: PluginConfig } | { issues: ConfigIssue[] } {
       const { config, issues } = normalizeConfig(value);
       if (issues.length > 0) return { issues };

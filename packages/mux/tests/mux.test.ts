@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FrameType, decodeFrame, encodeFrame, encodeUint32, type Open } from '@dsh-link/protocol';
+import { FrameType, decodeFrame, encodeFrame, encodeUint32, type Open } from '@dsh-rc/protocol';
 import { Mux, type MuxOptions, type Stream, type MuxTransport } from '../src/index.js';
 
 interface Pair {

@@ -5,7 +5,7 @@
  * frames, close handling, or error ordering.
  */
 import type { RawData, WebSocket } from 'ws';
-import { Mux, type MuxTransport } from '@dsh-link/mux';
+import { Mux, type MuxTransport } from '@dsh-rc/mux';
 
 function toBytes(data: RawData): Uint8Array {
   // Copy: DATA payloads are queued and consumed after the socket callback

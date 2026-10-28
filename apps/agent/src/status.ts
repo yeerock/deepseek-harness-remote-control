@@ -4,7 +4,7 @@
  */
 import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { Logger } from '@dsh-link/shared';
+import type { Logger } from '@dsh-rc/shared';
 import type { AgentState, AgentStatus } from './types.js';
 
 let statusFileCounter = 0;

@@ -7,7 +7,7 @@
  */
 import path from 'node:path';
 import process from 'node:process';
-import { isLoopbackAddress, type LogLevel } from '@dsh-link/shared';
+import { isLoopbackAddress, type LogLevel } from '@dsh-rc/shared';
 
 export interface RateLimitRule {
   /** Requests allowed in one window. */
@@ -58,7 +58,7 @@ export const MAX_AUDIT_RETENTION_DAYS = 36_500;
 export const DEFAULTS = {
   host: '127.0.0.1',
   port: 8787,
-  dataDir: 'dshlink-data',
+  dataDir: 'dshrc-data',
   publicUrl: '',
   trustProxy: false,
   insecure: false,
@@ -196,24 +196,24 @@ export function loadConfig(options: LoadConfigOptions = {}): EdgeConfig {
   const { options: cli, help } = parseArgv(options.argv ?? []);
   if (help) throw new HelpRequested();
 
-  const host = cli.host ?? env['DSHLINK_HOST'] ?? DEFAULTS.host;
-  const port = parsePort(cli.port ?? env['DSHLINK_PORT'] ?? String(DEFAULTS.port));
-  const dataDir = path.resolve(cli.dataDir ?? env['DSHLINK_DATA_DIR'] ?? DEFAULTS.dataDir);
-  const publicUrlRaw = cli.publicUrl ?? env['DSHLINK_PUBLIC_URL'] ?? DEFAULTS.publicUrl;
+  const host = cli.host ?? env['DSHRC_HOST'] ?? DEFAULTS.host;
+  const port = parsePort(cli.port ?? env['DSHRC_PORT'] ?? String(DEFAULTS.port));
+  const dataDir = path.resolve(cli.dataDir ?? env['DSHRC_DATA_DIR'] ?? DEFAULTS.dataDir);
+  const publicUrlRaw = cli.publicUrl ?? env['DSHRC_PUBLIC_URL'] ?? DEFAULTS.publicUrl;
   const publicUrl = publicUrlRaw.trim() === '' ? '' : parsePublicUrl(publicUrlRaw);
-  const trustProxy = cli.trustProxy ?? envBoolean(env['DSHLINK_TRUST_PROXY']) ?? DEFAULTS.trustProxy;
-  const insecure = cli.insecure ?? envBoolean(env['DSHLINK_INSECURE']) ?? DEFAULTS.insecure;
-  const logLevelRaw = cli.logLevel ?? env['DSHLINK_LOG_LEVEL'] ?? DEFAULTS.logLevel;
+  const trustProxy = cli.trustProxy ?? envBoolean(env['DSHRC_TRUST_PROXY']) ?? DEFAULTS.trustProxy;
+  const insecure = cli.insecure ?? envBoolean(env['DSHRC_INSECURE']) ?? DEFAULTS.insecure;
+  const logLevelRaw = cli.logLevel ?? env['DSHRC_LOG_LEVEL'] ?? DEFAULTS.logLevel;
   if (!LOG_LEVELS.has(logLevelRaw)) throw new Error(`invalid log level: ${logLevelRaw}`);
   const logLevel = logLevelRaw as LogLevel;
 
-  const setupCodeRaw = cli.setupCode ?? env['DSHLINK_SETUP_CODE'];
+  const setupCodeRaw = cli.setupCode ?? env['DSHRC_SETUP_CODE'];
   if (setupCodeRaw !== undefined && (setupCodeRaw.length < 8 || setupCodeRaw.length > 128)) {
     throw new Error('--setup-code must be 8-128 characters');
   }
 
   const auditRetentionRaw =
-    cli.auditRetentionDays ?? env['DSHLINK_AUDIT_RETENTION_DAYS'] ?? String(DEFAULT_AUDIT_RETENTION_DAYS);
+    cli.auditRetentionDays ?? env['DSHRC_AUDIT_RETENTION_DAYS'] ?? String(DEFAULT_AUDIT_RETENTION_DAYS);
   const auditRetentionDays = Number(auditRetentionRaw);
   if (!Number.isInteger(auditRetentionDays) || auditRetentionDays < 0 || auditRetentionDays > MAX_AUDIT_RETENTION_DAYS) {
     throw new Error(`--audit-retention-days must be an integer between 0 and ${String(MAX_AUDIT_RETENTION_DAYS)} (0 disables pruning)`);
@@ -264,13 +264,13 @@ export class HelpRequested extends Error {
   }
 }
 
-export const USAGE = `DSH Link edge
+export const USAGE = `DSH RC edge
 
 Usage: node --import tsx apps/edge/src/main.ts [flags]
 
   --host <addr>          Bind address (default ${DEFAULTS.host})
   --port <port>          TCP port, 0 for ephemeral (default ${String(DEFAULTS.port)})
-  --data-dir <dir>       Directory for dshlink.sqlite (default ./${DEFAULTS.dataDir})
+  --data-dir <dir>       Directory for dshrc.sqlite (default ./${DEFAULTS.dataDir})
   --public-url <origin>  Public https origin when TLS terminates in front
   --trust-proxy          Honour X-Forwarded-Proto and forwarding headers
   --insecure             Plain HTTP demo mode, loopback bind only
@@ -278,8 +278,8 @@ Usage: node --import tsx apps/edge/src/main.ts [flags]
   --audit-retention-days <n>  Prune audit rows older than n days (default 30, 0 disables)
   --log-level <level>    debug|info|warn|error|silent (default info)
 
-Environment: DSHLINK_HOST, DSHLINK_PORT, DSHLINK_DATA_DIR, DSHLINK_PUBLIC_URL,
-DSHLINK_TRUST_PROXY, DSHLINK_INSECURE, DSHLINK_SETUP_CODE, DSHLINK_LOG_LEVEL,
-DSHLINK_AUDIT_RETENTION_DAYS.
+Environment: DSHRC_HOST, DSHRC_PORT, DSHRC_DATA_DIR, DSHRC_PUBLIC_URL,
+DSHRC_TRUST_PROXY, DSHRC_INSECURE, DSHRC_SETUP_CODE, DSHRC_LOG_LEVEL,
+DSHRC_AUDIT_RETENTION_DAYS.
 Flags win over environment variables.
 `;

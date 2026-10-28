@@ -1,11 +1,11 @@
 /**
- * Public API of the DSH Link agent.
+ * Public API of the DSH RC agent.
  *
  * ```ts
  * const agent = await startAgent({
  *   edgeUrl: 'https://link.example.com',
- *   dshUrlFile: '/run/dsh-link/dsh-url.json',
- *   stateDir: '/home/me/.dsh-link/agent',
+ *   dshUrlFile: '/run/dsh-rc/dsh-url.json',
+ *   stateDir: '/home/me/.dsh-rc/agent',
  *   onStatus: (status) => console.log(status),
  * });
  * await agent.waitForOnline(30_000);

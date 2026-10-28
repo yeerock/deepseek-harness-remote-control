@@ -1,4 +1,4 @@
-# DSH Link — deployment guide
+# DSH RC — deployment guide
 
 **Audience:** the person who will run the edge and connect a desktop to it.
 
@@ -47,13 +47,13 @@ decision, not an ops detail.
 
 The numbers in the README are loopback measurements of tunnel overhead. Add the
 RTT of both legs to estimate the interactive floor; no protocol can beat
-physics, but DSH Link pays it once, not once per WebRTC fallback.
+physics, but DSH RC pays it once, not once per WebRTC fallback.
 
 ## 1. Build once
 
 ```bash
-git clone https://github.com/<your-org>/dsh-link.git
-cd dsh-link
+git clone https://github.com/<your-org>/dsh-rc.git
+cd dsh-rc
 npm ci
 npm run build
 ```
@@ -68,35 +68,35 @@ For development you can skip the build and run from source with
 ## 2. Configuration reference
 
 Precedence for both binaries: **CLI flag > environment variable > default**.
-Note that the two binaries use different prefixes — the edge uses `DSHLINK_`,
-the agent uses `DSH_LINK_`. This is the current code, not a typo in the docs.
+Note that the two binaries use different prefixes — the edge uses `DSHRC_`,
+the agent uses `DSHRC_`. This is the current code, not a typo in the docs.
 
 ### 2.1 Edge
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
-| `--host` | `DSHLINK_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` only behind a proxy or firewall. |
-| `--port` | `DSHLINK_PORT` | `8787` | Listen port. `0` picks an ephemeral port. |
-| `--data-dir` | `DSHLINK_DATA_DIR` | `./dshlink-data` | Directory for `dshlink.sqlite` (WAL mode). Created if absent. |
-| `--public-url` | `DSHLINK_PUBLIC_URL` | empty | Absolute public origin, e.g. `https://link.example.com`. Empty derives it per request from `Host`/`X-Forwarded-Proto`; set it in production. Trailing slash is stripped. |
-| `--trust-proxy` | `DSHLINK_TRUST_PROXY` | off | Honour `X-Forwarded-Proto` and `CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`. Required behind Caddy or Cloudflare, never on a directly exposed listener. |
-| `--insecure` | `DSHLINK_INSECURE` | off | Accepted **only** on a loopback bind. Allows a plain-http `--public-url` for a local proxy demo and leaves `Secure` off cookies. Loopback HTTP works without it; never use it behind Caddy or Cloudflare. |
-| `--setup-code` | `DSHLINK_SETUP_CODE` | generated | Deterministic first-run setup code, 8–128 chars. Without it a 12-character code (three groups of four) is generated and printed on each start until setup completes. |
-| `--audit-retention-days` | `DSHLINK_AUDIT_RETENTION_DAYS` | `30` | Delete audit rows older than this many days, on boot and then every 24 h. Integer 0–36500; `0` disables pruning. |
-| `--log-level` | `DSHLINK_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`, `silent`. JSON lines on stdout/stderr. |
+| `--host` | `DSHRC_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` only behind a proxy or firewall. |
+| `--port` | `DSHRC_PORT` | `8787` | Listen port. `0` picks an ephemeral port. |
+| `--data-dir` | `DSHRC_DATA_DIR` | `./dshrc-data` | Directory for `dshrc.sqlite` (WAL mode). Created if absent. |
+| `--public-url` | `DSHRC_PUBLIC_URL` | empty | Absolute public origin, e.g. `https://link.example.com`. Empty derives it per request from `Host`/`X-Forwarded-Proto`; set it in production. Trailing slash is stripped. |
+| `--trust-proxy` | `DSHRC_TRUST_PROXY` | off | Honour `X-Forwarded-Proto` and `CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`. Required behind Caddy or Cloudflare, never on a directly exposed listener. |
+| `--insecure` | `DSHRC_INSECURE` | off | Accepted **only** on a loopback bind. Allows a plain-http `--public-url` for a local proxy demo and leaves `Secure` off cookies. Loopback HTTP works without it; never use it behind Caddy or Cloudflare. |
+| `--setup-code` | `DSHRC_SETUP_CODE` | generated | Deterministic first-run setup code, 8–128 chars. Without it a 12-character code (three groups of four) is generated and printed on each start until setup completes. |
+| `--audit-retention-days` | `DSHRC_AUDIT_RETENTION_DAYS` | `30` | Delete audit rows older than this many days, on boot and then every 24 h. Integer 0–36500; `0` disables pruning. |
+| `--log-level` | `DSHRC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`, `silent`. JSON lines on stdout/stderr. |
 
 ### 2.2 Agent
 
 | Flag | Environment | Default | Meaning |
 | --- | --- | --- | --- |
-| `--edge` | `DSH_LINK_EDGE` | `http://127.0.0.1:8787` | Edge origin. `https://` in production. |
-| `--dsh-url` | `DSH_LINK_DSH_URL` | one of these | Authenticated DSH URL, typically `http://127.0.0.1:<port>/?token=…`. Puts the token in argv; prefer the file form. |
-| `--dsh-url-file` | `DSH_LINK_DSH_URL_FILE` | one of these | Path to a 0600 JSON file `{"url":"http://127.0.0.1:<port>/?token=…"}`. Takes precedence over `--dsh-url`. The plugin writes this file. |
-| `--state-dir` | `DSH_LINK_STATE_DIR` | `~/.dsh-link/agent` | Holds `device.json` (identity) and `agent.lock` (single-instance lock). Dir `0700`, files `0600`. |
-| `--name` | `DSH_LINK_NAME` | `os.hostname()` | Human-readable device name shown in the dashboard. |
-| `--insecure` | `DSH_LINK_INSECURE` | off | Allow plain `http`/`ws` to a non-loopback edge **and** skip TLS certificate verification. Loopback HTTP is always allowed without it. |
-| `--status-file` | `DSH_LINK_STATUS_FILE` | unset | If set, write an atomic JSON status document for supervisors (the plugin uses this). |
-| `--log-level` | `DSH_LINK_LOG_LEVEL` | `info` | Same levels as the edge. |
+| `--edge` | `DSHRC_EDGE` | `http://127.0.0.1:8787` | Edge origin. `https://` in production. |
+| `--dsh-url` | `DSHRC_DSH_URL` | one of these | Authenticated DSH URL, typically `http://127.0.0.1:<port>/?token=…`. Puts the token in argv; prefer the file form. |
+| `--dsh-url-file` | `DSHRC_DSH_URL_FILE` | one of these | Path to a 0600 JSON file `{"url":"http://127.0.0.1:<port>/?token=…"}`. Takes precedence over `--dsh-url`. The plugin writes this file. |
+| `--state-dir` | `DSHRC_STATE_DIR` | `~/.dsh-rc/agent` | Holds `device.json` (identity) and `agent.lock` (single-instance lock). Dir `0700`, files `0600`. |
+| `--name` | `DSHRC_NAME` | `os.hostname()` | Human-readable device name shown in the dashboard. |
+| `--insecure` | `DSHRC_INSECURE` | off | Allow plain `http`/`ws` to a non-loopback edge **and** skip TLS certificate verification. Loopback HTTP is always allowed without it. |
+| `--status-file` | `DSHRC_STATUS_FILE` | unset | If set, write an atomic JSON status document for supervisors (the plugin uses this). |
+| `--log-level` | `DSHRC_LOG_LEVEL` | `info` | Same levels as the edge. |
 
 The agent requires exactly one of `--dsh-url` / `--dsh-url-file`; it cannot
 discover the DSH port itself. A plugin-launched agent does not use the manual
@@ -118,7 +118,7 @@ the UI before committing to a server.
 node apps/edge/dist/main.js \
   --host 127.0.0.1 \
   --port 8787 \
-  --data-dir ./.dshlink-demo \
+  --data-dir ./.dshrc-demo \
   --log-level debug
 ```
 
@@ -126,9 +126,9 @@ The first start prints the bind URL, a setup code and a setup URL, for
 example:
 
 ```
-DSH Link edge listening on http://127.0.0.1:8787
-DSH Link setup code: 7f3k-9q2m-8xda
-DSH Link setup url: http://127.0.0.1:8787/setup
+DSH RC edge listening on http://127.0.0.1:8787
+DSH RC setup code: 7f3k-9q2m-8xda
+DSH RC setup url: http://127.0.0.1:8787/setup
 ```
 
 Loopback HTTP is allowed without `--insecure`; that flag exists for a
@@ -136,7 +136,7 @@ plain-http `--public-url` behind a local proxy and is rejected on any
 non-loopback bind.
 
 Complete `/setup` in the browser. This creates the owner and stores an
-HMAC-signed `dshlink_session` cookie (HttpOnly, SameSite=Lax, 30 days; `Secure`
+HMAC-signed `dshrc_session` cookie (HttpOnly, SameSite=Lax, 30 days; `Secure`
 only when the origin is HTTPS).
 
 Before setup completes, every edge start generates a fresh setup code and
@@ -157,9 +157,9 @@ history on a shared machine.
 node apps/agent/dist/main.js \
   --edge http://127.0.0.1:8787 \
   --dsh-url "http://127.0.0.1:49321/?token=REPLACE_ME" \
-  --state-dir ~/.dsh-link/agent \
+  --state-dir ~/.dsh-rc/agent \
   --name "$(hostname)" \
-  --status-file ~/.dsh-link/agent/status.json \
+  --status-file ~/.dsh-rc/agent/status.json \
   --log-level debug
 ```
 
@@ -173,8 +173,8 @@ codes are single use and expire after 10 minutes.
 
 Open `http://127.0.0.1:8787/d/<deviceId>/` to use the DSH UI.
 
-To reset the demo completely: stop both processes, `rm -rf .dshlink-demo
-~/.dsh-link/agent`, and start again. That destroys the owner, devices and
+To reset the demo completely: stop both processes, `rm -rf .dshrc-demo
+~/.dsh-rc/agent`, and start again. That destroys the owner, devices and
 sessions; it is the correct move for a demo and the wrong move in production.
 
 ## 4. Shape 2 — single VPS with Docker + Caddy
@@ -203,9 +203,9 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps ./apps
 # Production dependencies only; the workspaces are linked by npm ci.
 RUN npm ci --omit=dev \
- && addgroup -S dshlink && adduser -S dshlink -G dshlink \
- && mkdir -p /data && chown -R dshlink:dshlink /app /data
-USER dshlink
+ && addgroup -S dshrc && adduser -S dshrc -G dshrc \
+ && mkdir -p /data && chown -R dshrc:dshrc /app /data
+USER dshrc
 EXPOSE 8787
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
@@ -220,14 +220,14 @@ CMD ["--host", "0.0.0.0", "--port", "8787", "--data-dir", "/data", "--log-level"
 services:
   edge:
     build: .
-    image: dsh-link-edge:0.1.0
+    image: dsh-rc-edge:0.1.0
     restart: unless-stopped
     environment:
-      DSHLINK_PUBLIC_URL: https://link.example.com
-      DSHLINK_TRUST_PROXY: "1"
-      DSHLINK_LOG_LEVEL: info
+      DSHRC_PUBLIC_URL: https://link.example.com
+      DSHRC_TRUST_PROXY: "1"
+      DSHRC_LOG_LEVEL: info
     volumes:
-      - dshlink-data:/data
+      - dshrc-data:/data
     expose:
       - "8787"
 
@@ -246,7 +246,7 @@ services:
       - edge
 
 volumes:
-  dshlink-data:
+  dshrc-data:
   caddy-data:
   caddy-config:
 ```
@@ -276,7 +276,7 @@ invalid — or start it with an explicit `--setup-code` (`docs/OPERATIONS.md` §
 Firewall: allow `80/tcp` and `443/tcp` (and `443/udp` if your Caddy build has
 HTTP/3 enabled). Do **not** publish `8787`.
 
-Why `DSHLINK_TRUST_PROXY=1`: Caddy terminates TLS and forwards
+Why `DSHRC_TRUST_PROXY=1`: Caddy terminates TLS and forwards
 `X-Forwarded-Proto`. Without the flag the edge thinks it is serving HTTP, emits
 non-`Secure` cookies, and logs Caddy's address as the client. With the flag and
 `--public-url https://…`, cookies are `Secure` and rate limits key on the real
@@ -287,31 +287,31 @@ address is loopback, and it would drop `Secure` from cookies.
 
 ### 4.3 systemd alternative (no Docker)
 
-Install the build under `/opt/dsh-link`, create a system user, and run the edge
+Install the build under `/opt/dsh-rc`, create a system user, and run the edge
 behind Caddy or nginx on the same host:
 
 ```bash
-sudo useradd --system --home /var/lib/dsh-link --shell /usr/sbin/nologin dshlink
-sudo install -d -o dshlink -g dshlink -m 700 /var/lib/dsh-link
-sudo install -d -o dshlink -g dshlink -m 755 /opt/dsh-link
+sudo useradd --system --home /var/lib/dsh-rc --shell /usr/sbin/nologin dshrc
+sudo install -d -o dshrc -g dshrc -m 700 /var/lib/dsh-rc
+sudo install -d -o dshrc -g dshrc -m 755 /opt/dsh-rc
 ```
 
-`/etc/systemd/system/dsh-link-edge.service`:
+`/etc/systemd/system/dsh-rc-edge.service`:
 
 ```ini
 [Unit]
-Description=DSH Link edge
+Description=DSH RC edge
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=dshlink
-Group=dshlink
-WorkingDirectory=/opt/dsh-link
-ExecStart=/usr/bin/node /opt/dsh-link/apps/edge/dist/main.js \
+User=dshrc
+Group=dshrc
+WorkingDirectory=/opt/dsh-rc
+ExecStart=/usr/bin/node /opt/dsh-rc/apps/edge/dist/main.js \
   --host 127.0.0.1 --port 8787 \
-  --data-dir /var/lib/dsh-link \
+  --data-dir /var/lib/dsh-rc \
   --public-url https://link.example.com \
   --trust-proxy \
   --log-level info
@@ -321,7 +321,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/dsh-link
+ReadWritePaths=/var/lib/dsh-rc
 LimitNOFILE=65535
 
 [Install]
@@ -330,8 +330,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now dsh-link-edge
-journalctl -u dsh-link-edge -f
+sudo systemctl enable --now dsh-rc-edge
+journalctl -u dsh-rc-edge -f
 ```
 
 The edge binds `127.0.0.1:8787`, so Caddy (or nginx) on the same host is the
@@ -378,8 +378,8 @@ Edge environment:
 
 ```yaml
 environment:
-  DSHLINK_PUBLIC_URL: https://link.example.com
-  DSHLINK_TRUST_PROXY: "1"
+  DSHRC_PUBLIC_URL: https://link.example.com
+  DSHRC_TRUST_PROXY: "1"
 ```
 
 Restrict the origin firewall to Cloudflare's published IP ranges; the origin
@@ -404,7 +404,7 @@ accept that "self-hosted" now means two operators, not one.
 
 ## 6. Backup and restore
 
-The edge stores everything in one SQLite database, `dshlink.sqlite`, in WAL
+The edge stores everything in one SQLite database, `dshrc.sqlite`, in WAL
 mode. Back up the database, not the directory copy of a running process.
 
 ### 6.1 systemd / bare metal
@@ -412,24 +412,24 @@ mode. Back up the database, not the directory copy of a running process.
 Online backup (safe while running):
 
 ```bash
-sudo install -d -o dshlink -g dshlink -m 700 /var/backups/dsh-link
-sudo -u dshlink sqlite3 /var/lib/dsh-link/dshlink.sqlite \
-  ".backup '/var/backups/dsh-link/dshlink-$(date +%F-%H%M).sqlite'"
+sudo install -d -o dshrc -g dshrc -m 700 /var/backups/dsh-rc
+sudo -u dshrc sqlite3 /var/lib/dsh-rc/dshrc.sqlite \
+  ".backup '/var/backups/dsh-rc/dshrc-$(date +%F-%H%M).sqlite'"
 ```
 
 Nightly cron with 14-day retention:
 
 ```cron
-17 3 * * * dshlink sqlite3 /var/lib/dsh-link/dshlink.sqlite ".backup '/var/backups/dsh-link/dshlink-$(date +\%F).sqlite'" && find /var/backups/dsh-link -name 'dshlink-*.sqlite' -mtime +14 -delete
+17 3 * * * dshrc sqlite3 /var/lib/dsh-rc/dshrc.sqlite ".backup '/var/backups/dsh-rc/dshrc-$(date +\%F).sqlite'" && find /var/backups/dsh-rc -name 'dshrc-*.sqlite' -mtime +14 -delete
 ```
 
 Restore:
 
 ```bash
-sudo systemctl stop dsh-link-edge
-sudo -u dshlink cp /var/backups/dsh-link/dshlink-2026-10-27.sqlite /var/lib/dsh-link/dshlink.sqlite
-sudo rm -f /var/lib/dsh-link/dshlink.sqlite-wal /var/lib/dsh-link/dshlink.sqlite-shm
-sudo systemctl start dsh-link-edge
+sudo systemctl stop dsh-rc-edge
+sudo -u dshrc cp /var/backups/dsh-rc/dshrc-2026-10-27.sqlite /var/lib/dsh-rc/dshrc.sqlite
+sudo rm -f /var/lib/dsh-rc/dshrc.sqlite-wal /var/lib/dsh-rc/dshrc.sqlite-shm
+sudo systemctl start dsh-rc-edge
 curl -fsS https://link.example.com/healthz
 ```
 
@@ -444,7 +444,7 @@ Cold backup, a few seconds of downtime:
 ```bash
 mkdir -p backups
 docker compose stop edge
-docker compose cp edge:/data/dshlink.sqlite "./backups/dshlink-$(date +%F-%H%M).sqlite"
+docker compose cp edge:/data/dshrc.sqlite "./backups/dshrc-$(date +%F-%H%M).sqlite"
 docker compose start edge
 ```
 
@@ -452,15 +452,15 @@ Restore:
 
 ```bash
 docker compose stop edge
-docker compose cp "./backups/dshlink-2026-10-27-0317.sqlite" edge:/data/dshlink.sqlite
+docker compose cp "./backups/dshrc-2026-10-27-0317.sqlite" edge:/data/dshrc.sqlite
 # A restored database must not be paired with the previous WAL/SHM files.
 docker compose run --rm --entrypoint sh edge \
-  -c 'rm -f /data/dshlink.sqlite-wal /data/dshlink.sqlite-shm'
+  -c 'rm -f /data/dshrc.sqlite-wal /data/dshrc.sqlite-shm'
 docker compose start edge
 curl -fsS https://link.example.com/healthz
 ```
 
-The container's `/data` also holds `dshlink.sqlite-wal` and `-shm` while
+The container's `/data` also holds `dshrc.sqlite-wal` and `-shm` while
 running; `docker compose cp` of the main file after a clean stop is consistent.
 Do not copy the live file without stopping, or use SQLite's `.backup`.
 
@@ -469,12 +469,12 @@ Do not copy the live file without stopping, or use SQLite's `.backup`.
 ### 7.1 Bare metal / systemd
 
 ```bash
-cd /opt/dsh-link
-sudo -u dshlink git fetch --tags
-sudo -u dshlink git checkout v0.1.1        # tag you intend to run
-sudo -u dshlink npm ci
-sudo -u dshlink npm run build
-sudo systemctl restart dsh-link-edge
+cd /opt/dsh-rc
+sudo -u dshrc git fetch --tags
+sudo -u dshrc git checkout v0.1.1        # tag you intend to run
+sudo -u dshrc npm ci
+sudo -u dshrc npm run build
+sudo systemctl restart dsh-rc-edge
 curl -fsS https://link.example.com/healthz
 ```
 
@@ -492,7 +492,7 @@ curl -fsS https://link.example.com/healthz
 ```
 
 Pin the image by tag and, for a stricter deploy, by digest
-(`image: dsh-link-edge@sha256:…`). Roll back by checking out the previous tag
+(`image: dsh-rc-edge@sha256:…`). Roll back by checking out the previous tag
 and rebuilding; keep the previous `data/` backup until the new version has
 served traffic for a day.
 
@@ -513,7 +513,7 @@ supported procedure is re-registration:
 ```bash
 # 1. On the OLD edge, revoke the device (dashboard, or:)
 curl -fsS \
-  -b "dshlink_session=<owner-session>; dshlink_csrf=<csrf-token>" \
+  -b "dshrc_session=<owner-session>; dshrc_csrf=<csrf-token>" \
   -H "x-csrf-token: <csrf-token>" -d "csrf=<csrf-token>" \
   -X POST https://old.example.com/v1/devices/dev_xxxxxxxxxxxxxxxxxxxx/revoke
 
@@ -525,7 +525,7 @@ curl -fsS \
 node apps/agent/dist/main.js \
   --edge https://new.example.com \
   --dsh-url "$DSH_LAUNCH_URL" \
-  --state-dir ~/.dsh-link/agent \
+  --state-dir ~/.dsh-rc/agent \
   --name "$(hostname)"
 ```
 
@@ -556,7 +556,7 @@ session cookie and the public URL are origin-bound.
 | --- | --- |
 | `502` from Caddy | Edge container down or bound to the wrong interface; `docker compose logs edge`. |
 | `503` from the edge with `Retry-After` | Device offline or outside the 30 s presence grace; check the agent status file. |
-| Browser redirects to `http://` behind a proxy | `DSHLINK_TRUST_PROXY` and `DSHLINK_PUBLIC_URL` are not set. |
+| Browser redirects to `http://` behind a proxy | `DSHRC_TRUST_PROXY` and `DSHRC_PUBLIC_URL` are not set. |
 | Login loop | Cookie is `Secure` but the browser is on plain HTTP; use HTTPS or `--insecure` on loopback only. |
 | WebSocket fails but HTTP works | Proxy is not forwarding `Upgrade`/`Connection`; Caddy does this by default, nginx needs explicit headers. |
 

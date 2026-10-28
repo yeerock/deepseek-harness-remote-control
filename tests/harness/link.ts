@@ -207,7 +207,7 @@ export async function startEdge(options: StartEdgeOptions): Promise<EdgeProcess>
     cwd: REPO_ROOT,
     env: {
       ...process.env,
-      DSHLINK_SETUP_CODE: options.setupCode,
+      DSHRC_SETUP_CODE: options.setupCode,
       NO_COLOR: '1',
       ...(options.env ?? {}),
     },
@@ -225,7 +225,7 @@ export async function startEdge(options: StartEdgeOptions): Promise<EdgeProcess>
   });
 
   const ready = async (): Promise<EdgeProcess | undefined> => {
-    // Contract: "DSH Link edge listening on http://127.0.0.1:<port>".
+    // Contract: "DSH RC edge listening on http://127.0.0.1:<port>".
     const match = /listening on http:\/\/127\.0\.0\.1:(\d{1,5})/.exec(output)
       ?? /http:\/\/127\.0\.0\.1:(\d{1,5})/.exec(output)
       ?? /"port"\s*:\s*(\d{1,5})/.exec(output);
@@ -517,7 +517,7 @@ export interface LinkStack {
 export const OWNER_PASSWORD = 'harness-password-123';
 
 export async function startStack(options: StackOptions = {}): Promise<LinkStack> {
-  const tempRoot = await mkdtemp(join(tmpdir(), 'dsh-link-it-'));
+  const tempRoot = await mkdtemp(join(tmpdir(), 'dsh-rc-it-'));
   const edgeData = join(tempRoot, 'edge');
   const agentState = join(tempRoot, 'agent');
   const setupCode = `setup-${randomBytes(4).toString('hex')}`;

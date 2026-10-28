@@ -25,7 +25,7 @@ function layout(title: string, body: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} · DSH Link</title>
+<title>${escapeHtml(title)} · DSH RC</title>
 <style>
 :root { color-scheme: dark; --bg:#0b1020; --panel:#131a2e; --line:#26314d; --text:#e6ecff; --muted:#94a3c4; --accent:#6aa7ff; --ok:#39d98a; --warn:#ffb454; --bad:#ff6b7a; }
 * { box-sizing: border-box; }
@@ -70,7 +70,7 @@ code { background:#0e1526; border:1px solid var(--line); padding:1px 6px; border
 }
 
 function topbar(links: string): string {
-  return `<div class="topbar"><span class="brand">DSH Link</span><span class="spacer"></span>${links}</div>`;
+  return `<div class="topbar"><span class="brand">DSH RC</span><span class="spacer"></span>${links}</div>`;
 }
 
 export function setupPage(options: { csrf: string; code?: string; error?: string }): string {
@@ -109,7 +109,7 @@ export function loginPage(options: { csrf: string; error?: string; hasPassword: 
     'Sign in',
     `${topbar('')}
 <h1>Sign in</h1>
-<p class="lede">Owner access to the DSH Link edge.</p>
+<p class="lede">Owner access to the DSH RC edge.</p>
 ${error}
 <div class="panel">${body}</div>`,
   );

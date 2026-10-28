@@ -10,9 +10,9 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { ClientRequest, IncomingMessage, OutgoingHttpHeaders } from 'node:http';
-import { assertSafeOriginPath, filterRequestHeaders, filterResponseHeaders, type HeaderPair, type Open } from '@dsh-link/protocol';
-import type { Stream } from '@dsh-link/mux';
-import type { Logger } from '@dsh-link/shared';
+import { assertSafeOriginPath, filterRequestHeaders, filterResponseHeaders, type HeaderPair, type Open } from '@dsh-rc/protocol';
+import type { Stream } from '@dsh-rc/mux';
+import type { Logger } from '@dsh-rc/shared';
 import { AgentError, DshAuthError, messageOf } from './errors.js';
 import type { DshSession, DshTarget } from './dsh-session.js';
 import { toBytes, writeWithDrain } from './io.js';

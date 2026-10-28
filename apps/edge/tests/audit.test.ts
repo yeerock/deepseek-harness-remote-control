@@ -38,7 +38,7 @@ async function bootIn(dataDir: string, auditRetentionDays: number): Promise<Edge
 }
 
 async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'dshlink-audit-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'dshrc-audit-'));
   cleanups.push(async () => rm(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -79,10 +79,10 @@ describe('audit retention', () => {
     const base = ['--port', '0', '--insecure'];
     expect(loadConfig({ argv: base, env: {} }).auditRetentionDays).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
     expect(loadConfig({ argv: [...base, '--audit-retention-days', '7'], env: {} }).auditRetentionDays).toBe(7);
-    expect(loadConfig({ argv: base, env: { DSHLINK_AUDIT_RETENTION_DAYS: '14' } }).auditRetentionDays).toBe(14);
+    expect(loadConfig({ argv: base, env: { DSHRC_AUDIT_RETENTION_DAYS: '14' } }).auditRetentionDays).toBe(14);
     // CLI wins over env.
     expect(
-      loadConfig({ argv: [...base, '--audit-retention-days', '3'], env: { DSHLINK_AUDIT_RETENTION_DAYS: '14' } })
+      loadConfig({ argv: [...base, '--audit-retention-days', '3'], env: { DSHRC_AUDIT_RETENTION_DAYS: '14' } })
         .auditRetentionDays,
     ).toBe(3);
     expect(() => loadConfig({ argv: [...base, '--audit-retention-days', '-1'], env: {} })).toThrow(/audit-retention-days/);

@@ -1,4 +1,4 @@
-# DSH Link — threat model
+# DSH RC — threat model
 
 **Audience:** security reviewers, operators choosing a deployment shape, and
 contributors changing the edge, the agent or the protocol.
@@ -46,7 +46,7 @@ mitigation; there is no end-to-end encryption layer in v1.
 
 The last row matters: DSH can read files, run tools and open terminals. A
 compromised browser session is not "read the chat"; it is "act as the user on
-that desktop", bounded only by DSH's own approvals and permissions. DSH Link
+that desktop", bounded only by DSH's own approvals and permissions. DSH RC
 does not add a second permission layer inside DSH.
 
 ## 3. Actors and capabilities
@@ -103,7 +103,7 @@ Design requirements the edge must enforce:
   only permits a plain-http public URL on a loopback bind; it is not what makes
   the cookie non-`Secure`.
 - Every state-changing dashboard action is a `POST` with an `Origin` allow-list
-  check and a double-submit CSRF token (`dshlink_csrf` cookie compared with the
+  check and a double-submit CSRF token (`dshrc_csrf` cookie compared with the
   `csrf` form field or `x-csrf-token` header, constant time). No mutation is
   reachable by `GET`. `SameSite=Lax` blocks cross-site `POST` cookies, but `Lax`
   still sends the cookie on top-level `GET` navigation, so `GET` must never
@@ -203,7 +203,7 @@ should ship logs to an append-only sink and lengthen the window.
 
 | Threat | Mitigation | Where |
 | --- | --- | --- |
-| Edge reads session plaintext | **Accepted**: TLS terminates at the edge. Self-host, or do not use DSH Link for data the edge operator must not read | `docs/ARCHITECTURE.md:59-64` |
+| Edge reads session plaintext | **Accepted**: TLS terminates at the edge. Self-host, or do not use DSH RC for data the edge operator must not read | `docs/ARCHITECTURE.md:59-64` |
 | Secrets in logs | Central redaction list (`token`, `authorization`, `cookie`, `secret`, `password`, `devicesecret`, `dshtoken`, `set-cookie`) | `packages/shared/src/logger.ts:5`, `logger.ts:16-31` |
 | Secrets in error messages | Protocol errors carry a code and a short message; no payload echo in `RESET`/`GOAWAY` | `packages/protocol/src/frames.ts:229-239` |
 | Token in argv | The plugin writes `{stateDir}/upstream.json` mode 0600 and passes `--dsh-url-file`; the token is not in argv, logs, status files or the client UI. A manual run can still pass `--dsh-url`, which is the operator's choice. Same-user attackers can read the file or process memory; see §7.3 | `apps/agent/src/dsh-session.ts:22-51`, `packages/plugin/src/agent-supervisor.ts:211` |
@@ -301,13 +301,13 @@ Residual risks, stated honestly:
 a cross-site top-level `GET` does. Every mutation is therefore a `POST`, and the
 edge enforces two independent checks on it: an `Origin` allow-list (with
 `Sec-Fetch-Site` as a secondary signal) and a double-submit token — the
-`dshlink_csrf` cookie must equal the `csrf` field or `x-csrf-token` header,
+`dshrc_csrf` cookie must equal the `csrf` field or `x-csrf-token` header,
 compared in constant time (`apps/edge/src/auth.ts:242-291`). Pair-code
 redemption is a `POST`; `GET /pair?code=…` only renders a confirmation form, so
 a link cannot pair a browser by itself (`apps/edge/src/pages.ts:194-208`).
 
 The proxied DSH UI is a different origin path (`/d/<device>/`) but the same
-edge origin. Its forms and fetches are DSH's own; DSH Link does not inject
+edge origin. Its forms and fetches are DSH's own; DSH RC does not inject
 CSRF tokens into proxied HTML. DSH's session here is the agent's upstream
 cookie, not the browser's, so a CSRF request from the browser cannot borrow the
 owner's DSH identity — the agent attaches it. A paired browser can still act as
@@ -378,7 +378,7 @@ itself is kept as a tombstone so audit and re-registration remain legible.
 
 If the desktop is compromised, the attacker has the DSH cookie, the launch
 token while it is live, the device secret, and the ability to proxy anything
-the agent can. DSH Link cannot contain that: the agent's job is to forward
+the agent can. DSH RC cannot contain that: the agent's job is to forward
 requests to a server that trusts loopback. The only controls are OS-level
 (full-disk encryption, separate user accounts, EDR) and DSH's own approvals.
 
@@ -400,7 +400,7 @@ without the launch token.
 
 ### 7.11 Browser-side risks
 
-The proxied DSH UI runs DSH's own JavaScript with DSH's own CSP. DSH Link does
+The proxied DSH UI runs DSH's own JavaScript with DSH's own CSP. DSH RC does
 not rewrite HTML or inject scripts into proxied pages, so it cannot fix an XSS
 in DSH, and an XSS in DSH runs with the paired browser's access to that device.
 The edge's CSP (`http.ts:128-137`) applies only to edge-rendered pages such as
@@ -449,7 +449,7 @@ proxy must not silently change the application it serves.
 ## 9. Residual risks (accepted)
 
 1. **A compromised edge reads all proxied plaintext.** By design. Mitigate by
-   self-hosting or by not using DSH Link for that data.
+   self-hosting or by not using DSH RC for that data.
 2. **A compromised desktop is game over.** The agent's whole purpose is to act
    with the desktop's authority.
 3. **A paired browser session is a credential.** It can drive DSH within its

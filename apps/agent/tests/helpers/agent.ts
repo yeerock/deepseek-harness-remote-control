@@ -5,8 +5,8 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createLogger, type Logger } from '@dsh-link/shared';
-import type { Stream } from '@dsh-link/mux';
+import { createLogger, type Logger } from '@dsh-rc/shared';
+import type { Stream } from '@dsh-rc/mux';
 import { AgentRuntime, type RuntimeInternals } from '../../src/runtime.js';
 import type { AgentOptions, AgentStatus } from '../../src/types.js';
 
@@ -42,7 +42,7 @@ export function captureLogger(): { logger: Logger; lines: string[] } {
 }
 
 export async function startTestAgent(options: TestAgentOptions): Promise<TestAgent> {
-  const stateDir = await mkdtemp(join(tmpdir(), 'dsh-link-agent-'));
+  const stateDir = await mkdtemp(join(tmpdir(), 'dsh-rc-agent-'));
   const statuses: AgentStatus[] = [];
   const agentOptions: AgentOptions = {
     edgeUrl: options.edgeUrl,

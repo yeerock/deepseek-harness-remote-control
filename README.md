@@ -1,17 +1,17 @@
-# DSH Link
+# DSH RC
 
 **Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
 the browser you already have.**
 
 **Created by Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd (VYROX AI)
 
-DSH Link serves the *unmodified* Harness web UI over a single outbound
+DSH RC serves the *unmodified* Harness web UI over a single outbound
 connection. The desktop agent dials the edge; the edge proxies HTTP and
 WebSocket streams to it; your browser opens the real DSH interface. No WebRTC,
 no UDP, no inbound port, no port forwarding, and no second client to install on
 the machine in front of you.
 
-![The unmodified DeepSeek Harness UI, served through a DSH Link edge from another origin](docs/images/desktop-through-edge.png)
+![The unmodified DeepSeek Harness UI, served through a DSH RC edge from another origin](docs/images/desktop-through-edge.png)
 
 That screenshot is not a mockup: it is the real Harness 0.2.1 session, loaded
 from `http://<edge>/d/<device>/` in headless Chromium by
@@ -117,7 +117,7 @@ npm ci && npm run build
 
 node apps/edge/dist/main.js \
   --host 0.0.0.0 --port 8787 \
-  --data-dir ~/.dsh-link --public-url https://link.example.com
+  --data-dir ~/.dsh-rc --public-url https://link.example.com
 ```
 
 It prints a one-time **setup code** (rotated each boot until setup completes).
@@ -129,15 +129,15 @@ or terminate TLS at your load balancer and run with `--trust-proxy`.
 ```bash
 node apps/agent/dist/main.js \
   --edge https://link.example.com \
-  --dsh-url-file ~/.dsh-link/agent/upstream.json \
-  --state-dir ~/.dsh-link/agent \
+  --dsh-url-file ~/.dsh-rc/agent/upstream.json \
+  --state-dir ~/.dsh-rc/agent \
   --name my-desktop \
-  --status-file ~/.dsh-link/agent/status.json
+  --status-file ~/.dsh-rc/agent/status.json
 ```
 
 `upstream.json` is `{ "url": "http://127.0.0.1:<port>/?token=…" }`, mode 0600.
 The token is deliberately **not** accepted on argv. On first run the agent
-prints `DSH_LINK_PAIR_URL=…`; open it while signed in as the owner to approve
+prints `DSHRC_PAIR_URL=…`; open it while signed in as the owner to approve
 the device and pair the browser. The DSH UI is then at
 `https://link.example.com/d/<deviceId>/`.
 
@@ -155,11 +155,11 @@ the panel shows "Paired" instead of a dead QR.
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
 ```
 
-Enable the `dsh-link` entry in your profile's user layer,
+Enable the `dsh-rc` entry in your profile's user layer,
 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`:
 
 ```yaml
-- id: dsh-link
+- id: dsh-rc
   config:
     enabled: true
     edgeUrl: https://link.example.com
@@ -271,7 +271,7 @@ More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Creator
 
-**Ts. Dr. Leong Yee Rock** is the creator and maintainer of DSH Link / Remote
+**Ts. Dr. Leong Yee Rock** is the creator and maintainer of DSH RC / Remote
 Control.
 
 He is from **VYROX International Sdn Bhd (VYROX AI)**, Malaysia.

@@ -15,7 +15,7 @@ import {
   sha256Hex,
   tokenMatchesHash,
   type Logger,
-} from '@dsh-link/shared';
+} from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow, EdgeDatabase } from './db.js';
 

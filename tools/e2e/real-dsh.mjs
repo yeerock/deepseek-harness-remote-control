@@ -4,8 +4,8 @@
  *
  * Boots three real processes:
  *   1. an isolated `dsh --profile web` instance (its own DSH_HOME),
- *   2. the DSH Link edge,
- *   3. the DSH Link agent pointed at that Harness.
+ *   2. the DSH RC edge,
+ *   3. the DSH RC agent pointed at that Harness.
  *
  * Then drives the actual owner-setup + pairing flow over HTTP, loads
  * `/d/<device>/` through the edge with a headless Chromium, and asserts that the
@@ -37,7 +37,7 @@ const DSH_CLI = process.env.DSH_CLI
 const CHROMIUM = process.env.CHROMIUM
   ?? path.join(os.homedir(), 'Library/Caches/ms-playwright/chromium-1223/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing');
 
-const tmp = mkdtempSync(path.join(os.tmpdir(), 'dshlink-e2e-'));
+const tmp = mkdtempSync(path.join(os.tmpdir(), 'dshrc-e2e-'));
 const children = [];
 const results = { steps: [], ok: false };
 
@@ -130,7 +130,7 @@ function makeClient(baseUrl) {
     jar.absorb(response);
     return response;
   };
-  return { request, jar, csrf: () => jar.cookies.get('dshlink_csrf') };
+  return { request, jar, csrf: () => jar.cookies.get('dshrc_csrf') };
 }
 
 async function poll(fn, predicate, timeoutMs, label) {
@@ -173,7 +173,7 @@ async function main() {
     '--data-dir', edgeData, '--insecure', '--setup-code', setupCode,
     '--log-level', 'warn',
   ], { cwd: repo, env: { ...process.env, NO_COLOR: '1' } });
-  const edgeMatch = await waitForOutput(edge, /DSH Link edge listening on (http:\/\/127\.0\.0\.1:\d+)/, 30_000, 'edge');
+  const edgeMatch = await waitForOutput(edge, /DSH RC edge listening on (http:\/\/127\.0\.0\.1:\d+)/, 30_000, 'edge');
   const edgeUrl = edgeMatch[1];
   step('edge booted', { edgeUrl });
 

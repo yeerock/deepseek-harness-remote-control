@@ -1,5 +1,5 @@
 /**
- * Remote Control client half (DSH Link project): a sidebar footer entry plus
+ * Remote Control client half (DSH RC project): a sidebar footer entry plus
  * a status modal.
  *
  * Bundle contract (verified against `@deepseek-ai/dsh-client-modules`): the
@@ -8,7 +8,7 @@
  * `require` for shell-provided modules and returns `{ apply, inject }`.
  *
  * `inject` names the *client services* this plugin binds to. The host service
- * (`dsh-link`) is reached over the authenticated connection RPC channel, so a
+ * (`dsh-rc`) is reached over the authenticated connection RPC channel, so a
  * profile without the host half degrades to "host service unavailable"
  * instead of failing to mount.
  */
@@ -21,7 +21,7 @@ interface RpcResult<T> {
   error?: { code?: string; message?: string };
 }
 
-interface DshLinkStatusView {
+interface DshRcStatusView {
   state?: string;
   deviceName?: string;
   edgeUrl?: string;
@@ -55,9 +55,9 @@ interface ClientContext {
   effect(dispose: () => void, label?: string): unknown;
 }
 
-const LOCALE_NAMESPACE = 'dsh-link';
-const RPC_CHANNEL = '/dsh-link';
-const MODAL_ID = 'dsh-link-status-modal';
+const LOCALE_NAMESPACE = 'dsh-rc';
+const RPC_CHANNEL = '/dsh-rc';
+const MODAL_ID = 'dsh-rc-status-modal';
 
 /* ------------------------------ dictionaries ------------------------------ */
 
@@ -176,7 +176,7 @@ function isMissingChannel(reason: unknown): boolean {
     text.includes('HTTP 404') ||
     text.includes('HTTP 405') ||
     text.includes(`transport failure for ${RPC_CHANNEL}/`) ||
-    text.includes('unknown dsh-link endpoint')
+    text.includes('unknown dsh-rc endpoint')
   );
 }
 
@@ -333,11 +333,11 @@ function createComponent(React: any): (props: AnyProps) => any {
     footerHint: { marginTop: '12px', fontSize: '11px', color: '#a1a1aa' } as const,
   };
 
-  function DshLinkAction(props: AnyProps): any {
+  function DshRcAction(props: AnyProps): any {
     const t: (key: string) => string = props.t;
     const call: (endpoint: string) => Promise<any> = props.call;
     const ReactUse = React;
-    const [status, setStatus] = ReactUse.useState(undefined as DshLinkStatusView | undefined);
+    const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
     const [open, setOpen] = ReactUse.useState(false);
     const [unavailable, setUnavailable] = ReactUse.useState(false);
     const [error, setError] = ReactUse.useState(undefined as string | undefined);
@@ -346,7 +346,7 @@ function createComponent(React: any): (props: AnyProps) => any {
 
     const refresh = ReactUse.useCallback(async () => {
       try {
-        const next = (await call('status')) as DshLinkStatusView;
+        const next = (await call('status')) as DshRcStatusView;
         setStatus(next);
         setUnavailable(false);
         setError(undefined);
@@ -386,7 +386,7 @@ function createComponent(React: any): (props: AnyProps) => any {
       setBusy(true);
       setError(undefined);
       try {
-        const next = (await call(endpoint)) as DshLinkStatusView;
+        const next = (await call(endpoint)) as DshRcStatusView;
         setStatus(next);
       } catch (reason) {
         setError(messageOf(reason));
@@ -559,16 +559,16 @@ function createComponent(React: any): (props: AnyProps) => any {
     );
   }
 
-  return DshLinkAction;
+  return DshRcAction;
 }
 
 /* --------------------------------- plugin --------------------------------- */
 
 function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
-  ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, { en: EN, zh: ZH }), 'dsh-link: dictionaries');
+  ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, { en: EN, zh: ZH }), 'dsh-rc: dictionaries');
 
-  const React = (globalThis as unknown as Record<string, any>)['__DSH_LINK_REACT__'];
+  const React = (globalThis as unknown as Record<string, any>)['__DSHRC_REACT__'];
   void React;
 
   // The component is created inside the factory so `require('react')` is the
@@ -577,7 +577,7 @@ function apply(ctx: ClientContext): void {
   const call = async (endpoint: string): Promise<any> => {
     const result = await ctx.connection.rpc.call(RPC_CHANNEL, endpoint, {});
     if (result === undefined || result.ok !== true) {
-      throw new Error(result?.error?.message ?? `dsh-link ${endpoint} failed`);
+      throw new Error(result?.error?.message ?? `dsh-rc ${endpoint} failed`);
     }
     return result.value;
   };
@@ -586,7 +586,7 @@ function apply(ctx: ClientContext): void {
     ctx.slots.register(
       {
         name: 'sidebar.footer.action',
-        id: 'dsh-link',
+        id: 'dsh-rc',
         order: 40,
         locale: LOCALE_NAMESPACE,
         inject: () => ({ call, t }),
@@ -610,7 +610,7 @@ function requireReact(): any {
 let loaderRequire: ((id: string) => any) | undefined;
 
 function requireFromLoader(id: string): any {
-  if (loaderRequire === undefined) throw new Error(`dsh-link: module loader require() is unavailable for ${id}`);
+  if (loaderRequire === undefined) throw new Error(`dsh-rc: module loader require() is unavailable for ${id}`);
   return loaderRequire(id);
 }
 
@@ -620,11 +620,11 @@ function loadModule(): void {
   if (loader === undefined || typeof loader.load !== 'function') {
     // Failing loudly inside the console is better than a silent no-op: the
     // boot audit will also report the missing bundle registration.
-    console.warn('dsh-link: window.__ModuleLoader__ is missing; client half not registered');
+    console.warn('dsh-rc: window.__ModuleLoader__ is missing; client half not registered');
     return;
   }
   loader.load({
-    id: '@dsh-link/plugin',
+    id: '@dsh-rc/plugin',
     factory: (requireModule: (id: string) => any) => {
       loaderRequire = requireModule;
       const module = { exports: {} as Record<string, unknown> };

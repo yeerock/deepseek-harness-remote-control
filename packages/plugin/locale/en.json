@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Remote Control",
-    "description": "Remote control of this DeepSeek Harness through a self-hosted DSH Link edge."
+    "description": "Remote control of this DeepSeek Harness through a self-hosted DSH RC edge."
   },
   "hints": {
     "pair": "Scan to open the pairing link in a browser.",

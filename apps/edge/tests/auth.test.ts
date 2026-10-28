@@ -21,7 +21,7 @@ describe('first-run setup', () => {
     expect(page.status).toBe(200);
     const html = await page.text();
     const csrf = extractCsrf(html);
-    expect(jar.get('dshlink_csrf')).toBeTruthy();
+    expect(jar.get('dshrc_csrf')).toBeTruthy();
 
     const missingCsrf = await http(edge.base, '/setup', {
       method: 'POST',
@@ -55,7 +55,7 @@ describe('first-run setup', () => {
     });
     expect(ok.status).toBe(303);
     expect(ok.headers.get('location')).toBe('/');
-    const sessionCookie = jar.get('dshlink_session');
+    const sessionCookie = jar.get('dshrc_session');
     expect(sessionCookie).toBeTruthy();
     // HMAC-signed payload: base64url(payload).base64url(signature).
     expect(sessionCookie).toContain('.');
@@ -73,12 +73,12 @@ describe('first-run setup', () => {
   it('rejects a session cookie whose signature was tampered with', async () => {
     const edge = await boot();
     const { jar } = await setupOwner(edge.base);
-    const cookie = jar.get('dshlink_session');
+    const cookie = jar.get('dshrc_session');
     expect(cookie).toBeTruthy();
     const tampered = `${(cookie ?? '').slice(0, -2)}aa`;
 
     const response = await fetch(`${edge.base}/`, {
-      headers: { cookie: `dshlink_session=${tampered}` },
+      headers: { cookie: `dshrc_session=${tampered}` },
       redirect: 'manual',
     });
     expect(response.status).toBe(303);
@@ -90,7 +90,7 @@ describe('first-run setup', () => {
     const { jar } = await setupOwner(edge.base);
     const dashboard = await http(edge.base, '/', { jar });
     expect(dashboard.status).toBe(200);
-    const csrf = jar.get('dshlink_csrf');
+    const csrf = jar.get('dshrc_csrf');
 
     const logout = await http(edge.base, '/logout', {
       method: 'POST',

@@ -5,12 +5,12 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     environment:
-      DSHLINK_PUBLIC_URL: ${DSHLINK_PUBLIC_URL:?set DSHLINK_PUBLIC_URL, e.g. https://link.example.com}
-      DSHLINK_TRUST_PROXY: "1"
-      DSHLINK_SETUP_CODE: ${DSHLINK_SETUP_CODE:-}
-      DSHLINK_LOG_LEVEL: ${DSHLINK_LOG_LEVEL:-info}
+      DSHRC_PUBLIC_URL: ${DSHRC_PUBLIC_URL:?set DSHRC_PUBLIC_URL, e.g. https://link.example.com}
+      DSHRC_TRUST_PROXY: "1"
+      DSHRC_SETUP_CODE: ${DSHRC_SETUP_CODE:-}
+      DSHRC_LOG_LEVEL: ${DSHRC_LOG_LEVEL:-info}
     volumes:
-      - dsh-link-data:/data
+      - dsh-rc-data:/data
     expose:
       - "8787"
     networks: [edge]
@@ -23,7 +23,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DSHLINK_DOMAIN: ${DSHLINK_DOMAIN:?set DSHLINK_DOMAIN, e.g. link.example.com}
+      DSHRC_DOMAIN: ${DSHRC_DOMAIN:?set DSHRC_DOMAIN, e.g. link.example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -31,7 +31,7 @@ services:
     networks: [edge]
 
 volumes:
-  dsh-link-data:
+  dsh-rc-data:
   caddy-data:
   caddy-config:
 

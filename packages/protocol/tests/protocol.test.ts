@@ -90,7 +90,7 @@ describe('header filtering', () => {
       origin: 'https://edge.example',
       'sec-fetch-site': 'same-origin',
       authorization: 'Bearer edge',
-      'x-dsh-link-trace': 'abc',
+      'x-dsh-rc-trace': 'abc',
       accept: 'text/html',
       'accept-language': 'en',
     }));

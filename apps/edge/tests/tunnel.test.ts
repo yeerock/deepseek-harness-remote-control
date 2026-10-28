@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { HelloAck } from '@dsh-link/protocol';
+import type { HelloAck } from '@dsh-rc/protocol';
 import {
   connectTunnel,
   http,
@@ -32,7 +32,7 @@ async function approveAsOwner(edge: TestEdge, deviceId: string): Promise<void> {
   await http(edge.base, `/v1/devices/${deviceId}/approve`, {
     method: 'POST',
     jar: owner.jar,
-    headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshlink_csrf') ?? '', accept: 'application/json' },
+    headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshrc_csrf') ?? '', accept: 'application/json' },
   });
 }
 
@@ -62,7 +62,7 @@ describe('tunnel handshake', () => {
     const revoke = await http(edge.base, `/v1/devices/${device.deviceId}/revoke`, {
       method: 'POST',
       jar: owner.jar,
-      headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshlink_csrf') ?? '', accept: 'application/json' },
+      headers: { origin: edge.base, 'x-csrf-token': owner.jar.get('dshrc_csrf') ?? '', accept: 'application/json' },
     });
     expect(revoke.status).toBe(200);
 

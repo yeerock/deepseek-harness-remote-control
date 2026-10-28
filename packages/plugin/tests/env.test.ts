@@ -10,7 +10,7 @@ import type { LaunchTarget } from '../src/agent-supervisor.js';
 const scratch: string[] = [];
 
 function scratchFile(name: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-link-plugin-test-'));
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-rc-plugin-test-'));
   scratch.push(dir);
   const file = join(dir, name);
   writeFileSync(file, '#!/bin/sh\nexit 0\n');
@@ -54,9 +54,9 @@ describe('agentChildEnv', () => {
 });
 
 describe('resolveNodeCommand', () => {
-  it('prefers DSH_LINK_NODE over everything else', () => {
+  it('prefers DSHRC_NODE over everything else', () => {
     const node = scratchFile('node');
-    const result = resolveNodeCommand({ DSH_LINK_NODE: node });
+    const result = resolveNodeCommand({ DSHRC_NODE: node });
     expect(result.command).toBe(node);
     expect(result.electron).toBe(false);
   });
@@ -77,8 +77,8 @@ describe('targetFromSpec', () => {
   });
 
   it('treats a bare name as a PATH command', () => {
-    const target = targetFromSpec('dsh-link', '/tmp/plugin');
-    expect(target).toEqual({ command: 'dsh-link', prefixArgs: [], display: 'dsh-link' });
+    const target = targetFromSpec('dsh-rc', '/tmp/plugin');
+    expect(target).toEqual({ command: 'dsh-rc', prefixArgs: [], display: 'dsh-rc' });
   });
 });
 

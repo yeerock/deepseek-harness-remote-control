@@ -3,7 +3,7 @@
 - Status: **Accepted**
 - Date: 2026-10-28
 - Supersedes: the transport-first assumption in `ds-harness-remote`
-- Deciders: DSH Link maintainers
+- Deciders: DSH RC maintainers
 
 ## Context
 

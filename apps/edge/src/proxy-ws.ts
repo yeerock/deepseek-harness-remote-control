@@ -14,9 +14,9 @@ import {
   assertSafeOriginPath,
   decodeCloseBody,
   filterRequestHeaders,
-} from '@dsh-link/protocol';
-import type { Mux, Stream } from '@dsh-link/mux';
-import { newId, type Logger } from '@dsh-link/shared';
+} from '@dsh-rc/protocol';
+import type { Mux, Stream } from '@dsh-rc/mux';
+import { newId, type Logger } from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow } from './db.js';
 import type { TunnelManager } from './tunnels.js';

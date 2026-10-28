@@ -1,8 +1,8 @@
-# DSH Link edge behind Caddy. Caddy obtains and renews TLS automatically and
+# DSH RC edge behind Caddy. Caddy obtains and renews TLS automatically and
 # forwards the original scheme so the edge can mint Secure cookies and correct
 # absolute URLs. WebSocket upgrades pass through untouched.
 
-{$DSHLINK_DOMAIN} {
+{$DSHRC_DOMAIN} {
 	encode zstd gzip
 
 	# Long-lived tunnel + DSH stream mux: disable buffering and timeouts that

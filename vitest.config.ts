@@ -8,8 +8,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@dsh-link/protocol': new URL('./packages/protocol/src/index.ts', import.meta.url).pathname,
-      '@dsh-link/mux': new URL('./packages/mux/src/index.ts', import.meta.url).pathname,
+      '@dsh-rc/protocol': new URL('./packages/protocol/src/index.ts', import.meta.url).pathname,
+      '@dsh-rc/mux': new URL('./packages/mux/src/index.ts', import.meta.url).pathname,
     },
   },
 });

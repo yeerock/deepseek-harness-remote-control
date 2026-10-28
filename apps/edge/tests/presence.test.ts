@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Stream } from '@dsh-link/mux';
+import type { Stream } from '@dsh-rc/mux';
 import { connectTunnel, http, provisionDevice, setupOwner, startEdge, type TestEdge } from './helpers.js';
 
 const edges: TestEdge[] = [];

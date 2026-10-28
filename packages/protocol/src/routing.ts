@@ -115,7 +115,7 @@ export function filterRequestHeaders(
     if (value === undefined) continue;
     const name = rawName.toLowerCase();
     if (STRIPPED_REQUEST_HEADERS.has(name)) continue;
-    if (name.startsWith('x-dsh-link-')) continue;
+    if (name.startsWith('x-dsh-rc-')) continue;
     // WebSocket handshake headers survive only on a ws stream.
     if (!options.upgrade && (name.startsWith('sec-websocket-') || name === 'sec-websocket-key' || name === 'sec-websocket-version' || name === 'sec-websocket-protocol' || name === 'sec-websocket-extensions')) continue;
     const text = Array.isArray(value) ? value.join(', ') : value;

@@ -7,7 +7,7 @@ import {
   validateHelloAckLimits,
 } from '../src/tunnel.js';
 import { AgentError } from '../src/errors.js';
-import { DEFAULT_HEARTBEAT_MS, DEFAULT_IDLE_TIMEOUT_MS, INITIAL_STREAM_WINDOW } from '@dsh-link/protocol';
+import { DEFAULT_HEARTBEAT_MS, DEFAULT_IDLE_TIMEOUT_MS, INITIAL_STREAM_WINDOW } from '@dsh-rc/protocol';
 
 function ack(overrides: Partial<{ heartbeatMs: number; idleTimeoutMs: number; initialStreamWindow: number }> = {}) {
   return {

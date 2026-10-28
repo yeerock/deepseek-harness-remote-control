@@ -1,5 +1,5 @@
 {
-  "name": "dsh-link",
+  "name": "dsh-rc",
   "version": "0.1.0",
   "private": true,
   "description": "Reliable, single-transport remote access for the DeepSeek Harness desktop app.",

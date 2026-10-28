@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DSH Link benchmark harness.
+ * DSH RC benchmark harness.
  *
  * Boots a mock DSH, the real edge and the real agent on loopback ephemeral
  * ports, then measures the numbers the architecture targets: tunnel connect
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     console.log(`  ${name.padEnd(42)} ${String(round(value)).padStart(10)} ${unit}`);
   };
 
-  console.log(`DSH Link bench — ${startedAt.toISOString()}${quick ? ' (quick)' : ''}`);
+  console.log(`DSH RC bench — ${startedAt.toISOString()}${quick ? ' (quick)' : ''}`);
   const stack = await startStack();
   try {
     // ---------------------------------------------------------------- warmup
@@ -301,7 +301,7 @@ async function measureReconnect(stack: LinkStack): Promise<number> {
 
 function renderMarkdown(report: BenchReport): string {
   const lines = [
-    `# DSH Link benchmark — ${report.meta.quick ? 'quick' : 'full'}`,
+    `# DSH RC benchmark — ${report.meta.quick ? 'quick' : 'full'}`,
     '',
     `- Date: ${report.meta.date}`,
     `- Machine: ${report.meta.cpu} · ${report.meta.platform}/${report.meta.arch} · ${String(report.meta.totalMemGiB)} GiB`,

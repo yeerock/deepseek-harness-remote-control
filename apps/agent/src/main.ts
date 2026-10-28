@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * DSH Link agent CLI.
+ * DSH RC agent CLI.
  *
- * Prints one JSON status object per line, plus `DSH_LINK_PAIR_URL=<url>` the
+ * Prints one JSON status object per line, plus `DSHRC_PAIR_URL=<url>` the
  * first time pairing starts, and writes an atomic status file when
  * `--status-file` is set. The launch token is read from a 0600 JSON file
  * (`--dsh-url-file`) so it never appears in `ps` output, or from an inline
@@ -12,7 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { createLogger, type LogLevel } from '@dsh-link/shared';
+import { createLogger, type LogLevel } from '@dsh-rc/shared';
 import { AgentRuntime } from './runtime.js';
 import { writeStatusFileAtomic } from './status.js';
 import { AgentError, messageOf } from './errors.js';
@@ -30,23 +30,23 @@ const FLAGS = {
   help: { type: 'boolean' },
 } as const;
 
-const USAGE = `Usage: dsh-link-agent --edge <url> (--dsh-url <url> | --dsh-url-file <path>) [options]
+const USAGE = `Usage: dsh-rc-agent --edge <url> (--dsh-url <url> | --dsh-url-file <path>) [options]
 
 Options:
   --edge <url>          Edge origin (default: http://127.0.0.1:8787)
   --dsh-url <url>       Loopback DSH URL; may include ?token=... for manual runs
   --dsh-url-file <path> Read the launch URL from a 0600 JSON file {"url":"..."}
                         (takes precedence over --dsh-url; preferred for secrets)
-  --state-dir <path>    Device identity directory (default: ~/.dsh-link/agent)
+  --state-dir <path>    Device identity directory (default: ~/.dsh-rc/agent)
   --name <name>         Device name in the dashboard (default: hostname)
   --insecure            Allow plain http/ws to a non-loopback edge; skip TLS verify
   --status-file <path>  Atomically write AgentStatus JSON on every transition
   --log-level <level>   debug | info | warn | error | silent (default: info)
   --help                Show this help
 
-Environment: DSH_LINK_EDGE, DSH_LINK_DSH_URL, DSH_LINK_DSH_URL_FILE,
-DSH_LINK_STATE_DIR, DSH_LINK_NAME, DSH_LINK_INSECURE, DSH_LINK_STATUS_FILE,
-DSH_LINK_LOG_LEVEL. CLI flags win over environment variables.
+Environment: DSHRC_EDGE, DSHRC_DSH_URL, DSHRC_DSH_URL_FILE,
+DSHRC_STATE_DIR, DSHRC_NAME, DSHRC_INSECURE, DSHRC_STATUS_FILE,
+DSHRC_LOG_LEVEL. CLI flags win over environment variables.
 `;
 
 const LOG_LEVELS: ReadonlySet<string> = new Set(['debug', 'info', 'warn', 'error', 'silent']);
@@ -77,21 +77,21 @@ export function parseCli(argv: string[]): CliConfig | 'help' {
   const values = parsed.values;
   if (values.help === true) return 'help';
 
-  const logLevel = values['log-level'] ?? env('DSH_LINK_LOG_LEVEL') ?? 'info';
+  const logLevel = values['log-level'] ?? env('DSHRC_LOG_LEVEL') ?? 'info';
   if (!LOG_LEVELS.has(logLevel)) {
     throw new AgentError('AGENT_USAGE', `invalid --log-level: ${logLevel}`, false);
   }
 
-  const edgeUrl = values.edge ?? env('DSH_LINK_EDGE') ?? 'http://127.0.0.1:8787';
-  const dshUrlFile = values['dsh-url-file'] ?? env('DSH_LINK_DSH_URL_FILE');
-  const dshUrl = values['dsh-url'] ?? env('DSH_LINK_DSH_URL');
+  const edgeUrl = values.edge ?? env('DSHRC_EDGE') ?? 'http://127.0.0.1:8787';
+  const dshUrlFile = values['dsh-url-file'] ?? env('DSHRC_DSH_URL_FILE');
+  const dshUrl = values['dsh-url'] ?? env('DSHRC_DSH_URL');
   if (dshUrlFile === undefined && (dshUrl === undefined || dshUrl === '')) {
     throw new AgentError('AGENT_USAGE', `either --dsh-url or --dsh-url-file is required\n\n${USAGE}`, false);
   }
-  const stateDir = values['state-dir'] ?? env('DSH_LINK_STATE_DIR') ?? join(homedir(), '.dsh-link', 'agent');
-  const name = values.name ?? env('DSH_LINK_NAME');
-  const statusFile = values['status-file'] ?? env('DSH_LINK_STATUS_FILE');
-  const insecure = values.insecure === true || envFlag('DSH_LINK_INSECURE') === true;
+  const stateDir = values['state-dir'] ?? env('DSHRC_STATE_DIR') ?? join(homedir(), '.dsh-rc', 'agent');
+  const name = values.name ?? env('DSHRC_NAME');
+  const statusFile = values['status-file'] ?? env('DSHRC_STATUS_FILE');
+  const insecure = values.insecure === true || envFlag('DSHRC_INSECURE') === true;
 
   const options: AgentOptions = {
     edgeUrl,
@@ -100,7 +100,7 @@ export function parseCli(argv: string[]): CliConfig | 'help' {
     ...(dshUrlFile === undefined ? {} : { dshUrlFile }),
     ...(name === undefined ? {} : { name }),
     ...(insecure ? { insecure: true } : {}),
-    logger: createLogger('dsh-link-agent', logLevel as LogLevel),
+    logger: createLogger('dsh-rc-agent', logLevel as LogLevel),
   };
   return { options, ...(statusFile === undefined ? {} : { statusFile }) };
 }
@@ -119,14 +119,14 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const { options, statusFile } = config;
-  const logger = options.logger ?? createLogger('dsh-link-agent');
+  const logger = options.logger ?? createLogger('dsh-rc-agent');
   let lastPairUrl: string | undefined;
   let stopped = false;
 
   const emitStatus = (status: AgentStatus): void => {
     if (status.pairUrl !== undefined && status.pairUrl !== lastPairUrl) {
       lastPairUrl = status.pairUrl;
-      process.stdout.write(`DSH_LINK_PAIR_URL=${status.pairUrl}\n`);
+      process.stdout.write(`DSHRC_PAIR_URL=${status.pairUrl}\n`);
     }
     process.stdout.write(`${JSON.stringify({ type: 'status', ...status })}\n`);
     if (statusFile !== undefined) {
@@ -182,7 +182,7 @@ async function main(argv: string[]): Promise<number> {
 
 const entry = process.argv[1];
 const invokedDirectly = entry !== undefined && pathToFileURL(entry).href === import.meta.url;
-if (invokedDirectly || process.env['DSH_LINK_AGENT_CLI'] === '1') {
+if (invokedDirectly || process.env['DSHRC_AGENT_CLI'] === '1') {
   void main(process.argv.slice(2)).then((code) => {
     if (code >= 0) process.exit(code);
   });

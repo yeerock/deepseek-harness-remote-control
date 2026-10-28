@@ -1,5 +1,5 @@
 /**
- * The DSH Link edge server: HTTP routing, browser auth, device API, tunnel
+ * The DSH RC edge server: HTTP routing, browser auth, device API, tunnel
  * upgrades and the `/d/<deviceId>/` proxy.
  *
  * Everything the edge renders itself is small and local; everything under
@@ -13,7 +13,7 @@ import {
   assertSafeOriginPath,
   isValidDeviceId,
   parseDevicePath,
-} from '@dsh-link/protocol';
+} from '@dsh-rc/protocol';
 import {
   VERSION,
   clientAddress,
@@ -24,7 +24,7 @@ import {
   requestOrigin,
   sendJson,
   type Logger,
-} from '@dsh-link/shared';
+} from '@dsh-rc/shared';
 import { WebSocketServer } from 'ws';
 import { AuthService } from './auth.js';
 import { loadConfig, type EdgeConfig } from './config.js';
@@ -195,7 +195,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     if (pathname === '/v1/edge') {
       if (method !== 'GET') return methodNotAllowed(response, ['GET']);
       sendJson(response, 200, {
-        name: 'dsh-link-edge',
+        name: 'dsh-rc-edge',
         edgeId: auth.edgeId,
         version: VERSION,
         protocol: PROTOCOL_VERSION,

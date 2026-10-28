@@ -17,9 +17,9 @@ import {
   encodeJson,
   isHelloAck,
   type HelloAck,
-} from '@dsh-link/protocol';
-import type { Stream } from '@dsh-link/mux';
-import { attachMux, type AttachedSocket } from '@dsh-link/shared';
+} from '@dsh-rc/protocol';
+import type { Stream } from '@dsh-rc/mux';
+import { attachMux, type AttachedSocket } from '@dsh-rc/shared';
 import { loadConfig, type EdgeConfig } from '../src/config.js';
 import { createEdgeServer, type EdgeServer } from '../src/server.js';
 
@@ -35,7 +35,7 @@ export interface TestEdge {
 }
 
 export async function startEdge(overrides: Partial<EdgeConfig> = {}): Promise<TestEdge> {
-  const dir = await mkdtemp(path.join(tmpdir(), 'dshlink-edge-test-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'dshrc-edge-test-'));
   const config = loadConfig({
     argv: [
       '--host',

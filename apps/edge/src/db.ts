@@ -14,7 +14,7 @@ import process from 'node:process';
 // runtime's builtin table instead of a static import. Type-only imports are
 // erased and keep the ergonomics.
 import type { DatabaseSync as DatabaseSyncClass, SQLOutputValue } from 'node:sqlite';
-import { newId } from '@dsh-link/shared';
+import { newId } from '@dsh-rc/shared';
 
 type SqliteModule = typeof import('node:sqlite');
 const sqlite = process.getBuiltinModule('node:sqlite') as SqliteModule;
@@ -224,7 +224,7 @@ export class EdgeDatabase {
 
   constructor(dataDir: string) {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    this.file = path.join(dataDir, 'dshlink.sqlite');
+    this.file = path.join(dataDir, 'dshrc.sqlite');
     this.database = new DatabaseSync(this.file);
     try {
       chmodSync(this.file, 0o600);

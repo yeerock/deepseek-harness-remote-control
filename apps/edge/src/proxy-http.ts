@@ -15,8 +15,8 @@ import {
   filterResponseHeaders,
   rewriteLocation as rewriteProtocolLocation,
   type HeaderPair,
-} from '@dsh-link/protocol';
-import { newId, requestHeader, sendJson, writeWithDrain, type Logger } from '@dsh-link/shared';
+} from '@dsh-rc/protocol';
+import { newId, requestHeader, sendJson, writeWithDrain, type Logger } from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow } from './db.js';
 import { sendErrorPage } from './respond.js';

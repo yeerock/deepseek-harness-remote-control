@@ -1,15 +1,15 @@
-# DSH Link
+# DSH RC
 
 **一条 TLS WebSocket，把你正在用的浏览器变成 DeepSeek Harness 桌面版的远程窗口。**
 
 **创作者：Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd（VYROX AI）
 
-DSH Link 通过一条由桌面端主动外连的长连接，把**未经修改的** DeepSeek Harness
+DSH RC 通过一条由桌面端主动外连的长连接，把**未经修改的** DeepSeek Harness
 Web UI 提供到任意浏览器：桌面里的 agent 主动连到 edge，edge 把 HTTP 与
 WebSocket 流转发给它，浏览器打开的就是真正的 DSH 界面。没有 WebRTC，没有 UDP，
 不需要公网入站端口，不需要端口映射，也不用在面前的设备上再装一个客户端。
 
-![通过 DSH Link edge 打开的、未经修改的 DeepSeek Harness 界面](images/desktop-through-edge.png)
+![通过 DSH RC edge 打开的、未经修改的 DeepSeek Harness 界面](images/desktop-through-edge.png)
 
 这张截图不是效果图：它是真实的 Harness 0.2.1 会话，由
 [`tools/e2e/real-dsh.mjs`](../tools/e2e/real-dsh.mjs) 启动真实的 `dsh --profile web`、
@@ -95,7 +95,7 @@ npm ci && npm run build
 
 node apps/edge/dist/main.js \
   --host 0.0.0.0 --port 8787 \
-  --data-dir ~/.dsh-link --public-url https://link.example.com
+  --data-dir ~/.dsh-rc --public-url https://link.example.com
 ```
 
 启动时会打印一次性 **setup code**（在完成初始化前每次启动都会轮换）。
@@ -107,15 +107,15 @@ node apps/edge/dist/main.js \
 ```bash
 node apps/agent/dist/main.js \
   --edge https://link.example.com \
-  --dsh-url-file ~/.dsh-link/upstream.json \
-  --state-dir ~/.dsh-link/agent \
+  --dsh-url-file ~/.dsh-rc/upstream.json \
+  --state-dir ~/.dsh-rc/agent \
   --name my-desktop \
-  --status-file ~/.dsh-link/agent/status.json
+  --status-file ~/.dsh-rc/agent/status.json
 ```
 
 `upstream.json` 的内容是 `{ "url": "http://127.0.0.1:<port>/?token=…" }`，
 权限 0600。token 故意**不接受**放在命令行参数里。首次运行会打印
-`DSH_LINK_PAIR_URL=…`；以 owner 身份登录后打开它，即可批准设备并配对浏览器。
+`DSHRC_PAIR_URL=…`；以 owner 身份登录后打开它，即可批准设备并配对浏览器。
 之后 DSH 界面就在 `https://link.example.com/d/<deviceId>/`。
 
 ### 3. 桌面插件（推荐）
@@ -137,7 +137,7 @@ dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
 在 profile 的用户层 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 中启用：
 
 ```yaml
-- id: dsh-link
+- id: dsh-rc
   config:
     enabled: true
     edgeUrl: https://link.example.com
@@ -239,7 +239,7 @@ TLS、一个 SQLite 文件负责备份。
 
 ## 创作者
 
-**Ts. Dr. Leong Yee Rock** 是 DSH Link / Remote Control 的创作者与维护者。
+**Ts. Dr. Leong Yee Rock** 是 DSH RC / Remote Control 的创作者与维护者。
 
 他来自马来西亚的 **VYROX International Sdn Bhd（VYROX AI）**。
 

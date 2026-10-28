@@ -12,7 +12,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import type { Logger } from '@dsh-link/shared';
+import type { Logger } from '@dsh-rc/shared';
 import { TerminalAgentError } from './errors.js';
 
 export const LOCK_FILE_NAME = 'agent.lock';

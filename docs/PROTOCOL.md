@@ -1,4 +1,4 @@
-# DSH Link Tunnel Protocol v1
+# DSH RC Tunnel Protocol v1
 
 Status: **normative for this repository**. Every number here is a constant in
 `packages/protocol/src/frames.ts`; both peers import that file, so drift is a
@@ -6,7 +6,7 @@ compile error rather than a field bug.
 
 ## 1. Why this protocol exists
 
-DSH Link moves *whole HTTP requests and WebSocket sessions* — not DSH RPC
+DSH RC moves *whole HTTP requests and WebSocket sessions* — not DSH RPC
 calls — between a public edge and a desktop agent. The edge never understands
 Harness semantics. That is the central design rule: **one transport, opaque
 payloads, no second client**.
@@ -173,7 +173,7 @@ file download therefore cannot add latency to a keystroke.
   `PRESENCE_GRACE_MS` (30 s) so the browser sees a reconnecting state instead
   of a hard offline page.
 - The browser-side DSH client already reconnects its own `remote.mux` stream;
-  DSH Link therefore does **not** replay application messages. Replaying
+  DSH RC therefore does **not** replay application messages. Replaying
   mutations whose outcome is unknown is how remote tools corrupt state.
 
 ## 5. Error codes

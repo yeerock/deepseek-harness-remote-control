@@ -1,6 +1,6 @@
 import { request as httpRequest, type ClientRequest } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAX_CONCURRENT_STREAMS } from '@dsh-link/protocol';
+import { MAX_CONCURRENT_STREAMS } from '@dsh-rc/protocol';
 import { connectTunnel, http, provisionDevice, setupOwner, startEdge, type TestEdge } from './helpers.js';
 
 const edges: TestEdge[] = [];

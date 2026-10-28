@@ -1,10 +1,10 @@
-# DSH Link — operations runbook
+# DSH RC — operations runbook
 
 **Audience:** whoever is on call for an edge, or a desktop user debugging their
 own connection.
 
-Commands assume a systemd install under `/opt/dsh-link` with the edge service
-`dsh-link-edge` and data directory `/var/lib/dsh-link`. Docker equivalents are
+Commands assume a systemd install under `/opt/dsh-rc` with the edge service
+`dsh-rc-edge` and data directory `/var/lib/dsh-rc`. Docker equivalents are
 in `docs/DEPLOY.md` §6-7. Replace `link.example.com` with your origin.
 
 ## 1. First-run setup
@@ -14,21 +14,21 @@ in `docs/DEPLOY.md` §6-7. Replace `link.example.com` with your origin.
    start until setup completes):
 
    ```bash
-   sudo systemctl start dsh-link-edge
-   sudo journalctl -u dsh-link-edge -n 20 --no-pager
+   sudo systemctl start dsh-rc-edge
+   sudo journalctl -u dsh-rc-edge -n 20 --no-pager
    ```
 
    Expected lines (values differ):
 
    ```
-   DSH Link edge listening on http://127.0.0.1:8787
-   DSH Link setup code: 7f3k-9q2m-8xda
-   DSH Link setup url: https://link.example.com/setup
+   DSH RC edge listening on http://127.0.0.1:8787
+   DSH RC setup code: 7f3k-9q2m-8xda
+   DSH RC setup url: https://link.example.com/setup
    ```
 
 2. Open `/setup` and redeem the code. The code is single use, expires 24 hours
    after it was generated, and only its SHA-256 is stored. `--setup-code` (or
-   `DSHLINK_SETUP_CODE`) is used verbatim instead of a generated code; treat
+   `DSHRC_SETUP_CODE`) is used verbatim instead of a generated code; treat
    whatever holds it as a secret.
 
 3. Set an owner password on the setup form if you want to be able to log in
@@ -52,12 +52,12 @@ plaintext cannot be recovered. The fix is simply to restart and read the new
 line:
 
 ```bash
-sudo systemctl restart dsh-link-edge
-sudo journalctl -u dsh-link-edge -n 20 --no-pager   # fresh setup code
+sudo systemctl restart dsh-rc-edge
+sudo journalctl -u dsh-rc-edge -n 20 --no-pager   # fresh setup code
 ```
 
 If you need a code that is stable across restarts, start the edge with
-`--setup-code <8-128 chars>` (or `DSHLINK_SETUP_CODE`); that value is used
+`--setup-code <8-128 chars>` (or `DSHRC_SETUP_CODE`); that value is used
 verbatim. Do this promptly: while there is no owner row, anyone who can reach
 `/setup` and has the current code can become the owner.
 
@@ -68,10 +68,10 @@ secrets and audit rows are separate tables and survive; agents reconnect on
 their own, and browser access resumes after the new owner is set up.
 
 ```bash
-sudo systemctl stop dsh-link-edge
-sudo -u dshlink sqlite3 /var/lib/dsh-link/dshlink.sqlite "delete from sessions; delete from owner;"
-sudo systemctl start dsh-link-edge
-sudo journalctl -u dsh-link-edge -n 20 --no-pager   # new setup code
+sudo systemctl stop dsh-rc-edge
+sudo -u dshrc sqlite3 /var/lib/dsh-rc/dshrc.sqlite "delete from sessions; delete from owner;"
+sudo systemctl start dsh-rc-edge
+sudo journalctl -u dsh-rc-edge -n 20 --no-pager   # new setup code
 ```
 
 The `owner` table is a single row (`id = 1`), so `delete from owner;` is exact.
@@ -82,7 +82,7 @@ only, or delete the `session_secret` setting to invalidate every signature at
 once:
 
 ```bash
-sudo -u dshlink sqlite3 /var/lib/dsh-link/dshlink.sqlite \
+sudo -u dshrc sqlite3 /var/lib/dsh-rc/dshrc.sqlite \
   "delete from settings where key = 'session_secret';"
 ```
 
@@ -129,12 +129,12 @@ Dashboard: open `/`, find the pending device, choose **Approve**.
 API — a state-changing request needs both cookies and the double-submit token:
 
 ```bash
-export DSHLINK_SESSION='<dshlink_session cookie value>'
-export DSHLINK_CSRF='<dshlink_csrf cookie value>'
+export DSHRC_SESSION='<dshrc_session cookie value>'
+export DSHRC_CSRF='<dshrc_csrf cookie value>'
 curl -fsS \
-  -b "dshlink_session=$DSHLINK_SESSION; dshlink_csrf=$DSHLINK_CSRF" \
-  -H "x-csrf-token: $DSHLINK_CSRF" \
-  -d "csrf=$DSHLINK_CSRF" \
+  -b "dshrc_session=$DSHRC_SESSION; dshrc_csrf=$DSHRC_CSRF" \
+  -H "x-csrf-token: $DSHRC_CSRF" \
+  -d "csrf=$DSHRC_CSRF" \
   -X POST https://link.example.com/v1/devices/dev_xxxxxxxxxxxxxxxxxxxx/approve
 ```
 
@@ -158,9 +158,9 @@ Assume the laptop is gone and the agent may still be running.
 
    ```bash
    curl -fsS \
-     -b "dshlink_session=$DSHLINK_SESSION; dshlink_csrf=$DSHLINK_CSRF" \
-     -H "x-csrf-token: $DSHLINK_CSRF" \
-     -d "csrf=$DSHLINK_CSRF" \
+     -b "dshrc_session=$DSHRC_SESSION; dshrc_csrf=$DSHRC_CSRF" \
+     -H "x-csrf-token: $DSHRC_CSRF" \
+     -d "csrf=$DSHRC_CSRF" \
      -X POST https://link.example.com/v1/devices/dev_xxxxxxxxxxxxxxxxxxxx/revoke
    ```
 
@@ -173,7 +173,7 @@ Assume the laptop is gone and the agent may still be running.
 
    ```bash
    curl -fsS https://link.example.com/v1/edge | jq .
-   sudo -u dshlink sqlite3 -header -column /var/lib/dsh-link/dshlink.sqlite \
+   sudo -u dshrc sqlite3 -header -column /var/lib/dsh-rc/dshrc.sqlite \
      "select id, name, revoked_at, last_seen_at from devices order by last_seen_at desc;"
    ```
 
@@ -181,7 +181,7 @@ Assume the laptop is gone and the agent may still be running.
    tunnel — treat that as a security bug and stop the edge.
 
 3. **On the desktop side** (if you still have it): stop the agent, delete
-   `~/.dsh-link/agent/device.json`, and restart DSH so the loopback cookie is
+   `~/.dsh-rc/agent/device.json`, and restart DSH so the loopback cookie is
    invalidated. Revocation kills the remote path, not the local session.
 
 4. If the lost laptop held the only owner session and you cannot log in,
@@ -201,22 +201,22 @@ There is no in-place rotation in v1. The procedure is revoke → re-register:
 ```bash
 # on the edge
 curl -fsS \
-  -b "dshlink_session=$DSHLINK_SESSION; dshlink_csrf=$DSHLINK_CSRF" \
-  -H "x-csrf-token: $DSHLINK_CSRF" \
-  -d "csrf=$DSHLINK_CSRF" \
+  -b "dshrc_session=$DSHRC_SESSION; dshrc_csrf=$DSHRC_CSRF" \
+  -H "x-csrf-token: $DSHRC_CSRF" \
+  -d "csrf=$DSHRC_CSRF" \
   -X POST https://link.example.com/v1/devices/dev_xxxxxxxxxxxxxxxxxxxx/revoke
 
 # on the desktop — stop the agent first (plugin supervisor, or Ctrl-C);
 # a graceful stop releases agent.lock. A killed process leaves a stale lock
 # that the next start takes over automatically.
-rm -f ~/.dsh-link/agent/device.json
+rm -f ~/.dsh-rc/agent/device.json
 
 # plugin-launched agent: the plugin rewrites upstream.json and restarts it.
 # manual run:
 node apps/agent/dist/main.js \
   --edge https://link.example.com \
   --dsh-url "$DSH_LAUNCH_URL" \
-  --state-dir ~/.dsh-link/agent \
+  --state-dir ~/.dsh-rc/agent \
   --name "$(hostname)"
 ```
 
@@ -231,7 +231,7 @@ whenever a laptop changes hands.
 
 - **Log out one browser**: `POST /logout` from that browser.
 - **Invalidate every session**: delete/rotate the `session_secret` setting and
-  restart the edge. Every `dshlink_session` cookie becomes unverifiable.
+  restart the edge. Every `dshrc_session` cookie becomes unverifiable.
 - **Change the owner password**: re-run setup is not available once an owner
   exists in v1; rotate by deleting the owner row (§1.2) and setting a new
   password. This is a known limitation, recorded in `docs/FAQ.md`.
@@ -253,7 +253,7 @@ longer than your backup cycle and ship rows off-host. Events emitted by the edge
 convert it in SQL rather than eyeballing it.
 
 ```bash
-sudo -u dshlink sqlite3 -header -column /var/lib/dsh-link/dshlink.sqlite \
+sudo -u dshrc sqlite3 -header -column /var/lib/dsh-rc/dshrc.sqlite \
   "select id, datetime(ts/1000,'unixepoch') as time, event, device_id, actor, ip
    from audit order by id desc limit 25;"
 ```
@@ -288,7 +288,7 @@ database trigger. Ship them off-host if they matter (`docs/THREAT-MODEL.md`
 
 ## 7. Log fields
 
-Both binaries emit JSON lines through `@dsh-link/shared`'s logger
+Both binaries emit JSON lines through `@dsh-rc/shared`'s logger
 (`packages/shared/src/logger.ts`). Every line has:
 
 | Field | Meaning |
@@ -306,10 +306,10 @@ add ad-hoc logging of credentials.
 
 ```bash
 # errors only
-sudo journalctl -u dsh-link-edge -o cat | jq -c 'select(.level=="error" or .level=="warn")'
+sudo journalctl -u dsh-rc-edge -o cat | jq -c 'select(.level=="error" or .level=="warn")'
 
 # one device's tunnel lifecycle
-sudo journalctl -u dsh-link-edge -o cat | jq -c 'select(.deviceId=="dev_xxx")'
+sudo journalctl -u dsh-rc-edge -o cat | jq -c 'select(.deviceId=="dev_xxx")'
 
 # agent logs when run under the plugin: captured by the plugin's log, not journald
 ```
@@ -343,7 +343,7 @@ States: `starting`, `pairing`, `connecting`, `online`, `reconnecting`, `error`,
 ### 7.1 State directory and the single-instance lock
 
 One state directory per DSH host/profile. A manually started agent defaults to
-`~/.dsh-link/agent`; a plugin-launched agent uses `<DSH home>/link` (or
+`~/.dsh-rc/agent`; a plugin-launched agent uses `<DSH home>/link` (or
 `<stateDir>/link` when the plugin overrides the DSH home). The directory
 contains:
 
@@ -406,7 +406,7 @@ alive.
   the redirect origin disagree.
 - CSRF: a `POST` without the double-submit token is rejected, and so is one
   with a cross-site `Origin`. Send both cookies and the token (see §2.2):
-  `-b "dshlink_session=…; dshlink_csrf=…" -H "x-csrf-token: …" -d "csrf=…"`.
+  `-b "dshrc_session=…; dshrc_csrf=…" -H "x-csrf-token: …" -d "csrf=…"`.
 
 ## 9. Diagnosing WebSocket and tunnel failures
 
@@ -433,12 +433,12 @@ the duplicate; the newest connection wins by design.
 
 | Check | Command | Healthy |
 | --- | --- | --- |
-| Edge process | `systemctl is-active dsh-link-edge` | `active` |
+| Edge process | `systemctl is-active dsh-rc-edge` | `active` |
 | Edge HTTP | `curl -fsS https://link.example.com/healthz` | `200`, `ok:true` |
 | Edge metadata | `curl -fsS https://link.example.com/v1/edge` | `setupComplete:true`, expected `version`, `auditRetentionDays` matching policy |
 | Live tunnels | `curl -fsS https://link.example.com/v1/edge \| jq .tunnels` | as many as expected online devices |
-| Disk | `df -h /var/lib/dsh-link` | SQLite + WAL have headroom |
-| Backups | newest file in `/var/backups/dsh-link` | within 24 h |
+| Disk | `df -h /var/lib/dsh-rc` | SQLite + WAL have headroom |
+| Backups | newest file in `/var/backups/dsh-rc` | within 24 h |
 | Certificate | `curl -vI https://link.example.com` | valid, correct hostname |
 
 Alert on: `/healthz` failing twice in a row, error-level log rate, disk > 80 %,
@@ -487,19 +487,19 @@ still **TBD** (`tools/bench`).
 **Stop all remote access now**
 
 ```bash
-sudo systemctl stop dsh-link-edge
+sudo systemctl stop dsh-rc-edge
 ```
 
 or revoke every device. Stop the edge first: SQL does not close a live tunnel,
 and the `devices` table is STRICT, so timestamps must be integer epoch millis.
 
 ```bash
-sudo systemctl stop dsh-link-edge
-sudo -u dshlink sqlite3 /var/lib/dsh-link/dshlink.sqlite \
+sudo systemctl stop dsh-rc-edge
+sudo -u dshrc sqlite3 /var/lib/dsh-rc/dshrc.sqlite \
   "update devices set status = 'revoked', revoked_at = cast(strftime('%s','now') as integer) * 1000 where status != 'revoked';
    delete from sessions where kind = 'device';
    delete from pair_codes where used_at is null;"
-sudo systemctl start dsh-link-edge
+sudo systemctl start dsh-rc-edge
 ```
 
 Prefer the dashboard/API path so audit rows exist and tunnels are closed with

@@ -1,8 +1,8 @@
 {
-  "name": "@dsh-link/agent",
+  "name": "@dsh-rc/agent",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH Link agent: tunnel client, DSH cookie bootstrap, HTTP/WebSocket proxy, reconnect.",
+  "description": "DSH RC agent: tunnel client, DSH cookie bootstrap, HTTP/WebSocket proxy, reconnect.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,7 +14,7 @@
     }
   },
   "bin": {
-    "dsh-link-agent": "./dist/main.js"
+    "dsh-rc-agent": "./dist/main.js"
   },
   "files": [
     "dist",
@@ -26,9 +26,9 @@
     "test": "vitest run apps/agent"
   },
   "dependencies": {
-    "@dsh-link/mux": "0.1.0",
-    "@dsh-link/protocol": "0.1.0",
-    "@dsh-link/shared": "0.1.0",
+    "@dsh-rc/mux": "0.1.0",
+    "@dsh-rc/protocol": "0.1.0",
+    "@dsh-rc/shared": "0.1.0",
     "ws": "^8.21.3"
   }
 }

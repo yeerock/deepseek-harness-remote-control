@@ -7,8 +7,8 @@
  * background so the DSH plugin can show the pair URL immediately.
  */
 import os from 'node:os';
-import { createLogger, platformLabel, VERSION, type Logger } from '@dsh-link/shared';
-import type { Stream } from '@dsh-link/mux';
+import { createLogger, platformLabel, VERSION, type Logger } from '@dsh-rc/shared';
+import type { Stream } from '@dsh-rc/mux';
 import { fullJitterDelay, type BackoffOptions } from './backoff.js';
 import { DshSession, readDshUrlFile } from './dsh-session.js';
 import { EdgeClient, isApprovedStatus, isRevokedStatus, sanitizePairUrl } from './edge-client.js';
@@ -93,7 +93,7 @@ export class AgentRuntime implements AgentHandle {
     }
     this.options = options;
     this.internals = internals;
-    this.logger = options.logger ?? createLogger('dsh-link-agent');
+    this.logger = options.logger ?? createLogger('dsh-rc-agent');
     const source = resolveDshSource(options, this.logger);
     this.session = new DshSession({
       dshUrl: source.dshUrl,

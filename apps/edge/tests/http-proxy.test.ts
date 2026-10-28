@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Open } from '@dsh-link/protocol';
+import type { Open } from '@dsh-rc/protocol';
 import {
   connectTunnel,
   http,
@@ -63,7 +63,7 @@ describe('HTTP proxy', () => {
           'x-forwarded-for': '203.0.113.9',
           referer: 'https://evil.example/',
           accept: 'text/html',
-          'x-dsh-link-extra': '1',
+          'x-dsh-rc-extra': '1',
         },
         redirect: 'manual',
       });
@@ -81,7 +81,7 @@ describe('HTTP proxy', () => {
       expect(open.path).toBe('/some/path?q=1');
       expect(open.priority).toBe('high');
       const names = open.headers.map(([name]) => name.toLowerCase());
-      for (const forbidden of ['cookie', 'authorization', 'origin', 'referer', 'host', 'sec-fetch-dest', 'x-forwarded-for', 'x-dsh-link-extra']) {
+      for (const forbidden of ['cookie', 'authorization', 'origin', 'referer', 'host', 'sec-fetch-dest', 'x-forwarded-for', 'x-dsh-rc-extra']) {
         expect(names, `header ${forbidden} must not reach the agent`).not.toContain(forbidden);
       }
       expect(names).toContain('accept');

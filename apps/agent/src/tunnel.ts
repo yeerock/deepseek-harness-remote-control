@@ -10,7 +10,7 @@
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
 import type { ClientRequest, IncomingMessage } from 'node:http';
-import { attachMux, platformLabel, VERSION, type AttachedSocket, type Logger } from '@dsh-link/shared';
+import { attachMux, platformLabel, VERSION, type AttachedSocket, type Logger } from '@dsh-rc/shared';
 import {
   DEFAULT_HEARTBEAT_MS,
   DEFAULT_IDLE_TIMEOUT_MS,
@@ -25,8 +25,8 @@ import {
   isHelloAck,
   type Hello,
   type HelloAck,
-} from '@dsh-link/protocol';
-import type { Mux, Stream } from '@dsh-link/mux';
+} from '@dsh-rc/protocol';
+import type { Mux, Stream } from '@dsh-rc/mux';
 import { AgentError, HelloRejectedError, describeCloseCode, isTerminalHelloCode, isTerminalCloseCode, messageOf } from './errors.js';
 import { toBytes } from './io.js';
 
