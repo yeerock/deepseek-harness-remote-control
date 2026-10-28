@@ -3,9 +3,10 @@
 **Audience:** security reviewers, operators choosing a deployment shape, and
 contributors changing the edge, the agent or the protocol.
 
-**Status:** v1 design. This document describes the system as specified in
-`docs/ARCHITECTURE.md` and `docs/PROTOCOL.md`, and names the code that enforces
-each control. Where a control lives in code that is still landing, the row says
+**Status:** v1 design, plus guest sharing (v0.2) in §5.5 and §7.12. This
+document describes the system as specified in `docs/ARCHITECTURE.md`,
+`docs/PROTOCOL.md` and `docs/SHARING.md`, and names the code that enforces each
+control. Where a control lives in code that is still landing, the row says
 so; it is not a claim that the control exists yet.
 
 **Method:** assets → actors → trust boundaries → STRIDE per boundary →
@@ -17,6 +18,8 @@ residual risk. No control is listed without a file reference or an explicit
 ```
  owner browser ──HTTPS/WSS 443──▶ edge ──one multiplexed WSS──▶ agent ──loopback HTTP/WS──▶ DSH web server
  (public internet)               (trusted relay)                (desktop)                    (127.0.0.1:<port>)
+ guest browser ──/i/<token>, /d/<device>──┘
+ (public internet)
 ```
 
 | Component | Runs where | Sees | Does not see |
@@ -24,6 +27,7 @@ residual risk. No control is listed without a file reference or an explicit
 | Browser | Anywhere | The DSH UI, its own edge session cookie | Device secret, DSH launch token, DSH cookie |
 | Edge | Operator-controlled host | TLS plaintext of every proxied request and response: paths, headers, bodies, WebSocket frames; session and device metadata | Device secret (only its SHA-256), DSH launch token, DSH cookie |
 | Agent | The desktop | Device secret, DSH launch token, DSH cookie, all proxied traffic | Owner session cookie |
+| Guest browser | Anywhere | The DSH UI for one shared device, its guest session cookie, and whatever that UI shows | Owner session, device secret, other devices, admin routes |
 | DSH web server | The desktop, loopback | Its own normal traffic | Edge internals |
 
 The edge terminates TLS. **It therefore sees plaintext HTTP/WS for all proxied
@@ -31,11 +35,17 @@ traffic.** This is the central trust assumption of the design, stated in
 `docs/ARCHITECTURE.md:59-64` and in ADR-0001. Self-hosting the edge is the
 mitigation; there is no end-to-end encryption layer in v1.
 
+Sharing adds a third browser principal: the **guest**. A guest is not an owner
+and not a paired owner browser. A guest is an invite holder the owner explicitly
+approved, holds a device-scoped session, and reaches only `/d/<deviceId>/*`.
+Guest traffic transits the same edge and is subject to the same plaintext
+boundary as owner traffic.
+
 ## 2. Assets
 
 | Asset | Where it lives | Lifetime | Required property |
 | --- | --- | --- | --- |
-| DSH session content (prompts, code, tool output, terminal) | Desktop; in transit through the edge | Session | Confidentiality, integrity |
+| DSH session content (prompts, code, tool output, terminal) | Desktop; in transit through the edge | Session; guest access can persist indefinitely | Confidentiality, integrity |
 | DSH launch token | Agent memory; delivered at startup through `{stateDir}/upstream.json` (0600) when launched by the plugin, or `--dsh-url` on a manual run | Process lifetime | Confidentiality, single use |
 | DSH loopback auth cookie | Agent memory only | Until the DSH server restarts or rejects it | Confidentiality |
 | Device secret (32 random bytes) | Agent state file; SHA-256 at the edge | Until rotated | Confidentiality, integrity |
@@ -43,6 +53,9 @@ mitigation; there is no end-to-end encryption layer in v1.
 | Pair code (8 chars) | Displayed once; hash at the edge | 10 minutes, single use; requires owner session or password | Confidentiality, single use, intent |
 | Audit and presence metadata | Edge SQLite and logs | Deployment policy | Integrity, retention control |
 | Host filesystem and tools | Desktop, reachable through DSH | Persistent | Confidentiality, integrity |
+| Guest session cookie | Guest browser; signed value at the edge | **No expiry**; until explicitly revoked | Confidentiality, integrity, revocability |
+| Invite token | Invite link; SHA-256 at the edge | Single use; 15 min / 1 h / 24 h, or never | Confidentiality, single use, intent |
+| Guest metadata (label, IP, user-agent, audit) | Edge SQLite and logs | Audit retention | Attribution, integrity |
 
 The last row matters: DSH can read files, run tools and open terminals. A
 compromised browser session is not "read the chat"; it is "act as the user on
@@ -55,6 +68,9 @@ does not add a second permission layer inside DSH.
 | --- | --- |
 | Owner | Legitimate operator of the edge and the desktop; may be phished |
 | Paired browser user | Holds a valid pair-code-derived session for one device |
+| Guest | Holds an owner-approved, device-scoped guest session; has the full DSH UI for that device and may be curious, careless or malicious |
+| Invite holder | Possesses an unclaimed invite link; can create a pending request, nothing more |
+| Multiple guests | Concurrent controllers of one single-user desktop; no isolation between them |
 | Network attacker | On-path (can drop, delay, replay, inject) or off-path (can scan, connect, send requests) |
 | Malicious web page | Can make the owner's browser issue cross-site requests; cannot read cross-origin responses |
 | Compromised edge | Full control of the edge process, its database, its TLS keys and its plaintext view |
@@ -63,9 +79,11 @@ does not add a second permission layer inside DSH.
 | Supply-chain attacker | Can publish a malicious version of a dependency or the package itself |
 | Internet scanner | Unauthenticated; sends arbitrary paths, headers, frames |
 
-Explicitly out of scope: a user who grants a paired browser to an attacker, and
-a desktop already running hostile software as the same OS user. Neither is
-defensible at this layer, and pretending otherwise would weaken the document.
+Explicitly out of scope: a user who deliberately grants a paired browser or a
+guest session to an attacker, and a desktop already running hostile software as
+the same OS user. A guest whose *cookie* is stolen is in scope (§7.12): the
+owner approved a person, and the session that person holds can outlive their
+intent.
 
 ## 4. Trust boundaries
 
@@ -77,6 +95,9 @@ defensible at this layer, and pretending otherwise would weaken the document.
 | B4 | Agent ↔ DSH | Loopback TCP + DSH cookie | HTTP/WS to `127.0.0.1:<port>` |
 | B5 | Plugin ↔ agent | Same OS user; process spawn; state dir 0700 | Launch URL (`upstream.json`, 0600), device secret (file), status JSON |
 | B6 | Operator ↔ edge | Owner session cookie + CSRF checks | Dashboard, pairing, revocation |
+| B7 | Guest browser ↔ edge | TLS + signed guest session cookie | `/i/*` invite/claim/status, `/d/<deviceId>/*` |
+| B8 | Plugin/agent ↔ edge sharing API | `Authorization: Bearer <device secret>` | Sharing toggle, invites, approvals, guest revocation |
+| B9 | Guest ↔ guest | **No isolation**; same DSH single-user desktop | Shared workspace, terminal, tools, conversation state |
 
 B2 is the boundary reviewers should focus on. B1 protects the wire; B2 does not
 protect anything from the edge operator.
@@ -156,6 +177,48 @@ human-transferred code; it is not a password and must not be reused.
 - The DSH cookie: upstream `Set-Cookie` is stripped before the response crosses
   back (`packages/protocol/src/routing.ts:86-98`), so the browser's cookie jar
   only ever holds the edge session.
+- A guest browser receives none of the above either. It holds only
+  `dshrc_guest`, signed and scoped to one device, and can reach only
+  `/d/<deviceId>/*`; it never receives an owner session or the device secret
+  (`docs/SHARING.md` §2, §6).
+
+### 5.5 Guest sessions and invites
+
+Sharing is **off by default and per device**. The flow uses three separate
+artefacts, and only the last one is a session:
+
+| Step | Artefact | Lifetime | What it can do |
+| --- | --- | --- | --- |
+| Invite | 32 random bytes, base64url; SHA-256 at the edge | Single use by default (`maxUses` 1–10); 15 min / 1 h / 24 h, or never | Open the invite page and request access |
+| Claim | Signed claim cookie | Up to 24 h; no DSH access | Wait for the owner's decision; no DSH access |
+| Approval | Guest session cookie `dshrc_guest` | **No expiry**; 10-year `Max-Age`; until revoked | `/d/<deviceId>/*` only |
+
+- The host approves on the machine that owns the Harness. Label, IP and
+  user-agent are shown before **Approve** / **Deny**; a claim never becomes a
+  session on its own (`docs/SHARING.md` §2, §6).
+- The guest cookie is signed with the persisted edge secret, `HttpOnly`,
+  `Secure` on HTTPS, `SameSite=Lax`, and scoped to one device
+  (`docs/SHARING.md` §6).
+- **Guest sessions have no server-side expiry** (`expiresAt: null`) and no idle
+  timeout. They survive edge restarts, tunnel reconnects and browser restarts.
+  They end only on guest **Disconnect**, owner revocation of one/all guests,
+  sharing off, device revocation, or deletion of the edge database
+  (`docs/SHARING.md` §6.1).
+- **Multiple guests may hold sessions at once.** There is no controller lock and
+  no `GUEST_BUSY`. They share one single-user desktop and can interfere with each
+  other (`docs/SHARING.md` §7).
+- Guests may reach only `/d/<deviceId>/*`. `/`, `/v1/*`, `/setup`, `/pair`,
+  `/login`, device approve/revoke, invite creation, approval and sharing changes
+  return `403`, and `/d/<other-device>/` is `403` (`docs/SHARING.md` §2,
+  `apps/edge/src/server.ts:192-216`).
+- The sharing API is authenticated by the **device secret** (`Authorization:
+  Bearer`), not an owner dashboard session (`apps/edge/src/server.ts:604-628`).
+  An approval body may carry `ttlSeconds`; the edge ignores it. Guest sessions
+  have no TTL.
+
+The edge implementation lives in `apps/edge/src/sharing.ts`,
+`apps/edge/src/guest-connections.ts` and the guest handlers in
+`apps/edge/src/server.ts`; the citations below are to the landed code.
 
 ## 6. STRIDE pass
 
@@ -169,6 +232,9 @@ human-transferred code; it is not a password and must not be reused.
 | Replayed setup code | Single use, 24 h TTL, hash at rest; a restart before setup rotates it; setup disabled after first owner | `apps/edge/src/auth.ts:104-160` |
 | Replayed pair code | Single use, 10-minute TTL, hashed at rest, and redeemable only by an owner session or with the owner password | `ids.ts:86-113`; `apps/edge/src/devices.ts:139-153` |
 | Device id confusion | Strict `dev_[a-z0-9]{16,64}` validation before lookup | `packages/protocol/src/routing.ts:15-20` |
+| Leaked or guessed invite token | 32 random bytes, single-use by default (`maxUses` up to 10), hashed at rest, TTL or explicit Never; claim creates only a pending request, and the owner must approve | `apps/edge/src/sharing.ts:147-240`, `apps/edge/src/server.ts:192-216` |
+| Forged guest cookie | HMAC-signed with the persisted edge secret and backed by a session row; device-scoped; revocation deletes the row | `apps/edge/src/auth.ts:269-295` |
+| Guest presents an owner/admin cookie | Separate cookie names and route checks; guest routes only `/d/<deviceId>/*`, admin routes return 403 | `apps/edge/src/server.ts:192-216` |
 
 ### 6.2 Tampering
 
@@ -181,6 +247,8 @@ human-transferred code; it is not a password and must not be reused.
 | Malicious upstream widens browser state | `set-cookie`, HSTS and hop-by-hop headers stripped on the way back | `routing.ts:86-98` |
 | Frame smuggling | Fixed 5-byte header, length checked against the frame ceiling, unknown types rejected | `packages/protocol/src/frames.ts:85-116` |
 | Oversized control payload | 64 KiB total frame ceiling, 32 KiB JSON ceiling, schema guards | `frames.ts:12-16`, `frames.ts:122-141` |
+| Guest mutates the shared desktop | **Inherent**: a guest has the full DSH UI, tools and terminal. There is no read-only mode and no per-guest scoping | `docs/SHARING.md` §7, §9 |
+| Guest interferes with another guest | **Inherent**: no isolation between guests; they share one workspace, terminal and tools. Owner can revoke one/all | `docs/SHARING.md` §7 |
 
 The agent's re-validation is the important half: a compromised edge must not be
 able to make the agent fetch `http://169.254.169.254/` or another origin. The
@@ -193,6 +261,8 @@ agent uses a fixed loopback target and treats `OPEN.path` as a path, not a URL
 | --- | --- | --- |
 | Owner denies pairing/revoking a device | Audit rows for `owner-setup`, `login`, `logout`, `register`, `pair`, `approve`, `revoke`, `tunnel-connect`, `tunnel-disconnect` | `apps/edge/src/db.ts:121-137`, `apps/edge/src/devices.ts` |
 | Attacker covers tracks | JSON-line logs can be shipped off-host; if they are, SQLite is not the only copy | `docs/OPERATIONS.md` §7, §10 |
+| Guest denies a request or action | Audit `invite-claimed`, `approval-approved`/`approval-denied`, `guest-connected`/`guest-disconnected`, `guest-revoked` with session id and IP; revocation preserves the rows | `apps/edge/src/sharing.ts`, `apps/edge/src/guest-connections.ts` |
+| Owner denies revoking a guest | `guest-revoked` per session (including `revoke-all`), plus `sharing-enabled`/`sharing-disabled` | `apps/edge/src/sharing.ts:327-392` |
 
 Audit rows are not signed, the edge operator can alter them, and rows older
 than the retention window (default 30 days, `--audit-retention-days`) are
@@ -211,6 +281,9 @@ should ship logs to an append-only sink and lengthen the window.
 | Browser cache/history | Edge pages send `cache-control: no-store`; proxied DSH responses keep DSH's own headers | `packages/shared/src/http.ts:91-125` |
 | Referer leakage | `referrer-policy: no-referrer` on edge pages; `referer` stripped before `OPEN` | `http.ts:128-137`, `routing.ts:57-83` |
 | Pair URL in clipboard/history | The URL contains a code that is useless without an owner session or the owner password; single use and a 10-minute TTL bound the window | `ids.ts:86-113`, `apps/edge/src/server.ts` (`handlePair`) |
+| Guest reads everything the DSH UI shows | **Accepted**: a guest sees the workspace, conversations, terminal and tool output for that device. There is no per-guest scoping | `docs/SHARING.md` §7, §9 |
+| Guest reads another guest's work | **Accepted**: guests share one single-user desktop; there is no isolation between guest sessions | `docs/SHARING.md` §7 |
+| Invite token in chat history, clipboard or referrer | Single use, hashed at rest, TTL or Never; the owner can revoke an unclaimed invite; claim still requires approval | `docs/SHARING.md` §2, §6 |
 
 ### 6.5 Denial of service
 
@@ -225,6 +298,9 @@ should ship logs to an append-only sink and lengthen the window.
 | Auth brute force | Edge rate limits: setup 5/10 min, login 10/5 min, pairing 20/5 min, registration 20/10 min; constant-time comparison | `apps/edge/src/config.ts:64-69`, `ids.ts:44-49` |
 | Unauthenticated registration spam | Registration is open by design but rate-limited to 20/10 min per client; devices stay `pending` and unusable until approved; owner can revoke | `apps/edge/src/config.ts:64-69`, `apps/edge/src/devices.ts:68-96` |
 | WebSocket frame flood | Per-stream byte budget resets the stream | `frames.ts:29`, `docs/PROTOCOL.md:129-132` |
+| Invite or approval brute force | Per-device rate limits on invite creation and approvals; tokens are 32 random bytes; claims are pending until approved | `apps/edge/src/sharing.ts:147-190`, `apps/edge/src/config.ts:76-78` |
+| Many guests consume one desktop | The design specifies no guest-count cap; each guest is a browser session and its streams count against per-device limits. Revoke all is the remedy | `docs/SHARING.md` §7; `frames.ts:28` |
+| Permanent guest sessions accumulate | **Accepted**: sessions do not expire; the owner must review **Active guests** and revoke. There is no automatic cleanup | `docs/SHARING.md` §6.1, §7 |
 
 ### 6.6 Elevation of privilege
 
@@ -237,6 +313,9 @@ should ship logs to an append-only sink and lengthen the window.
 | Clickjacking | `x-frame-options: DENY` + `frame-ancestors 'none'` | `http.ts:128-137` |
 | `--insecure` widens exposure | Edge: accepted only on a loopback bind, for a plain-http public URL. Agent: permits plain `http`/`ws` to a non-loopback edge and disables TLS verification. Both are explicit, off by default | `apps/edge/src/config.ts:209-225`, `apps/agent/src/main.ts` |
 | Owner session stolen | HttpOnly (no JS access), Secure, SameSite=Lax, 30-day expiry, revocation | `http.ts:40-49` |
+| Guest reaches admin routes | Guests are confined to `/d/<deviceId>/*`; `/`, `/v1/*`, `/setup`, `/pair`, `/login` and device admin return 403 | `apps/edge/src/server.ts:192-216` |
+| Guest uses DSH tools and terminal | **Granted privilege, not escalation**: the guest session is the full DSH UI for that device. Do not share with someone you would not seat at the desktop | `docs/SHARING.md` §7, §9 |
+| Stolen guest cookie | Signed, HttpOnly, device-scoped; **no expiry**, so it is valid until the owner revokes the guest or disables sharing. There is no shorter TTL to wait out | `apps/edge/src/auth.ts:57`, `auth.ts:282-295` |
 
 ## 7. Specific analyses
 
@@ -407,6 +486,92 @@ The edge's CSP (`http.ts:128-137`) applies only to edge-rendered pages such as
 the dashboard, login and pairing screens. This separation is intentional: the
 proxy must not silently change the application it serves.
 
+### 7.12 Guest sharing: permanence, interference and revocation
+
+Sharing is an authorization feature layered on the same proxy. It introduces a
+principal the rest of this document did not previously have: a person the owner
+invited, not the owner.
+
+#### 7.12.1 The flow is three separate steps
+
+1. The owner enables **Share this Harness** and creates an invite. The token is
+   32 random bytes, returned once, stored only as SHA-256, single-use by default
+   (`maxUses` can be raised to 10), with a 15-minute / 1-hour / 24-hour TTL or
+   **Never** (`docs/SHARING.md` §2, §6).
+2. The guest opens `/i/<token>` and requests access. That creates a **pending
+   approval** and a short-lived claim cookie — never a DSH session. The owner
+   sees the label, IP and user-agent (`docs/SHARING.md` §6).
+3. The owner presses **Approve** or **Deny**. Only approval creates the guest
+   session cookie `dshrc_guest`, signed and scoped to that one device
+   (`docs/SHARING.md` §6).
+
+This separation is the main control: an invite link in the wrong hands allows a
+request, not access. The owner's approval is the gate, and it is only as good as
+the owner actually reading the label/IP/user-agent.
+
+#### 7.12.2 A guest session never expires
+
+A guest session is deliberately permanent until revoked:
+
+- no server-side expiry (`expiresAt: null`), no idle timeout;
+- a 10-year cookie `Max-Age`;
+- it survives edge restarts (SQLite + persisted signing secret), tunnel
+  reconnects, browser restarts and the guest's machine rebooting;
+- it ends only on guest **Disconnect**, owner revocation of that guest or all
+  guests, sharing off, device revocation, or deletion of the edge database
+  (`docs/SHARING.md` §6.1).
+
+**A stolen guest cookie is therefore permanent access to that device until the
+owner revokes it.** There is no TTL to wait out and no automatic cleanup. If the
+guest's machine may be compromised, or the owner is unsure, the response is
+**Revoke all** and **Share this Harness → Off**. Turning sharing off also revokes
+every invite and guest session for that device (`docs/SHARING.md` §2, §7).
+
+Revocation is immediate: the guest's session row is deleted and its browser
+WebSockets are closed (`apps/edge/src/sharing.ts:327-360`,
+`apps/edge/src/guest-connections.ts:72-108`). Disconnecting from the guest side
+(`POST /i/session/disconnect`) clears the cookie and ends the session; it is not
+a pause (`apps/edge/src/server.ts:843-869`).
+
+#### 7.12.3 Multiple guests share one single-user desktop
+
+There is no controller lock and no `GUEST_BUSY`. Two or more approved guests can
+drive the same Harness at the same time. DSH is a single-user desktop: they
+share the same workspace, terminal, tools and conversation state. They can
+overwrite each other's files, run commands concurrently, read what another
+guest is doing, and change settings the next guest inherits. There is **no
+read-only guest mode** and no per-guest file/terminal scoping
+(`docs/SHARING.md` §7, §9). The panel lists every guest separately and shows a
+standing warning; that is visibility, not isolation.
+
+Treat a guest as someone sitting at the desk, not someone viewing a document.
+
+#### 7.12.4 Leaked invite or stolen cookie runbook
+
+| Situation | Immediate action |
+| --- | --- |
+| Invite link leaked, not yet claimed | Revoke it under **Outstanding invites** (`DELETE /v1/devices/me/invites/:id`). No approval exists to revoke. |
+| Invite claimed, awaiting approval | Press **Deny** in **Waiting for approval**; the claim never becomes a session. |
+| Guest approved, cookie may be stolen | **Revoke** that guest, or **Revoke all**; then turn sharing off if the scope is unknown. |
+| Sharing must stop entirely | **Share this Harness → Off** revokes every invite and guest session for the device. |
+| Device itself is suspect | Revoke the device; the tunnel closes with 4003 and all its guest sessions end. |
+
+Every step above is audited (`invite-created`, `invite-revoked`,
+`invite-claimed`, `approval-approved`, `approval-denied`, `guest-revoked`,
+`guest-connected`, `guest-disconnected`, `sharing-enabled`,
+`sharing-disabled`; `apps/edge/src/sharing.ts`,
+`apps/edge/src/guest-connections.ts`). Audit rows are mutable and pruned by the
+edge operator (see §6.3), so they are evidence, not proof.
+
+#### 7.12.5 What approval does and does not prove
+
+Approval proves the owner intended to admit *whoever holds that link*. It does
+not prove identity: IP and user-agent are attacker-controlled, and there is no
+guest account, email verification or OAuth in v0.2 (`docs/SHARING.md` §9). If
+the owner sends an invite to the wrong chat, approves without reading the
+request, or approves a request they did not expect, the guest gets the desktop.
+This is a social control, and should be described as one.
+
 ## 8. Mitigations mapped to code
 
 | Control | Enforced in | Reference |
@@ -445,6 +610,12 @@ proxy must not silently change the application it serves.
 | Revocation cascade | edge | `apps/edge/src/devices.ts:124-136` |
 | Revoked device refused at connect | edge | `apps/edge/src/tunnels.ts:221-222` |
 | Token exchange + re-exchange | agent | `apps/agent/src/dsh-session.ts` |
+| Invite token: 32 B, SHA-256 at rest, single use | edge sharing | `apps/edge/src/sharing.ts:147-190` |
+| Claim creates pending approval, not a session | edge sharing | `apps/edge/src/sharing.ts:192-240` |
+| Guest cookie signed, device-scoped, HttpOnly, 10-year Max-Age | edge sharing | `apps/edge/src/auth.ts:269-295`, `auth.ts:57` |
+| Guest admin routes return 403 | edge sharing | `apps/edge/src/server.ts:192-216` |
+| Revoke one/all guests; sharing off revokes all | edge sharing | `apps/edge/src/sharing.ts:327-392` |
+| Guest audit events | edge sharing | `apps/edge/src/guest-connections.ts:29-70` |
 
 ## 9. Residual risks (accepted)
 
@@ -469,11 +640,32 @@ proxy must not silently change the application it serves.
    non-loopback plaintext.** On the edge it is loopback-only. Either way it
    exists for a lab; using it on a public network is equivalent to publishing
    the session.
+9. **A guest session never expires.** A stolen guest cookie is permanent access
+   to that device until the owner revokes the guest, revokes all guests, turns
+   sharing off, or revokes the device. There is no shorter TTL and no automatic
+   cleanup. Review **Active guests**; if in doubt, **Revoke all** and turn
+   sharing off.
+10. **Multiple guests can interfere with each other.** They share one
+    single-user desktop — workspace, terminal, tools and conversation state —
+    with no controller lock, no read-only mode and no per-guest scoping.
+11. **A guest sees everything the DSH UI shows** for that device: files,
+    conversations, terminal output and tool results. Sharing is not a document
+    share.
+12. **An invite link is a bearer capability until claimed or expired.** The
+    owner's approval is the gate, and approval proves intent, not identity; IP
+    and user-agent can be spoofed.
 
 ## 10. Out of scope
 
 - Multi-tenant isolation: the edge is single-owner in v1.
-- Protecting DSH from a malicious user the owner deliberately paired.
+- Protecting DSH from a malicious user the owner deliberately paired or approved
+  as a guest. The owner's approval is the authorization boundary.
+- Per-guest scoping or a read-only guest mode. A guest gets the whole DSH UI for
+  one device (`docs/SHARING.md` §9).
+- Guest identity verification. v0.2 has no guest accounts, email verification or
+  OAuth; IP and user-agent are display metadata, not identity.
+- Automatic guest expiry. Sessions persist until revoked by design; this is a
+  documented product decision, not an oversight.
 - Denial of service that saturates the edge's uplink; no CDN-level scrubbing.
 - Compromise of the DNS or CA used for the edge certificate.
 - Legal/compliance controls (data retention, subject access). See
@@ -483,5 +675,7 @@ proxy must not silently change the application it serves.
 
 Re-review this document when any of the following changes: the edge gains
 end-to-end encryption, the agent accepts a non-loopback upstream, authentication
-gains a second factor, the edge becomes multi-tenant, or the pair-code format
-changes. Security reports follow `docs/SECURITY.md`.
+gains a second factor, the edge becomes multi-tenant, the pair-code format
+changes, guest sessions gain an expiry or idle timeout, guest read-only/scoping
+lands, a guest-count cap is added, or the sharing route/cookie names change.
+Security reports follow `docs/SECURITY.md`.

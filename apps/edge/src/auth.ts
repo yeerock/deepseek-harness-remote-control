@@ -28,6 +28,8 @@ import type { EdgeConfig } from './config.js';
 import type { DeviceRow, EdgeDatabase, OwnerRow, SessionKind, SessionRow } from './db.js';
 
 export const SESSION_COOKIE = 'dshrc_session';
+export const GUEST_COOKIE = 'dshrc_guest';
+export const CLAIM_COOKIE = 'dshrc_claim';
 export const CSRF_COOKIE = 'dshrc_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 export const CSRF_FIELD = 'csrf';
@@ -41,9 +43,20 @@ const EDGE_ID_KEY = 'edge_id';
 
 interface SessionCookiePayload {
   sid: string;
+  exp?: number;
+  v: number;
+}
+
+interface ClaimCookiePayload {
+  aid: string;
   exp: number;
   v: number;
 }
+
+/** Guest sessions are permanent seats; the browser cookie lasts ten years. */
+export const GUEST_COOKIE_MAX_AGE_SECONDS = 10 * 365 * 24 * 60 * 60;
+/** A claim cookie only carries the browser through the approval wait. */
+export const CLAIM_COOKIE_TTL_SECONDS = 24 * 60 * 60;
 
 export interface PasswordHash {
   hash: string;
@@ -166,15 +179,26 @@ export class AuthService {
     return verifyPassword(password, owner.passwordHash);
   }
 
-  createSession(kind: SessionKind, deviceId: string | null, meta: SessionMeta): SessionRow {
+  createSession(
+    kind: SessionKind,
+    deviceId: string | null,
+    meta: SessionMeta,
+    options: { approvalId?: string | null; expiresAt?: number | null } = {},
+  ): SessionRow {
+    const expiresAt = options.expiresAt !== undefined
+      ? options.expiresAt
+      : kind === 'guest'
+        ? null
+        : meta.now + this.config.sessionTtlMs;
     return this.db.createSession({
       kind,
       deviceId,
       csrfToken: randomToken(24),
       createdAt: meta.now,
-      expiresAt: meta.now + this.config.sessionTtlMs,
+      expiresAt,
       ip: meta.ip,
       userAgent: meta.userAgent,
+      approvalId: options.approvalId ?? null,
     });
   }
 
@@ -204,7 +228,7 @@ export class AuthService {
     if (payload === undefined || typeof payload.sid !== 'string') return undefined;
     const session = this.db.getSession(payload.sid);
     if (session === undefined) return undefined;
-    if (session.expiresAt <= now) {
+    if (session.expiresAt !== null && session.expiresAt <= now) {
       this.db.deleteSession(session.id);
       return undefined;
     }
@@ -213,20 +237,84 @@ export class AuthService {
   }
 
   sessionCookie(request: IncomingMessage, session: SessionRow): string {
-    const exp = Math.floor(session.expiresAt / 1000);
-    const value = signPayload(this.sessionSecret, { sid: session.id, exp, v: 1 } satisfies SessionCookiePayload);
-    const maxAge = Math.max(1, Math.floor((session.expiresAt - Date.now()) / 1000));
+    const payload: SessionCookiePayload = { sid: session.id, v: 1 };
+    let maxAge = Math.floor(this.config.sessionTtlMs / 1000);
+    if (session.expiresAt !== null) {
+      payload.exp = Math.floor(session.expiresAt / 1000);
+      maxAge = Math.max(1, Math.floor((session.expiresAt - Date.now()) / 1000));
+    }
+    const value = signPayload(this.sessionSecret, payload);
     return serializeCookie(SESSION_COOKIE, value, this.cookieOptions(request, maxAge));
   }
 
+  /** Append rather than replace so two cookies can be set on one response. */
+  private appendSetCookie(response: ServerResponse, cookie: string): void {
+    const existing = response.getHeader('set-cookie');
+    if (existing === undefined) response.setHeader('set-cookie', cookie);
+    else if (Array.isArray(existing)) response.setHeader('set-cookie', [...existing.map(String), cookie]);
+    else response.setHeader('set-cookie', [String(existing), cookie]);
+  }
+
   setSessionCookie(request: IncomingMessage, response: ServerResponse, session: SessionRow): void {
-    response.setHeader('set-cookie', this.sessionCookie(request, session));
+    this.appendSetCookie(response, this.sessionCookie(request, session));
   }
 
   clearSessionCookie(request: IncomingMessage, response: ServerResponse): void {
-    response.setHeader(
-      'set-cookie',
+    this.appendSetCookie(
+      response,
       serializeCookie(SESSION_COOKIE, '', { ...this.cookieOptions(request, 0), maxAgeSeconds: 0 }),
+    );
+  }
+
+  /* ------------------------------ guest cookies ----------------------------- */
+
+  readGuestSession(request: IncomingMessage, now = Date.now()): SessionRow | undefined {
+    const raw = parseCookies(requestHeader(request, 'cookie'))[GUEST_COOKIE];
+    if (raw === undefined || !COOKIE_VALUE_RE.test(raw)) return undefined;
+    const payload = verifyPayload<SessionCookiePayload>(this.sessionSecret, raw, Math.floor(now / 1000));
+    if (payload === undefined || typeof payload.sid !== 'string') return undefined;
+    const session = this.db.getSession(payload.sid);
+    if (session === undefined || session.kind !== 'guest') return undefined;
+    if (now - session.lastSeenAt > 60_000) this.db.touchSession(session.id, now);
+    return session;
+  }
+
+  guestSessionCookie(request: IncomingMessage, session: SessionRow): string {
+    const value = signPayload(this.sessionSecret, { sid: session.id, v: 1 } satisfies SessionCookiePayload);
+    return serializeCookie(GUEST_COOKIE, value, this.cookieOptions(request, GUEST_COOKIE_MAX_AGE_SECONDS));
+  }
+
+  setGuestSessionCookie(request: IncomingMessage, response: ServerResponse, session: SessionRow): void {
+    this.appendSetCookie(response, this.guestSessionCookie(request, session));
+  }
+
+  clearGuestSessionCookie(request: IncomingMessage, response: ServerResponse): void {
+    this.appendSetCookie(
+      response,
+      serializeCookie(GUEST_COOKIE, '', { ...this.cookieOptions(request, 0), maxAgeSeconds: 0 }),
+    );
+  }
+
+  /* ------------------------------ claim cookies ----------------------------- */
+
+  readClaim(request: IncomingMessage, now = Date.now()): ClaimCookiePayload | undefined {
+    const raw = parseCookies(requestHeader(request, 'cookie'))[CLAIM_COOKIE];
+    if (raw === undefined || !COOKIE_VALUE_RE.test(raw)) return undefined;
+    const payload = verifyPayload<ClaimCookiePayload>(this.sessionSecret, raw, Math.floor(now / 1000));
+    if (payload === undefined || typeof payload.aid !== 'string' || typeof payload.exp !== 'number') return undefined;
+    return payload;
+  }
+
+  setClaimCookie(request: IncomingMessage, response: ServerResponse, approvalId: string): void {
+    const exp = Math.floor(Date.now() / 1000) + CLAIM_COOKIE_TTL_SECONDS;
+    const value = signPayload(this.sessionSecret, { aid: approvalId, exp, v: 1 } satisfies ClaimCookiePayload);
+    this.appendSetCookie(response, serializeCookie(CLAIM_COOKIE, value, this.cookieOptions(request, CLAIM_COOKIE_TTL_SECONDS)));
+  }
+
+  clearClaimCookie(request: IncomingMessage, response: ServerResponse): void {
+    this.appendSetCookie(
+      response,
+      serializeCookie(CLAIM_COOKIE, '', { ...this.cookieOptions(request, 0), maxAgeSeconds: 0 }),
     );
   }
 
@@ -296,5 +384,13 @@ export class AuthService {
     if (session === undefined) return false;
     if (session.kind === 'owner') return true;
     return session.deviceId === device.id;
+  }
+
+  /** Guests are scoped to one device and only while sharing is on. */
+  guestAccessAllowed(session: SessionRow, device: DeviceRow): boolean {
+    return session.kind === 'guest'
+      && session.deviceId === device.id
+      && device.sharingEnabled
+      && device.status === 'approved';
   }
 }

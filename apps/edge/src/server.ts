@@ -23,16 +23,19 @@ import {
   requestHeader,
   requestOrigin,
   sendJson,
+  sha256Hex,
   type Logger,
 } from '@dsh-rc/shared';
 import { WebSocketServer } from 'ws';
 import { AuthService } from './auth.js';
 import { loadConfig, type EdgeConfig } from './config.js';
-import { EdgeDatabase, type DeviceRow } from './db.js';
+import { EdgeDatabase, type DeviceRow, type SessionRow } from './db.js';
 import { DeviceService, validateRegisterBody } from './devices.js';
+import { GuestConnections } from './guest-connections.js';
 import { proxyDeviceHttp } from './proxy-http.js';
 import { proxyDeviceWs } from './proxy-ws.js';
-import { dashboardPage, loginPage, pairPage, reconnectingPage, setupPage } from './pages.js';
+import { dashboardPage, guestSessionPage, invitePage, loginPage, pairPage, reconnectingPage, setupPage } from './pages.js';
+import { SharingService, validateApprovalInput, validateInviteInput } from './sharing.js';
 import { RateLimiter } from './rate-limit.js';
 import { sendErrorPage, sendJsonError, sendPage } from './respond.js';
 import { TunnelManager } from './tunnels.js';
@@ -40,6 +43,12 @@ import { rejectUpgrade } from './upgrade.js';
 
 const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
 const DEVICE_ACTION_RE = /^\/v1\/devices\/([^/]+)\/(approve|revoke)$/;
+const INVITES_PATH = '/v1/devices/me/invites';
+const INVITE_ID_RE = /^\/v1\/devices\/me\/invites\/([^/]+)$/;
+const APPROVAL_ID_RE = /^\/v1\/devices\/me\/approvals\/([^/]+)$/;
+const GUESTS_PATH = '/v1/devices/me/guests';
+const GUEST_ID_RE = /^\/v1\/devices\/me\/guests\/([^/]+)$/;
+const INVITE_ROUTE_RE = /^\/i\/([A-Za-z0-9_-]{16,128})(?:\/(claim|status))?$/;
 const TRAVERSAL_RE = /[\u0000-\u001f\u007f\\]/;
 const AUDIT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -124,6 +133,8 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
   const db = new EdgeDatabase(config.dataDir);
   const auth = new AuthService(config, db, logger);
   const devices = new DeviceService(config, db, logger);
+  const sharing = new SharingService(db, logger);
+  const guestConnections = new GuestConnections(db, logger);
   const tunnels = new TunnelManager(config, db, devices, logger, auth.edgeId);
   const browserWss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   const limiter = new RateLimiter();
@@ -180,6 +191,28 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     const method = (request.method ?? 'GET').toUpperCase();
     const origin = publicOrigin(request);
 
+    // Guest sessions are deliberately tiny in scope: their own device mount,
+    // the guest session page and the public invite flow. Everything else —
+    // dashboard, device API, setup/pair/login, owner actions — is 403.
+    const primarySession = auth.readSession(request);
+    const guestSession = primarySession === undefined
+      ? auth.readGuestSession(request)
+      : primarySession.kind === 'guest'
+        ? primarySession
+        : undefined;
+    if (guestSession !== undefined) {
+      const allowed = pathname === '/healthz'
+        || pathname === '/favicon.ico'
+        || pathname === '/i/session'
+        || pathname === '/i/session/disconnect'
+        || pathname.startsWith('/i/')
+        || pathname.startsWith('/d/');
+      if (!allowed) {
+        if (pathname.startsWith('/v1/')) return sendJsonError(response, 403, 'FORBIDDEN', 'guest sessions are device-scoped');
+        return sendErrorPage(response, 403, 'Guest session', 'This session can only open its shared device.');
+      }
+    }
+
     if (pathname === '/healthz') {
       if (method !== 'GET' && method !== 'HEAD') return methodNotAllowed(response, ['GET', 'HEAD']);
       sendJson(response, 200, {
@@ -222,6 +255,40 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       return;
     }
 
+    if (pathname === '/v1/devices/me/sharing') {
+      if (method === 'GET') return handleSharingGet(request, response);
+      if (method === 'PUT') return handleSharingPut(request, response);
+      return methodNotAllowed(response, ['GET', 'PUT']);
+    }
+
+    if (pathname === INVITES_PATH) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleInviteCreate(request, response);
+    }
+
+    const inviteMatch = INVITE_ID_RE.exec(pathname);
+    if (inviteMatch !== null) {
+      if (method !== 'DELETE') return methodNotAllowed(response, ['DELETE']);
+      return handleInviteDelete(request, response, inviteMatch[1] ?? '');
+    }
+
+    const approvalMatch = APPROVAL_ID_RE.exec(pathname);
+    if (approvalMatch !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleApprovalDecision(request, response, approvalMatch[1] ?? '');
+    }
+
+    if (pathname === GUESTS_PATH) {
+      if (method !== 'DELETE') return methodNotAllowed(response, ['DELETE']);
+      return handleRevokeAllGuests(request, response);
+    }
+
+    const guestMatch = GUEST_ID_RE.exec(pathname);
+    if (guestMatch !== null) {
+      if (method !== 'DELETE') return methodNotAllowed(response, ['DELETE']);
+      return handleRevokeGuest(request, response, guestMatch[1] ?? '');
+    }
+
     const deviceAction = DEVICE_ACTION_RE.exec(pathname);
     if (deviceAction !== null) {
       const deviceId = deviceAction[1] ?? '';
@@ -257,6 +324,32 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     if (pathname === '/logout') {
       if (method !== 'POST') return methodNotAllowed(response, ['POST']);
       return handleLogout(request, response);
+    }
+
+    if (pathname === '/i/session') {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      return handleGuestSessionPage(request, response);
+    }
+
+    if (pathname === '/i/session/disconnect') {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleGuestDisconnect(request, response);
+    }
+
+    const inviteRoute = INVITE_ROUTE_RE.exec(pathname);
+    if (inviteRoute !== null) {
+      const token = inviteRoute[1] ?? '';
+      const action = inviteRoute[2];
+      if (action === undefined) {
+        if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+        return handleInvitePage(request, response, token);
+      }
+      if (action === 'claim') {
+        if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+        return handleInviteClaim(request, response, token);
+      }
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      return handleInviteStatus(request, response, token);
     }
 
     if (pathname === '/pair') {
@@ -356,12 +449,17 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       return sendErrorPage(response, 404, 'Unknown device', 'That device does not exist on this edge.');
     }
     const meta = metaFor(request, config, 'owner');
-    const updated = action === 'approve' ? devices.approve(deviceId, meta) : devices.revoke(deviceId, meta);
-    if (updated === undefined) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown device');
-    if (action === 'revoke') {
+    let updated: DeviceRow | undefined;
+    if (action === 'approve') {
+      updated = devices.approve(deviceId, meta);
+    } else {
+      const shared = sharing.revokeForDevice(deviceId, meta);
+      updated = devices.revoke(deviceId, meta);
       tunnels.closeDevice(deviceId, 4003, 'DEVICE_REVOKED');
       auth.revokeDeviceSessions(deviceId);
+      guestConnections.closeMany(shared.sessionIds, 'device revoked');
     }
+    if (updated === undefined) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown device');
     if (json) {
       sendJson(response, 200, { ok: true, device: devices.publicDevice(updated, tunnels.isOnline(updated.id)) });
       return;
@@ -492,6 +590,283 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     redirect(response, 303, `/d/${result.device.id}/`);
   }
 
+  /* -------------------------------- sharing ------------------------------ */
+
+  function sharingMeta(request: IncomingMessage, actor: string) {
+    return {
+      ip: clientAddress(request, config.trustProxy),
+      userAgent: requestHeader(request, 'user-agent') ?? null,
+      actor,
+    };
+  }
+
+  /** Device-scoped sharing API: Bearer device secret, approved devices only. */
+  function authorizedDevice(request: IncomingMessage, response: ServerResponse): DeviceRow | undefined {
+    const token = bearerToken(request);
+    if (token === undefined) {
+      sendJsonError(response, 401, 'AUTH_FAILED', 'missing bearer device secret');
+      return undefined;
+    }
+    const device = devices.findBySecret(token);
+    if (device === undefined) {
+      sendJsonError(response, 401, 'AUTH_FAILED', 'unknown device secret');
+      return undefined;
+    }
+    if (device.status === 'revoked') {
+      sendJsonError(response, 403, 'DEVICE_REVOKED', 'this device was revoked by the owner');
+      return undefined;
+    }
+    if (device.status !== 'approved') {
+      sendJsonError(response, 403, 'DEVICE_PENDING', 'this device has not been approved yet');
+      return undefined;
+    }
+    return device;
+  }
+
+  function sharingPublicUrl(request: IncomingMessage): string {
+    return (config.publicUrl !== '' ? config.publicUrl : publicOrigin(request)).replace(/\/+$/, '');
+  }
+
+  function handleSharingGet(request: IncomingMessage, response: ServerResponse): void {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    sendJson(response, 200, sharing.summary(device, sharingPublicUrl(request)));
+  }
+
+  async function handleSharingPut(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    const body = await readJsonBody(request, 16 * 1024);
+    if (typeof body !== 'object' || body === null || typeof (body as Record<string, unknown>)['enabled'] !== 'boolean') {
+      return sendJsonError(response, 400, 'BAD_REQUEST', 'expected {"enabled": true|false}');
+    }
+    const enabled = (body as Record<string, unknown>)['enabled'] === true;
+    const result = sharing.setEnabled(device, enabled, sharingMeta(request, 'agent'));
+    if (!result.enabled) guestConnections.closeMany(result.sessionIds, 'sharing disabled');
+    sendJson(response, 200, { enabled: result.enabled });
+  }
+
+  async function handleInviteCreate(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    if (rateLimited(response, `sharing-invite:${device.id}`, config.rateLimits.sharingInvite, true)) return;
+    const body = await readJsonBody(request, 16 * 1024);
+    if (body === undefined) return sendJsonError(response, 400, 'BAD_REQUEST', 'expected a JSON object');
+    const validated = validateInviteInput(body);
+    if (!validated.ok) return sendJsonError(response, 400, 'BAD_REQUEST', validated.error);
+    try {
+      const created = sharing.createInvite(device, validated.value, sharingMeta(request, 'agent'), sharingPublicUrl(request));
+      sendJson(response, 200, {
+        id: created.invite.id,
+        url: created.url,
+        token: created.token,
+        expiresAt: created.invite.expiresAt,
+      });
+    } catch (error) {
+      const status = typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 409 ? 409 : 500;
+      if (status === 409) return sendJsonError(response, 409, 'SHARING_DISABLED', 'enable sharing before creating an invite');
+      logger.warn('invite creation failed', { deviceId: device.id, error });
+      sendJsonError(response, 500, 'INVITE_FAILED');
+    }
+  }
+
+  async function handleInviteDelete(request: IncomingMessage, response: ServerResponse, inviteId: string): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    const result = sharing.deleteInvite(device.id, inviteId, sharingMeta(request, 'agent'));
+    if (!result.ok) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown invite');
+    sendJson(response, 200, { ok: true });
+  }
+
+  async function handleApprovalDecision(request: IncomingMessage, response: ServerResponse, approvalId: string): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    if (rateLimited(response, `sharing-approval:${device.id}`, config.rateLimits.sharingApproval, true)) return;
+    const body = await readJsonBody(request, 16 * 1024);
+    if (body === undefined) return sendJsonError(response, 400, 'BAD_REQUEST', 'expected a JSON object');
+    const validated = validateApprovalInput(body);
+    if (!validated.ok) return sendJsonError(response, 400, 'BAD_REQUEST', validated.error);
+    const result = sharing.decideApproval(device.id, approvalId, validated.decision, sharingMeta(request, 'agent'));
+    if (!result.ok) {
+      if (result.status === 404) return sendJsonError(response, 404, result.error);
+      if (result.status === 409) return sendJsonError(response, 409, result.error);
+      return sendJsonError(response, 500, result.error);
+    }
+    sendJson(response, 200, result.sessionId === undefined ? { ok: true } : { ok: true, sessionId: result.sessionId });
+  }
+
+  async function handleRevokeGuest(request: IncomingMessage, response: ServerResponse, sessionId: string): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    const ok = sharing.revokeGuest(device.id, sessionId, sharingMeta(request, 'agent'));
+    if (!ok) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown guest session');
+    guestConnections.closeSession(sessionId, 'guest session revoked');
+    sendJson(response, 200, { ok: true });
+  }
+
+  async function handleRevokeAllGuests(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const device = authorizedDevice(request, response);
+    if (device === undefined) return;
+    const result = sharing.revokeAllGuests(device.id, sharingMeta(request, 'agent'));
+    guestConnections.closeMany(result.sessionIds, 'guest session revoked');
+    sendJson(response, 200, { revoked: result.revoked });
+  }
+
+  /* ------------------------------ guest invites --------------------------- */
+
+  function inviteLookup(token: string): { invite: ReturnType<EdgeDatabase['getInvite']>; device: DeviceRow | undefined } {
+    const invite = db.getInviteByTokenHash(sha256Hex(token));
+    const device = invite === undefined ? undefined : db.getDevice(invite.deviceId);
+    return { invite, device };
+  }
+
+  function inviteUnavailableReason(invite: NonNullable<ReturnType<EdgeDatabase['getInvite']>>, device: DeviceRow | undefined, now: number): string | undefined {
+    if (invite.revokedAt !== null) return 'This invite was revoked by the host.';
+    if (invite.expiresAt !== 0 && invite.expiresAt <= now) return 'This invite has expired.';
+    if (invite.uses >= invite.maxUses) return 'This invite has already been used.';
+    if (device === undefined || device.status !== 'approved' || !device.sharingEnabled) {
+      return 'This device is not accepting guest sessions.';
+    }
+    return undefined;
+  }
+
+  function handleInvitePage(request: IncomingMessage, response: ServerResponse, token: string): void {
+    const { invite, device } = inviteLookup(token);
+    if (invite === undefined || device === undefined) {
+      sendErrorPage(response, 404, 'Invite not found', 'This invite link is not valid.');
+      return;
+    }
+    const reason = inviteUnavailableReason(invite, device, Date.now());
+    if (reason !== undefined) {
+      sendErrorPage(response, 410, 'Invite unavailable', reason);
+      return;
+    }
+    const claim = auth.readClaim(request);
+    let pending = false;
+    if (claim !== undefined) {
+      const approval = sharing.pendingApprovalForClaim(token, claim.aid);
+      if (approval !== undefined) {
+        const status = sharing.approvalStatus(token, claim.aid);
+        if (status.status === 'pending' || status.status === 'approved') pending = true;
+      }
+    }
+    const csrf = auth.ensureCsrf(request, response);
+    sendPage(response, 200, invitePage({
+      csrf,
+      token,
+      deviceName: device.name,
+      label: invite.label,
+      expiresAt: invite.expiresAt,
+      pending,
+    }));
+  }
+
+  async function handleInviteClaim(request: IncomingMessage, response: ServerResponse, token: string): Promise<void> {
+    const ip = clientAddress(request, config.trustProxy);
+    if (rateLimited(response, `sharing-claim:${ip}`, config.rateLimits.sharingClaim, false)) return;
+    const form = await readFormBody(request);
+    if (form === undefined) return sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+
+    const existingClaim = auth.readClaim(request);
+    if (existingClaim !== undefined) {
+      const pending = sharing.pendingApprovalForClaim(token, existingClaim.aid);
+      if (pending !== undefined) {
+        const status = sharing.approvalStatus(token, existingClaim.aid);
+        if (status.status === 'pending' || status.status === 'approved') {
+          if (wantsJson(request)) {
+            return sendJson(response, 200, { ...status, approvalId: pending.id, deviceId: pending.deviceId });
+          }
+          return redirect(response, 303, `/i/${token}`);
+        }
+      }
+    }
+
+    const result = sharing.claimInvite(token, sharingMeta(request, 'guest'));
+    if (!result.ok) {
+      sendErrorPage(response, result.status, result.status === 404 ? 'Invite not found' : 'Invite unavailable', result.error);
+      return;
+    }
+    auth.setClaimCookie(request, response, result.approval.id);
+    if (wantsJson(request)) {
+      return sendJson(response, 200, {
+        status: 'pending',
+        approvalId: result.approval.id,
+        deviceId: result.approval.deviceId,
+      });
+    }
+    redirect(response, 303, `/i/${token}`);
+  }
+
+  function handleInviteStatus(request: IncomingMessage, response: ServerResponse, token: string): void {
+    const claim = auth.readClaim(request);
+    if (claim === undefined) return sendJson(response, 400, { status: 'unclaimed' });
+    const status = sharing.approvalStatus(token, claim.aid);
+    if (status.status === 'approved' && status.sessionId !== undefined && status.deviceId !== undefined) {
+      const session = sharing.guestSession(status.sessionId);
+      if (session !== undefined) {
+        auth.setGuestSessionCookie(request, response, session);
+        auth.clearClaimCookie(request, response);
+        return sendJson(response, 200, {
+          status: 'approved',
+          deviceId: status.deviceId,
+          devicePath: `/d/${status.deviceId}/`,
+          sessionId: status.sessionId,
+        });
+      }
+    }
+    sendJson(response, 200, status.status === 'pending' && status.deviceId !== undefined
+      ? { status: status.status, deviceId: status.deviceId }
+      : { status: status.status });
+  }
+
+  function handleGuestSessionPage(request: IncomingMessage, response: ServerResponse): void {
+    const guest = auth.readGuestSession(request);
+    if (guest === undefined) {
+      return sendErrorPage(response, 401, 'No guest session', 'Open your invite link again or ask the host for a new invite.');
+    }
+    const device = guest.deviceId === null ? undefined : db.getDevice(guest.deviceId);
+    if (device === undefined || !auth.guestAccessAllowed(guest, device)) {
+      return sendErrorPage(response, 403, 'Guest session ended', 'The host revoked this guest session or turned sharing off.');
+    }
+    const csrf = auth.ensureCsrf(request, response);
+    sendPage(response, 200, guestSessionPage({
+      csrf,
+      deviceId: device.id,
+      deviceName: device.name,
+      label: sharing.guestSessionLabel(guest.id) ?? 'Guest',
+      since: guest.createdAt,
+    }));
+  }
+
+  async function handleGuestDisconnect(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const guest = auth.readGuestSession(request);
+    if (guest === undefined) {
+      return sendErrorPage(response, 401, 'No guest session', 'This browser is not signed in as a guest.');
+    }
+    const form = await readFormBody(request);
+    if (form === undefined) return sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    const meta = sharingMeta(request, 'guest');
+    if (guest.deviceId !== null) {
+      const label = sharing.guestSessionLabel(guest.id) ?? 'Guest';
+      sharing.revokeGuest(guest.deviceId, guest.id, meta);
+      db.addAudit({
+        event: 'guest-disconnected',
+        deviceId: guest.deviceId,
+        actor: 'guest',
+        ip: meta.ip,
+        detail: `${guest.id} · ${label} · self`,
+        ts: Date.now(),
+      });
+    }
+    guestConnections.closeSession(guest.id, 'guest disconnected');
+    auth.clearGuestSessionCookie(request, response);
+    redirect(response, 303, '/');
+  }
+
   /* ------------------------------- dashboard ------------------------------ */
 
   function handleDashboard(request: IncomingMessage, response: ServerResponse): void {
@@ -524,15 +899,36 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
 
   /* ----------------------------- device proxy ---------------------------- */
 
-  function checkDeviceAccess(
-    request: IncomingMessage,
-    device: DeviceRow,
-  ): { ok: true } | { ok: false; status: number; title: string; message: string } {
-    const session = auth.readSession(request);
+  type DeviceAccess =
+    | { ok: true; session: SessionRow; guest: boolean }
+    | { ok: false; status: number; title: string; message: string };
+
+  function checkDeviceAccess(request: IncomingMessage, device: DeviceRow): DeviceAccess {
+    const primary = auth.readSession(request);
+    let session = primary;
+    let guest = false;
+    if (session?.kind === 'guest') guest = true;
+    if (session === undefined) {
+      const guestSession = auth.readGuestSession(request);
+      if (guestSession !== undefined) {
+        session = guestSession;
+        guest = true;
+      }
+    }
     if (session === undefined) {
       return { ok: false, status: 401, title: 'Sign in required', message: 'Sign in to the edge before opening a device.' };
     }
-    if (!auth.deviceAccessAllowed(session, device)) {
+    if (guest) {
+      if (session.deviceId !== device.id) {
+        return { ok: false, status: 403, title: 'Access denied', message: 'This guest session is scoped to another device.' };
+      }
+      if (!device.sharingEnabled) {
+        return { ok: false, status: 403, title: 'Sharing disabled', message: 'The host turned sharing off for this device.' };
+      }
+      if (!auth.guestAccessAllowed(session, device)) {
+        return { ok: false, status: 403, title: 'Access denied', message: 'This guest session is not valid for that device.' };
+      }
+    } else if (!auth.deviceAccessAllowed(session, device)) {
       return { ok: false, status: 403, title: 'Access denied', message: 'This session is not paired to that device.' };
     }
     if (device.status === 'revoked') {
@@ -541,7 +937,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     if (device.status === 'pending') {
       return { ok: false, status: 403, title: 'Device pending', message: 'This device has not been approved yet.' };
     }
-    return { ok: true };
+    return { ok: true, session, guest };
   }
 
   async function handleDeviceHttp(
@@ -600,6 +996,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       rest: parsed.rest,
       search,
       publicOrigin: publicOrigin(request),
+      ...(access.guest ? { guest: true } : {}),
     });
   }
 
@@ -663,6 +1060,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       rest: parsed.rest,
       search: url.search,
       browserWss,
+      ...(access.guest ? { guestSessionId: access.session.id, guestConnections } : {}),
     }).catch((error: unknown) => {
       logger.warn('websocket proxy failed', { deviceId: device.id, error });
       rejectUpgrade(socket, 500, 'websocket proxy failed');
@@ -730,6 +1128,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     },
     async close(): Promise<void> {
       clearInterval(auditPruneTimer);
+      guestConnections.closeAll('edge shutting down');
       tunnels.closeAll('edge shutting down');
       tunnels.closeServer();
       for (const client of browserWss.clients) {

@@ -1,10 +1,14 @@
 {
   "meta": {
-    "title": "\u8fdc\u7a0b\u63a7\u5236",
-    "description": "\u901a\u8fc7\u81ea\u5efa\u7684 DSH RC \u8fb9\u7f18\u8282\u70b9\u8fdc\u7a0b\u63a7\u5236\u6b64 DeepSeek Harness\u3002"
+    "title": "远程控制",
+    "description": "通过自建的 DSH RC 边缘节点远程控制此 DeepSeek Harness。"
   },
   "hints": {
-    "pair": "\u626b\u7801\u5728\u6d4f\u89c8\u5668\u4e2d\u6253\u5f00\u914d\u5bf9\u94fe\u63a5\u3002",
-    "paired": "\u6b64\u8bbe\u5907\u5df2\u914d\u5bf9\u3002\u8bf7\u91cd\u542f\u4ee3\u7406\u4ee5\u83b7\u53d6\u65b0\u7684\u914d\u5bf9\u7801\u3002"
+    "pair": "扫码在浏览器中打开配对链接。",
+    "paired": "此设备已配对。请重启代理以获取新的配对码。"
+  },
+  "sharing": {
+    "title": "共享",
+    "description": "通过一次性邀请和所有者批准的访客会话，与他人共享此 Harness。"
   }
 }

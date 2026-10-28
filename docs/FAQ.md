@@ -130,6 +130,58 @@ device. Multiple browsers can hold sessions for the same device. The
 exact session limit is not a documented product feature in v1; use the dashboard
 to review and revoke sessions if your build exposes that view.
 
+## Can I let someone else control my Harness?
+
+Yes. Turn on **Share this Harness** in the sidebar panel, create a single-use
+invite (**15 minutes**, **1 hour**, **24 hours**, or **Never**), send the link,
+and **Approve** the request when it appears with the guest's label, IP and
+user-agent. The guest installs nothing and opens the link in a browser. Sharing
+is off by default and scoped to one device.
+
+A guest gets the real Harness UI for that device — the same conversations,
+workspace, terminal and tools you can use. They do **not** get the dashboard,
+`/v1/*`, setup, pairing, device administration, invites, approvals or sharing
+settings; those return `403`. There is no read-only guest mode and no per-guest
+file or terminal scoping. Treat it as handing over the desktop. The guest client
+is a current desktop browser; mobile browsers are not a supported client.
+
+## Do guests need Tailscale?
+
+Not if the edge has a public HTTPS URL. A VPS edge works; **Tailscale Funnel**
+is one way to get a free public HTTPS URL without a VPS, and the guest still
+installs nothing. **Tailscale Serve** works only for guests who have joined your
+tailnet. A loopback-only edge can share only with a browser on the same machine.
+See `docs/SHARING.md` §4 and `docs/DEPLOY.md`.
+
+## How long does a guest stay connected?
+
+Until you revoke them. Guest sessions have **no expiry**: no server-side TTL, no
+idle timeout, a ten-year cookie `Max-Age`, and they survive edge restarts and
+tunnel reconnects. Closing the browser or rebooting the guest's machine does not
+end the session. It ends only when the guest presses **Disconnect**, you
+**Revoke** that guest or **Revoke all**, you turn **Share this Harness** off,
+you revoke the device, or the edge database is deleted.
+
+A stolen guest cookie is therefore **permanent access until you revoke it**. If
+a guest's machine may be compromised, use **Revoke all** and turn sharing off.
+
+## Can more than one guest control the Harness at once?
+
+Yes. There is no controller lock and no `GUEST_BUSY` error. Multiple guests
+share one single-user desktop — the same workspace, terminal and tools — so they
+can interfere with each other, overwrite work, or read what another guest is
+doing. The panel lists every guest separately and shows a standing warning.
+There is no read-only mode.
+
+## How do I kick someone out?
+
+Sidebar panel → **Active guests** → **Revoke** for one guest, or **Revoke all**.
+The guest's session and WebSockets close immediately. Turning **Share this
+Harness** off also revokes every invite and guest session for that device;
+revoking the device does the same. If an unclaimed link leaked, revoke it under
+**Outstanding invites**; if it was claimed but not approved, press **Deny** in
+**Waiting for approval**.
+
 ## What happens if the edge goes down?
 
 Existing tunnels drop. The agent retries with backoff; browsers show an error

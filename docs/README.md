@@ -11,6 +11,7 @@ Start here if you are new; the table maps each document to its audience.
 | [DEPLOY.md](DEPLOY.md) | You are installing an edge: laptop, VPS with Docker + Caddy, or Cloudflare. |
 | [OPERATIONS.md](OPERATIONS.md) | You are pairing, revoking, rotating, reading audit rows or diagnosing a failure. |
 | [COMPARISON.md](COMPARISON.md) | You are choosing between DSH RC and `liguobao/ds-harness-remote`. |
+| [SHARING.md](SHARING.md) | You are sharing a Harness with a guest, or reviewing that feature. |
 | [SECURITY.md](SECURITY.md) | You are reporting a vulnerability or reviewing the security design. |
 | [FAQ.md](FAQ.md) | You want a short answer before reading a long document. |
 | [README.zh.md](README.zh.md) | 你需要简体中文的根 README。 |

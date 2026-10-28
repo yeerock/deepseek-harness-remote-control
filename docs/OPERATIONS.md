@@ -150,7 +150,154 @@ expired before first use, re-register the agent (revoke the old device, delete
 `device.json`, start it again). That creates a new device id and a fresh code;
 pair promptly, because the window is 10 minutes.
 
-## 3. Revoking a lost laptop
+## 3. Guest sharing
+
+Sharing lets one invited person use one device's Harness from a browser. It is
+**off by default**; the contract is `docs/SHARING.md`. The host approves every
+guest, and guest sessions are device-scoped but **never expire on their own**.
+
+### 3.1 Turn sharing on and create an invite
+
+In the sidebar panel: **Share this Harness → On**, choose **Invite expires**
+(**15 minutes**, **1 hour**, **24 hours**, or **Never**), press **Create
+invite**. The link is shown once, with **Copy** and a QR code.
+
+API equivalent, using the device secret from the agent's state dir. A
+plugin-launched agent uses `<DSH home>/rc/device.json`; a manual agent uses
+`~/.dsh-rc/agent/device.json`.
+
+```bash
+EDGE=https://link.example.com
+STATE_DIR="${DSH_HOME:-$HOME/.dsh}/rc"     # manual agent: ~/.dsh-rc/agent
+SECRET=$(jq -r .deviceSecret "$STATE_DIR/device.json")
+
+# enable sharing for this device
+curl -fsS -H "authorization: Bearer $SECRET" -H 'content-type: application/json' \
+  -d '{"enabled":true}' -X PUT "$EDGE/v1/devices/me/sharing"
+
+# ttlSeconds: 0 = never, otherwise 60..86400; maxUses 1..10; label <= 64 chars
+curl -fsS -H "authorization: Bearer $SECRET" -H 'content-type: application/json' \
+  -d '{"label":"Support","ttlSeconds":3600,"maxUses":1}' \
+  -X POST "$EDGE/v1/devices/me/invites"
+```
+
+The invite response is `{id,url,token,expiresAt}`. `token` and `url` are shown
+**once**; `expiresAt: 0` means never. Do not log or paste the URL into a public
+channel.
+
+Inspect everything the panel sees:
+
+```bash
+curl -fsS -H "authorization: Bearer $SECRET" "$EDGE/v1/devices/me/sharing" | jq
+```
+
+It returns `{enabled, publicUrl, invites, pendingApprovals, activeGuests}`.
+`activeGuests[].expiresAt` is always `null`. These routes accept **only the
+device secret** as `Authorization: Bearer`; an owner dashboard session cannot
+call them in v0.2.
+
+### 3.2 Approve or deny a guest
+
+The guest opens `/i/<token>`, sees the device name and invite label, and presses
+**Request access**. The request appears under **Waiting for approval** with the
+guest's label, IP and user-agent. That is a request, not a session. `/i/:token/status`
+always returns JSON, so a stuck guest page can be checked with:
+
+```bash
+curl -s -b guest-cookies.txt -H 'accept: application/json' \
+  "$EDGE/i/<token>/status" | jq
+```
+
+```bash
+# APPROVAL_ID comes from pendingApprovals[].id
+curl -fsS -H "authorization: Bearer $SECRET" -H 'content-type: application/json' \
+  -d '{"decision":"approve"}' \
+  -X POST "$EDGE/v1/devices/me/approvals/$APPROVAL_ID"
+```
+
+Use `"decision":"deny"` to reject it; the guest's status page shows the denial
+and no session is created. On approval the guest page polls
+`/i/<token>/status`, receives a device-scoped `dshrc_guest` cookie and lands on
+`/d/<deviceId>/`.
+
+The approval body accepts `ttlSeconds` for contract compatibility but **ignores
+it**: guest sessions have no expiry. Do not send it expecting a shorter session.
+
+### 3.3 What a guest can and cannot do
+
+- Can: use the full Harness UI for that one device — conversations, workspace,
+  terminal, tools — exactly as the owner can within DSH's own permissions.
+- Cannot: reach the dashboard, `/v1/*`, `/setup`, `/pair`, `/login`, `/logout`,
+  device approve/revoke, invites, approvals or sharing settings; those return
+  `403` for a guest session. `/d/<other-device>/` is also `403`.
+- There is **no read-only mode** and no per-guest file/terminal scoping. A guest
+  can change the workspace and run tools.
+- **Multiple guests can hold sessions at once.** There is no controller lock and
+  no `GUEST_BUSY`. They share one single-user desktop and **can interfere with
+  each other**. The panel lists every guest separately.
+
+### 3.4 Revoke a guest, revoke all, or stop sharing
+
+```bash
+# revoke one guest (SESSION_ID from activeGuests[].sessionId)
+curl -fsS -H "authorization: Bearer $SECRET" \
+  -X DELETE "$EDGE/v1/devices/me/guests/$SESSION_ID"
+
+# revoke every guest for this device
+curl -fsS -H "authorization: Bearer $SECRET" \
+  -X DELETE "$EDGE/v1/devices/me/guests"
+
+# revoke an unclaimed invite
+curl -fsS -H "authorization: Bearer $SECRET" \
+  -X DELETE "$EDGE/v1/devices/me/invites/$INVITE_ID"
+
+# stop sharing: revokes every invite and guest session for the device
+curl -fsS -H "authorization: Bearer $SECRET" -H 'content-type: application/json' \
+  -d '{"enabled":false}' -X PUT "$EDGE/v1/devices/me/sharing"
+```
+
+Guest HTML responses also carry a fixed **Remote session · Disconnect** pill
+that links to `/i/session`; if injection is skipped (compressed or large
+responses), `/i/session` remains the canonical control.
+
+Revocation is immediate: the session row is deleted and its browser WebSockets
+are closed. A revoked guest gets `401`/`403` on the next request. To
+**disconnect** a guest from the owner side, revoke that guest; there is no
+separate pause. The guest can also end their own session with **Disconnect** on
+`/i/session` (`POST /i/session/disconnect`); that records `guest-disconnected`
+and `guest-revoked`, then clears the cookie.
+
+**Guest sessions never expire.** Closing the browser, rebooting, restarting the
+edge or a tunnel reconnect does not end one. Only revocation, sharing off,
+device revocation or edge-database deletion do. A stolen guest cookie is
+permanent access to that device until you revoke it.
+
+### 3.5 Leaked invite or stolen cookie
+
+| Situation | Do this |
+| --- | --- |
+| Invite link leaked, not claimed | `DELETE /v1/devices/me/invites/:id`; pending approvals for it are expired. |
+| Claimed, waiting for approval | **Deny** the approval, then revoke the invite. |
+| Approved, cookie may be stolen | Revoke that guest, or **Revoke all**; then turn sharing off if unsure. |
+| Sharing must stop entirely | `PUT /v1/devices/me/sharing {"enabled":false}`; this revokes every invite and guest. |
+| Device is suspect | Revoke the device; the tunnel closes with `4003` and its guests end. |
+
+There is no TTL to wait out and no automatic cleanup. If a guest's machine may
+be compromised, **Revoke all** and turn sharing off.
+
+### 3.6 Audit and prerequisites
+
+Guest actions are audited as flat events: `sharing-enabled`,
+`sharing-disabled`, `invite-created`, `invite-revoked`, `invite-claimed`,
+`approval-approved`, `approval-denied`, `guest-revoked`, `guest-connected`,
+`guest-disconnected`. See §7 for queries.
+
+The guest must be able to reach the edge. A loopback-only edge can share only
+with a browser on the same machine. Use a VPS edge or a public HTTPS URL such as
+Tailscale Funnel; Tailscale Serve only reaches guests who joined your tailnet
+(`docs/DEPLOY.md` §3.1).
+
+## 4. Revoking a lost laptop
 
 Assume the laptop is gone and the agent may still be running.
 
@@ -194,7 +341,7 @@ Assume the laptop is gone and the agent may still be running.
 Revocation is not a remote wipe. Full-disk encryption is what protects the data
 on the stolen machine.
 
-## 4. Rotating a device secret
+## 5. Rotating a device secret
 
 There is no in-place rotation in v1. The procedure is revoke → re-register:
 
@@ -227,7 +374,7 @@ authenticate.
 Rotate on a schedule (90 days is reasonable), after any suspected exposure, and
 whenever a laptop changes hands.
 
-## 5. Rotating the owner session and cookie secret
+## 6. Rotating the owner session and cookie secret
 
 - **Log out one browser**: `POST /logout` from that browser.
 - **Invalidate every session**: delete/rotate the `session_secret` setting and
@@ -236,7 +383,7 @@ whenever a laptop changes hands.
   exists in v1; rotate by deleting the owner row (§1.2) and setting a new
   password. This is a known limitation, recorded in `docs/FAQ.md`.
 
-## 6. Reading audit rows
+## 7. Reading audit rows
 
 The edge keeps a flat `audit` table: `id`, `ts`, `event`, `device_id`, `actor`,
 `ip`, `detail`. Rows older than the retention window are deleted on boot and
@@ -246,10 +393,14 @@ then once every 24 h; the default is 30 days, `--audit-retention-days` accepts
 longer than your backup cycle and ship rows off-host. Events emitted by the edge:
 
 `owner-setup`, `login`, `logout`, `register`, `pair`, `approve`, `revoke`,
-`tunnel-connect`, `tunnel-disconnect` (`apps/edge/src/server.ts`; the event is
-`login`, not `owner-login`).
+`tunnel-connect`, `tunnel-disconnect`, plus the sharing events
+`sharing-enabled`, `sharing-disabled`, `invite-created`, `invite-revoked`,
+`invite-claimed`, `approval-approved`, `approval-denied`, `guest-revoked`,
+`guest-connected`, `guest-disconnected` (`apps/edge/src/server.ts`,
+`apps/edge/src/sharing.ts`, `apps/edge/src/guest-connections.ts`; the login
+event is `login`, not `owner-login`).
 
-`ts` is an integer of epoch **milliseconds** (`apps/edge/src/db.ts:121-129`);
+`ts` is an integer of epoch **milliseconds** (`apps/edge/src/db.ts:200-209`);
 convert it in SQL rather than eyeballing it.
 
 ```bash
@@ -275,6 +426,13 @@ from audit where device_id = 'dev_xxxxxxxxxxxxxxxxxxxx'
 select datetime(ts/1000,'unixepoch') as time, device_id, actor, detail
 from audit where event = 'revoke' order by id desc;
 
+-- guest and invite activity
+select datetime(ts/1000,'unixepoch') as time, event, device_id, actor, ip, detail
+from audit
+where event like 'guest-%' or event like 'invite-%' or event like 'approval-%'
+   or event like 'sharing-%'
+order by id desc limit 100;
+
 -- activity in the last 24 hours
 select datetime(ts/1000,'unixepoch') as time, event, device_id, ip
 from audit where ts > (strftime('%s','now') - 86400) * 1000 order by id desc;
@@ -286,7 +444,7 @@ writing a parser. Audit rows are append-only by convention, not by
 database trigger. Ship them off-host if they matter (`docs/THREAT-MODEL.md`
 §6.3).
 
-## 7. Log fields
+## 8. Log fields
 
 Both binaries emit JSON lines through `@dsh-rc/shared`'s logger
 (`packages/shared/src/logger.ts`). Every line has:
@@ -340,11 +498,11 @@ failure. The file is written atomically (tmp + rename) with mode
 States: `starting`, `pairing`, `connecting`, `online`, `reconnecting`, `error`,
 `stopped`. `upstream` is an origin only; it never contains the launch token.
 
-### 7.1 State directory and the single-instance lock
+### 8.1 State directory and the single-instance lock
 
 One state directory per DSH host/profile. A manually started agent defaults to
 `~/.dsh-rc/agent`; a plugin-launched agent uses `<DSH home>/rc` (or
-`<stateDir>/link` when the plugin overrides the DSH home). The directory
+`<stateDir>/rc` when the plugin overrides the DSH home). The directory
 contains:
 
 | File | Mode | Purpose |
@@ -366,7 +524,7 @@ can race for the same device identity and the edge will replace one tunnel with
 `4004`. Deleting the lock is safe only when no agent for that state dir is
 alive.
 
-## 8. Diagnosing HTTP failures
+## 9. Diagnosing HTTP failures
 
 | Status | Meaning | Check |
 | --- | --- | --- |
@@ -377,7 +535,7 @@ alive.
 | `503` + `Retry-After: 5` | Device offline or outside presence grace. HTML navigation gets a reconnecting page; `/api/*` or `Accept: application/json` gets `{"error":"DEVICE_OFFLINE","retryable":true,"reconnecting":…,"retryAfterSeconds":5}` | Agent running? Tunnel connected? Device revoked? |
 | `504` on WebSocket upgrade | `WS_OPEN_TIMEOUT_MS` (10 s) expired; agent did not open the upstream socket | Check agent/upstream, not the browser |
 
-### 8.1 A 503 that will not clear
+### 9.1 A 503 that will not clear
 
 1. Read the agent status file. `state: "error"` with `lastError` naming
    `DEVICE_REVOKED`, `AUTH_FAILED` or `PROTOCOL_MISMATCH` is terminal: the
@@ -397,7 +555,7 @@ alive.
    to a different device, or the device id in the URL is stale after
    re-registration. Re-pair.
 
-### 8.2 A 401/403 loop on the dashboard
+### 9.2 A 401/403 loop on the dashboard
 
 - `Secure` cookie on a plain-HTTP origin: the browser silently drops it. Use
   HTTPS, or `--insecure` on loopback only.
@@ -408,7 +566,7 @@ alive.
   with a cross-site `Origin`. Send both cookies and the token (see §2.2):
   `-b "dshrc_session=…; dshrc_csrf=…" -H "x-csrf-token: …" -d "csrf=…"`.
 
-## 9. Diagnosing WebSocket and tunnel failures
+## 10. Diagnosing WebSocket and tunnel failures
 
 | Close code | Name | Meaning | Action |
 | --- | --- | --- | --- |
@@ -429,7 +587,7 @@ lock existed. Two agents sharing one state dir are refused at startup, so the
 error message is different (`another agent is already running`). Find and kill
 the duplicate; the newest connection wins by design.
 
-## 10. Health checks and monitoring
+## 11. Health checks and monitoring
 
 | Check | Command | Healthy |
 | --- | --- | --- |
@@ -444,7 +602,7 @@ the duplicate; the newest connection wins by design.
 Alert on: `/healthz` failing twice in a row, error-level log rate, disk > 80 %,
 no successful backup in 36 h, and any `revoke` event you did not initiate.
 
-## 11. Capacity notes
+## 12. Capacity notes
 
 | Resource | Limit | Source |
 | --- | --- | --- |
@@ -482,7 +640,7 @@ four concurrent 16 MiB transfers, reconnect after forced 4004 replacement
 49 ms. These measure tunnel overhead, not internet RTT. Per-tunnel memory is
 still **TBD** (`tools/bench`).
 
-## 12. Emergency procedures
+## 13. Emergency procedures
 
 **Stop all remote access now**
 
@@ -517,12 +675,12 @@ Revoke its device, stop the agent, restart DSH, rotate the OS account password
 and any credentials in the workspace. The edge cannot inspect what the agent
 did before revocation; DSH's own logs are the record.
 
-## 13. Maintenance calendar
+## 14. Maintenance calendar
 
 | Interval | Task |
 | --- | --- |
 | Daily | Backup succeeded; error logs reviewed; certificate valid |
 | Weekly | Audit rows for unexpected `pair`/`register`/`revoke`; disk headroom |
 | Monthly | Restore a backup to a scratch path and verify it opens; review device list |
-| Quarterly | Rotate device secrets (§4); upgrade to the latest tag (§7 of `docs/DEPLOY.md`) |
+| Quarterly | Rotate device secrets (§5); upgrade to the latest tag (§7 of `docs/DEPLOY.md`) |
 | On change | Re-read `docs/THREAT-MODEL.md` §11 triggers |

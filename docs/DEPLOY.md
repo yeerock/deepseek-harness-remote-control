@@ -100,7 +100,7 @@ the agent uses `DSHRC_`. This is the current code, not a typo in the docs.
 
 The agent requires exactly one of `--dsh-url` / `--dsh-url-file`; it cannot
 discover the DSH port itself. A plugin-launched agent does not use the manual
-default above: its state dir is `<DSH home>/rc`, or `<stateDir>/link` when the
+default above: its state dir is `<DSH home>/rc`, or `<stateDir>/rc` when the
 plugin's optional `stateDir` config overrides the DSH home
 (`packages/plugin/README.md`). Exit codes are `0` clean stop, `1` terminal error
 (device revoked, tunnel auth failed, protocol mismatch, state-dir lock
@@ -176,6 +176,28 @@ Open `http://127.0.0.1:8787/d/<deviceId>/` to use the DSH UI.
 To reset the demo completely: stop both processes, `rm -rf .dshrc-demo
 ~/.dsh-rc/agent`, and start again. That destroys the owner, devices and
 sessions; it is the correct move for a demo and the wrong move in production.
+
+### 3.1 Sharing needs a public edge URL
+
+Guest sharing is an **authorization** feature; reachability is deployment. The
+guest opens the invite link from their own browser, so the edge must be
+reachable from the guest's machine. A loopback-only edge (`127.0.0.1:8787`) can
+share only with a browser on the same machine — the invite link will not open
+elsewhere. The plugin warns when the edge advertises a loopback or unknown
+`publicUrl`.
+
+Options, in ascending order of effort:
+
+- **VPS edge** — the production shape in §4; no Tailscale anywhere.
+- **Tailscale Funnel** — a free public HTTPS URL in front of a laptop edge. The
+  guest installs nothing. Set `--public-url https://<machine>.<tailnet>.ts.net`
+  and `--trust-proxy` so client IPs are logged correctly.
+- **Tailscale Serve** — only for guests who have joined your tailnet.
+
+Sharing does not change the edge's port or TLS requirements. Do not expose the
+edge's plain listener to make sharing work; put the public HTTPS URL in front of
+it as for any other remote access. The full sharing contract is
+`docs/SHARING.md`.
 
 ## 4. Shape 2 — single VPS with Docker + Caddy
 
@@ -576,4 +598,7 @@ Full runbook: `docs/OPERATIONS.md`.
 - [ ] Owner password set, or the "delete owner row to re-auth" limitation is
       understood (`docs/OPERATIONS.md` §1).
 - [ ] Audit retention matches your policy; logs ship off-host.
+- [ ] Guest sharing is off unless needed. If on, the edge has a public HTTPS URL
+      (`docs/DEPLOY.md` §3.1) and someone reviews **Active guests**; see the
+      permanence warning in `docs/OPERATIONS.md` §3.
 - [ ] The trust boundary in `docs/THREAT-MODEL.md` §7.1 is acceptable to you.

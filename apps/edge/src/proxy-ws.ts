@@ -19,6 +19,7 @@ import type { Mux, Stream } from '@dsh-rc/mux';
 import { newId, type Logger } from '@dsh-rc/shared';
 import type { EdgeConfig } from './config.js';
 import type { DeviceRow } from './db.js';
+import type { GuestConnections } from './guest-connections.js';
 import type { TunnelManager } from './tunnels.js';
 import { isStreamLimitError } from './proxy-http.js';
 import { rejectUpgrade, toBytes } from './upgrade.js';
@@ -72,6 +73,9 @@ export interface DeviceWsRequest {
   rest: string;
   search: string;
   browserWss: WebSocketServer;
+  /** Set for guest sessions so revocation can close this browser socket. */
+  guestSessionId?: string;
+  guestConnections?: GuestConnections;
 }
 
 function closeCodeForWire(code: number): number {
@@ -153,6 +157,12 @@ export async function proxyDeviceWs(input: DeviceWsRequest): Promise<void> {
 
   try {
     browserWss.handleUpgrade(request, socket, head, (ws) => {
+      if (input.guestSessionId !== undefined && input.guestConnections !== undefined) {
+        const sessionId = input.guestSessionId;
+        const connections = input.guestConnections;
+        connections.add(sessionId, device.id, ws);
+        ws.once('close', () => connections.remove(sessionId, ws));
+      }
       relay(ws, stream, tunnel.attached.mux, input);
     });
   } catch (error) {

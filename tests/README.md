@@ -12,8 +12,12 @@ browser (undici/ws) ──▶ edge (child process) ──WSS tunnel──▶ age
 ## Run
 
 ```bash
-# This suite only (28 tests, ~5 s wall on an M4 Pro; vitest runs the 4 files in parallel)
+# Tunnel suite only (28 tests, ~5 s wall on an M4 Pro; vitest runs the 4 files in parallel)
 npx vitest run tests/integration
+
+# Sharing suite (22 tests; ~64 s wall because one test proves the absence of an
+# idle timeout by waiting 61 s; the other three files run in parallel with it)
+npx vitest run tests/sharing
 
 # Typecheck tests + bench without touching the app builds
 npx tsc -p tests/tsconfig.json
@@ -45,6 +49,10 @@ message if a piece is missing.
 | `integration/auth.test.ts` | Session, CSRF/Origin, pairing paths, pending/revoked device, revocation. |
 | `integration/faults.test.ts` | Abort propagation, offline presence/grace/reconnect, latency under bulk load. |
 | `integration/agent-lifecycle.test.ts` | Singleton state-dir lock, identity file permissions. |
+| `sharing/sharing-api.test.ts` | Sharing toggle, invite TTL/uses/one-time token/hash at rest/deletion. |
+| `sharing/guest-flow.test.ts` | Claim → approval → guest cookie, admin isolation, disconnect, revoke one/all, sharing off, device revoke, WS across agent restart. |
+| `sharing/multiple-guests.test.ts` | Concurrent claims/approvals and simultaneous guest HTTP + WS with no 409. |
+| `sharing/permanence.test.ts` | `expiresAt: null`, 10-year cookie, edge-restart survival, >60 s idle survival. |
 | `smoke/real-dsh.ts` | Boots an isolated real DSH web profile and loads its index + main JS bundle + `/api/remote.mux` through edge → agent. |
 
 ## Coverage matrix
@@ -79,6 +87,30 @@ message if a piece is missing.
 | Benchmarks | `tools/bench/bench.ts` | connect, TTFB, 1/16 MiB throughput, 200 sequential, 50 concurrent, reconnect after 4004 tunnel replacement, interactive under 4 × 16 MiB bulk |
 | Real DSH | `tests/smoke/real-dsh.ts` | index 200 + exact byte count, 941 KB module bundle hash-equal through edge, `/api/remote.mux` upgrade OPEN |
 
+## Sharing coverage matrix (`tests/sharing`, docs/SHARING.md v0.2)
+
+| Requirement | Test | What is asserted |
+| --- | --- | --- |
+| Toggle + public URL | sharing-api "off by default and toggles" | GET false by default, PUT `{enabled:true}` → 200, `publicUrl` matches edge origin |
+| Invite not allowed while off | sharing-api "refuses invite creation" | 409 `SHARING_DISABLED` |
+| Never-expiring invite | sharing-api "never-expiring invite" | `ttlSeconds:0` → `expiresAt:0`, DB `expires_at=0` |
+| Token shown once, hashed at rest | sharing-api "never-expiring invite" | 43-char base64url token; sharing JSON excludes token + hash; DB `token_hash = sha256hex(token)` |
+| Time-limited / multi-use | sharing-api "time-limited invite", "honours maxUses" | `expiresAt≈now+ttl`; two claims accepted, third → 410; `uses=2` |
+| Validation | sharing-api "validates ttlSeconds, maxUses and label" | ttl ∉ {0,60..86400}, maxUses ∉ 1..10, label>64 → 400 |
+| Invite delete | sharing-api "DELETE invite" | summary hides it, DB `revoked_at` set, invite page 410 |
+| Claim → pending → approve | guest-flow "claim -> pending -> approve" | claim JSON `{status:"pending",approvalId,deviceId}`, `dshrc_claim`; pending row label/IP; approve `{ok:true,sessionId}`; status JSON approved + `dshrc_guest`; `/d/` 200; claim cookie cleared |
+| Guest cookie permanence | permanence "expiresAt null" | `activeGuests[].expiresAt=null`, `Max-Age=315360000`, DB `sessions.expires_at IS NULL`, `approval_id` set |
+| Admin isolation | guest-flow "limits a guest to its own /d/ mount" | `/`, `/setup`, `/pair`, `/login`, `/v1/*`, `/logout`, approve/revoke → 403; other device `/d/` → 403; own `/d/` + `/i/session` → 200 |
+| Explicit disconnect | guest-flow "POST /i/session/disconnect" | 303 `/`, guest cookie cleared, next `/d/` 401, WS closes 1008 |
+| Revoke one | guest-flow "revoking one guest" | A 401 + WS 1008; B 200 + WS still echoes |
+| Revoke all | guest-flow "DELETE /v1/devices/me/guests" | `{revoked≥2}`, both 401, both WS 1008, `activeGuests=[]` |
+| Sharing off | guest-flow "disabling sharing" | guests/invites/pending cleared, guest 401, WS 1008, invite page 410; re-enable does not resurrect |
+| Device revoke | guest-flow "device revoke invalidates" | guest 401/403, WS closes promptly, agent terminal |
+| Multiple guests, no 409 | multiple-guests "two guests concurrently", "third guest", "interleaved WS" | concurrent claims/approvals both 200, distinct session ids, both `/d/` 200, both WS echo, `activeGuests=2→3`; no `GUEST_BUSY` |
+| Edge restart | permanence "survives an edge restart" | same data dir + port, guest cookie still valid, page 200 after agent reconnect, session still active |
+| No idle timeout | permanence "no idle timeout" | after 61 s of silence, `/d/` still 200 and session still listed |
+| WS across tunnel restart | guest-flow "agent tunnel restart" | session unchanged, no new approval, WS works before and after agent restart |
+
 ## Measured results
 
 Machine: **Apple M4 Pro, 24 GiB, macOS darwin/arm64** · Node **v24.18.0** ·
@@ -105,11 +137,24 @@ edge's 2 s approval poll). Run `tests/smoke/real-dsh.ts` for current numbers.
 - Every listener binds `127.0.0.1:0`; ports are read back from the OS/handshake.
 - Every stack gets a fresh `mkdtemp` directory (edge DB + agent identity), removed
   in `afterAll`.
-- Waits poll with deadlines (5–20 s); the only fixed sleep is bounded 5 ms
-  inside the bench's transport-backpressure check, never in assertions.
+- Waits poll with deadlines (5–20 s). The only fixed sleeps are the intentional
+  61 s idle-period test in `sharing/permanence.test.ts` (it must prove the
+  absence of an idle timeout) and a bounded 5 ms transport-backpressure sleep in
+  the bench; assertions never sleep.
 - No external network, no browser, no Playwright in CI.
 - The harness kills the edge with SIGTERM→SIGKILL and the agent `stop()` is
   idempotent, so vitest exits with no open handles.
+
+## Contract notes
+
+- `docs/SHARING.md` v0.2 supersedes the earlier task-6 draft wording that
+  mentioned a single-controller `409 GUEST_BUSY`. The implementation and these
+  tests follow the normative document: **multiple simultaneous guests, no
+  controller lock, no 409**.
+- Approval accepts an optional `ttlSeconds` but mints a no-expiry guest session
+  (`expires_at NULL`) per SHARING.md §6.1; the tests assert permanence.
+- Guest cookies are `Secure` only when the edge's public URL is https (loopback
+  test runs are plain http, matching the existing owner-session behaviour).
 
 ## Known gaps
 
@@ -127,6 +172,13 @@ edge's 2 s approval poll). Run `tests/smoke/real-dsh.ts` for current numbers.
   exact ratio.
 - **Memory ceiling** is a coarse process-RSS sanity check, not a per-tunnel
   measurement of the edge child process.
+- **Invite/claim expiry** (minimum 60 s) is not waited out end-to-end; expiry
+  paths are covered by `apps/edge/tests/sharing.test.ts`. The 61 s guest-idle
+  test does not consume an invite TTL.
+- **Sharing rate limits** (20 invites/min, 60 approvals/min, 20 claims/5 min)
+  are covered by edge unit tests; the integration suite stays below them.
+- **Plugin share panel** (toggle, QR, approvals UI) is out of scope for this
+  suite and covered by `packages/plugin/tests/sharing.test.ts`.
 - **Real DSH smoke** requires a local DSH install and is manual/optional; CI uses
   the mock only.
 - CI runs Node 22 and 24 on Ubuntu; local numbers above are macOS/arm64 and are

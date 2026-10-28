@@ -76,7 +76,19 @@ export function rpcFail(code: string, message: string): RpcReply<never> {
 /** Browser-visible RPC channel; the client posts `<channel>/<endpoint>`. */
 export const RPC_CHANNEL = '/dsh-rc';
 
-export type RpcEndpoint = 'status' | 'start' | 'restart' | 'stop' | 'pair-url';
+export type RpcEndpoint =
+  | 'status'
+  | 'start'
+  | 'restart'
+  | 'stop'
+  | 'pair-url'
+  | 'sharing.get'
+  | 'sharing.set'
+  | 'sharing.invite'
+  | 'sharing.revokeInvite'
+  | 'sharing.decide'
+  | 'sharing.revokeGuest'
+  | 'sharing.revokeAll';
 
 /** Locale namespace used by the host locale files and the client dictionaries. */
 export const LOCALE_NAMESPACE = 'dsh-rc';

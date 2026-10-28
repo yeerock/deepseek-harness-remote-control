@@ -66,6 +66,40 @@ export async function startEdge(overrides: Partial<EdgeConfig> = {}): Promise<Te
   };
 }
 
+/**
+ * Boot an edge in an existing directory (used by restart/permanence tests).
+ * The caller owns the directory and must remove it.
+ */
+export async function startEdgeIn(dataDir: string, overrides: Partial<EdgeConfig> = {}): Promise<TestEdge> {
+  const config = loadConfig({
+    argv: [
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '0',
+      '--data-dir',
+      dataDir,
+      '--insecure',
+      '--setup-code',
+      TEST_SETUP_CODE,
+      '--log-level',
+      'silent',
+    ],
+    overrides,
+  });
+  const edge = createEdgeServer({ config });
+  const address = await edge.listen();
+  return {
+    edge,
+    base: address.url,
+    dir: dataDir,
+    setupCode: TEST_SETUP_CODE,
+    close: async () => {
+      await edge.close();
+    },
+  };
+}
+
 /* --------------------------------- cookies -------------------------------- */
 
 export class Jar {

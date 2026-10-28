@@ -21,7 +21,7 @@ const sqlite = process.getBuiltinModule('node:sqlite') as SqliteModule;
 const DatabaseSync = sqlite.DatabaseSync;
 
 export type DeviceStatus = 'pending' | 'approved' | 'revoked';
-export type SessionKind = 'owner' | 'device';
+export type SessionKind = 'owner' | 'device' | 'guest';
 
 export interface OwnerRow {
   id: number;
@@ -37,10 +37,12 @@ export interface SessionRow {
   deviceId: string | null;
   csrfToken: string;
   createdAt: number;
-  expiresAt: number;
+  /** NULL for guest sessions: they do not expire on their own. */
+  expiresAt: number | null;
   lastSeenAt: number;
   ip: string | null;
   userAgent: string | null;
+  approvalId: string | null;
 }
 
 export interface DeviceRow {
@@ -55,6 +57,40 @@ export interface DeviceRow {
   revokedAt: number | null;
   lastSeenAt: number | null;
   lastConnectedAt: number | null;
+  sharingEnabled: boolean;
+  sharingUpdatedAt: number | null;
+}
+
+export interface InviteRow {
+  id: string;
+  deviceId: string;
+  tokenHash: string;
+  label: string;
+  createdAt: number;
+  /** 0 means never expires. */
+  expiresAt: number;
+  maxUses: number;
+  uses: number;
+  revokedAt: number | null;
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired';
+
+export interface ApprovalRow {
+  id: string;
+  inviteId: string;
+  deviceId: string;
+  label: string;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: number;
+  status: ApprovalStatus;
+  decidedAt: number | null;
+  sessionId: string | null;
+}
+
+export interface GuestSessionRow extends SessionRow {
+  label: string;
 }
 
 export interface AuditRow {
@@ -72,12 +108,14 @@ export interface CreateSessionInput {
   deviceId: string | null;
   csrfToken: string;
   createdAt: number;
-  expiresAt: number;
+  /** NULL means no expiry (guest sessions). */
+  expiresAt: number | null;
   ip: string | null;
   userAgent: string | null;
+  approvalId?: string | null;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS devices (
@@ -91,7 +129,9 @@ CREATE TABLE IF NOT EXISTS devices (
   approved_at INTEGER,
   revoked_at INTEGER,
   last_seen_at INTEGER,
-  last_connected_at INTEGER
+  last_connected_at INTEGER,
+  sharing_enabled INTEGER NOT NULL DEFAULT 0,
+  sharing_updated_at INTEGER
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS owner (
@@ -104,17 +144,48 @@ CREATE TABLE IF NOT EXISTS owner (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('owner', 'device')),
+  kind TEXT NOT NULL CHECK (kind IN ('owner', 'device', 'guest')),
   device_id TEXT REFERENCES devices(id) ON DELETE CASCADE,
   csrf_token TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
+  expires_at INTEGER,
   last_seen_at INTEGER NOT NULL,
   ip TEXT,
-  user_agent TEXT
+  user_agent TEXT,
+  approval_id TEXT
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS sessions_device ON sessions (device_id);
+CREATE INDEX IF NOT EXISTS sessions_approval ON sessions (approval_id);
+
+CREATE TABLE IF NOT EXISTS invites (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL DEFAULT 0,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  revoked_at INTEGER
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS invites_device ON invites (device_id);
+
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY,
+  invite_id TEXT NOT NULL,
+  device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  ip TEXT,
+  user_agent TEXT,
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
+  decided_at INTEGER,
+  session_id TEXT
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS approvals_device_status ON approvals (device_id, status);
 
 CREATE TABLE IF NOT EXISTS pair_codes (
   code_hash TEXT PRIMARY KEY,
@@ -176,14 +247,15 @@ function toSession(row: Record<string, SQLOutputValue> | undefined): SessionRow 
   if (row === undefined) return undefined;
   return {
     id: str(row['id']),
-    kind: str(row['kind']) === 'owner' ? 'owner' : 'device',
+    kind: str(row['kind']) === 'owner' ? 'owner' : str(row['kind']) === 'guest' ? 'guest' : 'device',
     deviceId: optStr(row['device_id']),
     csrfToken: str(row['csrf_token']),
     createdAt: num(row['created_at']),
-    expiresAt: num(row['expires_at']),
+    expiresAt: optNum(row['expires_at']),
     lastSeenAt: num(row['last_seen_at']),
     ip: optStr(row['ip']),
     userAgent: optStr(row['user_agent']),
+    approvalId: optStr(row['approval_id']),
   };
 }
 
@@ -202,6 +274,40 @@ function toDevice(row: Record<string, SQLOutputValue> | undefined): DeviceRow | 
     revokedAt: optNum(row['revoked_at']),
     lastSeenAt: optNum(row['last_seen_at']),
     lastConnectedAt: optNum(row['last_connected_at']),
+    sharingEnabled: num(row['sharing_enabled']) === 1,
+    sharingUpdatedAt: optNum(row['sharing_updated_at']),
+  };
+}
+
+function toInvite(row: Record<string, SQLOutputValue> | undefined): InviteRow | undefined {
+  if (row === undefined) return undefined;
+  return {
+    id: str(row['id']),
+    deviceId: str(row['device_id']),
+    tokenHash: str(row['token_hash']),
+    label: str(row['label']),
+    createdAt: num(row['created_at']),
+    expiresAt: num(row['expires_at']),
+    maxUses: num(row['max_uses']),
+    uses: num(row['uses']),
+    revokedAt: optNum(row['revoked_at']),
+  };
+}
+
+function toApproval(row: Record<string, SQLOutputValue> | undefined): ApprovalRow | undefined {
+  if (row === undefined) return undefined;
+  const status = str(row['status']);
+  return {
+    id: str(row['id']),
+    inviteId: str(row['invite_id']),
+    deviceId: str(row['device_id']),
+    label: str(row['label']),
+    ip: optStr(row['ip']),
+    userAgent: optStr(row['user_agent']),
+    createdAt: num(row['created_at']),
+    status: status === 'approved' || status === 'denied' || status === 'expired' ? status : 'pending',
+    decidedAt: optNum(row['decided_at']),
+    sessionId: optStr(row['session_id']),
   };
 }
 
@@ -245,10 +351,80 @@ export class EdgeDatabase {
       throw new Error(`database schema ${String(current)} is newer than this edge (${String(SCHEMA_VERSION)})`);
     }
     if (current === SCHEMA_VERSION) return;
-    this.transaction(() => {
-      this.database.exec(SCHEMA);
-      this.database.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)}`);
-    });
+    if (current === 0) {
+      this.transaction(() => {
+        this.database.exec(SCHEMA);
+        this.database.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)}`);
+      });
+      return;
+    }
+    if (current === 1) {
+      this.migrateV1ToV2();
+      return;
+    }
+    throw new Error(`unsupported database schema version ${String(current)}`);
+  }
+
+  /**
+   * v1 -> v2: add sharing columns/tables and rebuild sessions so `expires_at`
+   * can be NULL (guest sessions never expire) and `approval_id` exists.
+   */
+  private migrateV1ToV2(): void {
+    this.database.exec('PRAGMA foreign_keys = OFF');
+    try {
+      this.transaction(() => {
+        this.database.exec('ALTER TABLE devices ADD COLUMN sharing_enabled INTEGER NOT NULL DEFAULT 0');
+        this.database.exec('ALTER TABLE devices ADD COLUMN sharing_updated_at INTEGER');
+        this.database.exec('ALTER TABLE sessions RENAME TO sessions_v1');
+        this.database.exec(`
+          CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK (kind IN ('owner', 'device', 'guest')),
+            device_id TEXT REFERENCES devices(id) ON DELETE CASCADE,
+            csrf_token TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER,
+            last_seen_at INTEGER NOT NULL,
+            ip TEXT,
+            user_agent TEXT,
+            approval_id TEXT
+          ) STRICT;
+          INSERT INTO sessions (id, kind, device_id, csrf_token, created_at, expires_at, last_seen_at, ip, user_agent, approval_id)
+            SELECT id, kind, device_id, csrf_token, created_at, expires_at, last_seen_at, ip, user_agent, NULL FROM sessions_v1;
+          DROP TABLE sessions_v1;
+          CREATE INDEX IF NOT EXISTS sessions_device ON sessions (device_id);
+          CREATE INDEX IF NOT EXISTS sessions_approval ON sessions (approval_id);
+          CREATE TABLE invites (
+            id TEXT PRIMARY KEY,
+            device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL UNIQUE,
+            label TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL DEFAULT 0,
+            max_uses INTEGER NOT NULL DEFAULT 1,
+            uses INTEGER NOT NULL DEFAULT 0,
+            revoked_at INTEGER
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS invites_device ON invites (device_id);
+          CREATE TABLE approvals (
+            id TEXT PRIMARY KEY,
+            invite_id TEXT NOT NULL,
+            device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+            label TEXT NOT NULL,
+            ip TEXT,
+            user_agent TEXT,
+            created_at INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied', 'expired')),
+            decided_at INTEGER,
+            session_id TEXT
+          ) STRICT;
+          CREATE INDEX IF NOT EXISTS approvals_device_status ON approvals (device_id, status);
+        `);
+        this.database.exec(`PRAGMA user_version = ${String(SCHEMA_VERSION)}`);
+      });
+    } finally {
+      this.database.exec('PRAGMA foreign_keys = ON');
+    }
   }
 
   close(): void {
@@ -328,9 +504,20 @@ export class EdgeDatabase {
     const id = newId('sess', 32);
     this.database
       .prepare(
-        'INSERT INTO sessions (id, kind, device_id, csrf_token, created_at, expires_at, last_seen_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO sessions (id, kind, device_id, csrf_token, created_at, expires_at, last_seen_at, ip, user_agent, approval_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, input.kind, input.deviceId, input.csrfToken, input.createdAt, input.expiresAt, input.createdAt, input.ip, input.userAgent);
+      .run(
+        id,
+        input.kind,
+        input.deviceId,
+        input.csrfToken,
+        input.createdAt,
+        input.expiresAt,
+        input.createdAt,
+        input.ip,
+        input.userAgent,
+        input.approvalId ?? null,
+      );
     const session = this.getSession(id);
     if (session === undefined) throw new Error('failed to create session');
     return session;
@@ -353,7 +540,55 @@ export class EdgeDatabase {
   }
 
   purgeExpiredSessions(now: number): void {
-    this.database.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
+    // expires_at IS NULL is the guest "never expires" marker.
+    this.database.prepare('DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
+  }
+
+  /** Guest sessions for a device, with the approval label joined in. */
+  listGuestSessions(deviceId: string): GuestSessionRow[] {
+    const rows = this.database
+      .prepare(
+        `SELECT s.*, a.label AS approval_label
+           FROM sessions s LEFT JOIN approvals a ON a.session_id = s.id
+          WHERE s.kind = 'guest' AND s.device_id = ?
+          ORDER BY s.created_at ASC`,
+      )
+      .all(deviceId);
+    const out: GuestSessionRow[] = [];
+    for (const row of rows) {
+      const session = toSession(row);
+      if (session === undefined) continue;
+      out.push({ ...session, label: optStr(row['approval_label']) ?? 'Guest' });
+    }
+    return out;
+  }
+
+  getGuestSessionLabel(sessionId: string): string | undefined {
+    const row = this.database
+      .prepare("SELECT a.label AS label FROM sessions s LEFT JOIN approvals a ON a.session_id = s.id WHERE s.id = ? AND s.kind = 'guest'")
+      .get(sessionId);
+    return row === undefined ? undefined : optStr(row['label']) ?? undefined;
+  }
+
+  deleteGuestSession(sessionId: string, deviceId: string): boolean {
+    const result = this.database
+      .prepare("DELETE FROM sessions WHERE id = ? AND device_id = ? AND kind = 'guest'")
+      .run(sessionId, deviceId);
+    return Number(result.changes) > 0;
+  }
+
+  guestSessionIdsForDevice(deviceId: string): string[] {
+    return this.database
+      .prepare("SELECT id FROM sessions WHERE device_id = ? AND kind = 'guest'")
+      .all(deviceId)
+      .map((row) => str(row['id']));
+  }
+
+  deleteGuestSessionsForDevice(deviceId: string): number {
+    const result = this.database
+      .prepare("DELETE FROM sessions WHERE device_id = ? AND kind = 'guest'")
+      .run(deviceId);
+    return Number(result.changes);
   }
 
   /* -------------------------------- devices ------------------------------- */
@@ -409,6 +644,13 @@ export class EdgeDatabase {
     this.database.prepare('DELETE FROM pair_codes WHERE device_id = ?').run(deviceId);
   }
 
+  setSharingEnabled(id: string, enabled: boolean, now: number): DeviceRow | undefined {
+    this.database
+      .prepare('UPDATE devices SET sharing_enabled = ?, sharing_updated_at = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, now, id);
+    return this.getDevice(id);
+  }
+
   /* ------------------------------- pair codes ----------------------------- */
 
   insertPairCode(codeHash: string, deviceId: string, createdAt: number, expiresAt: number): void {
@@ -437,6 +679,124 @@ export class EdgeDatabase {
     const row = this.database.prepare('SELECT device_id, used_at, expires_at FROM pair_codes WHERE code_hash = ?').get(codeHash);
     if (row === undefined) return undefined;
     return { deviceId: optStr(row['device_id']) ?? '', usedAt: optNum(row['used_at']), expiresAt: num(row['expires_at']) };
+  }
+
+  /* -------------------------------- invites ------------------------------- */
+
+  insertInvite(input: {
+    id: string;
+    deviceId: string;
+    tokenHash: string;
+    label: string;
+    createdAt: number;
+    expiresAt: number;
+    maxUses: number;
+  }): InviteRow {
+    this.database
+      .prepare('INSERT INTO invites (id, device_id, token_hash, label, created_at, expires_at, max_uses, uses) VALUES (?, ?, ?, ?, ?, ?, ?, 0)')
+      .run(input.id, input.deviceId, input.tokenHash, input.label, input.createdAt, input.expiresAt, input.maxUses);
+    const invite = this.getInvite(input.id);
+    if (invite === undefined) throw new Error('failed to create invite');
+    return invite;
+  }
+
+  getInvite(id: string): InviteRow | undefined {
+    return toInvite(this.database.prepare('SELECT * FROM invites WHERE id = ?').get(id));
+  }
+
+  getInviteByTokenHash(tokenHash: string): InviteRow | undefined {
+    return toInvite(this.database.prepare('SELECT * FROM invites WHERE token_hash = ?').get(tokenHash));
+  }
+
+  listInvitesForDevice(deviceId: string): InviteRow[] {
+    return this.database
+      .prepare('SELECT * FROM invites WHERE device_id = ? AND revoked_at IS NULL ORDER BY created_at DESC')
+      .all(deviceId)
+      .map((row) => toInvite(row))
+      .filter((invite): invite is InviteRow => invite !== undefined);
+  }
+
+  /** Atomically validate and consume one use of an invite. */
+  consumeInviteUse(tokenHash: string, now: number): InviteRow | undefined {
+    return this.transaction(() => {
+      const invite = this.getInviteByTokenHash(tokenHash);
+      if (invite === undefined) return undefined;
+      if (invite.revokedAt !== null) return undefined;
+      if (invite.expiresAt !== 0 && invite.expiresAt <= now) return undefined;
+      if (invite.uses >= invite.maxUses) return undefined;
+      const result = this.database
+        .prepare('UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND revoked_at IS NULL')
+        .run(invite.id);
+      if (Number(result.changes) === 0) return undefined;
+      return this.getInvite(invite.id);
+    });
+  }
+
+  /** Revoke an invite; returns true when this call changed it. */
+  revokeInvite(inviteId: string, now: number): boolean {
+    const result = this.database
+      .prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+      .run(now, inviteId);
+    return Number(result.changes) > 0;
+  }
+
+  revokeInvitesForDevice(deviceId: string, now: number): number {
+    const result = this.database
+      .prepare('UPDATE invites SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL')
+      .run(now, deviceId);
+    return Number(result.changes);
+  }
+
+  /* ------------------------------- approvals ------------------------------ */
+
+  insertApproval(input: {
+    id: string;
+    inviteId: string;
+    deviceId: string;
+    label: string;
+    ip: string | null;
+    userAgent: string | null;
+    createdAt: number;
+  }): ApprovalRow {
+    this.database
+      .prepare("INSERT INTO approvals (id, invite_id, device_id, label, ip, user_agent, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')")
+      .run(input.id, input.inviteId, input.deviceId, input.label, input.ip, input.userAgent, input.createdAt);
+    const approval = this.getApproval(input.id);
+    if (approval === undefined) throw new Error('failed to create approval');
+    return approval;
+  }
+
+  getApproval(id: string): ApprovalRow | undefined {
+    return toApproval(this.database.prepare('SELECT * FROM approvals WHERE id = ?').get(id));
+  }
+
+  listPendingApprovalsForDevice(deviceId: string): ApprovalRow[] {
+    return this.database
+      .prepare("SELECT * FROM approvals WHERE device_id = ? AND status = 'pending' ORDER BY created_at ASC")
+      .all(deviceId)
+      .map((row) => toApproval(row))
+      .filter((approval): approval is ApprovalRow => approval !== undefined);
+  }
+
+  decideApproval(id: string, status: 'approved' | 'denied' | 'expired', now: number, sessionId: string | null): boolean {
+    const result = this.database
+      .prepare("UPDATE approvals SET status = ?, decided_at = ?, session_id = ? WHERE id = ? AND status = 'pending'")
+      .run(status, now, sessionId, id);
+    return Number(result.changes) > 0;
+  }
+
+  expirePendingApprovalsForInvite(inviteId: string, now: number): number {
+    const result = this.database
+      .prepare("UPDATE approvals SET status = 'expired', decided_at = ? WHERE invite_id = ? AND status = 'pending'")
+      .run(now, inviteId);
+    return Number(result.changes);
+  }
+
+  expirePendingApprovalsForDevice(deviceId: string, now: number): number {
+    const result = this.database
+      .prepare("UPDATE approvals SET status = 'expired', decided_at = ? WHERE device_id = ? AND status = 'pending'")
+      .run(now, deviceId);
+    return Number(result.changes);
   }
 
   /* --------------------------------- audit -------------------------------- */

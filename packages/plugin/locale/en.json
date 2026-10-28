@@ -6,5 +6,9 @@
   "hints": {
     "pair": "Scan to open the pairing link in a browser.",
     "paired": "This device is paired. Restart the agent to issue a new pair code."
+  },
+  "sharing": {
+    "title": "Sharing",
+    "description": "Share this Harness with guests through single-use invites and owner-approved guest sessions."
   }
 }

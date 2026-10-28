@@ -34,6 +34,8 @@ export interface DeviceHttpRequest {
   /** Raw query string including the leading `?`, or ''. */
   search: string;
   publicOrigin: string;
+  /** Guest responses get the fixed Disconnect pill injected into HTML. */
+  guest?: boolean;
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -62,6 +64,74 @@ export function isStreamLimitError(error: unknown): boolean {
 
 function wantsJson(request: IncomingMessage, rest: string): boolean {
   return rest.startsWith('/api/') || (requestHeader(request, 'accept') ?? '').includes('application/json');
+}
+
+/** Fixed, edge-owned control injected into guest HTML only. */
+export const GUEST_PILL_HTML = '<div id="dshrc-guest-pill" style="position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#131a2e;color:#e6ecff;border:1px solid #26314d;border-radius:999px;padding:10px 16px;font:600 13px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;box-shadow:0 6px 24px #0008"><a href="/i/session" style="color:inherit;text-decoration:none">Remote session &middot; Disconnect</a></div>';
+const MAX_INJECT_BYTES = 2 * 1024 * 1024;
+
+function headerValueOf(pairs: HeaderPair[], name: string): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [key, value] of pairs) if (key.toLowerCase() === lower) return value;
+  return undefined;
+}
+
+function injectGuestPill(original: Buffer): Buffer | null {
+  const text = original.toString('utf8');
+  const index = text.toLowerCase().lastIndexOf('</body');
+  if (index < 0) return null;
+  return Buffer.from(`${text.slice(0, index)}${GUEST_PILL_HTML}${text.slice(index)}`, 'utf8');
+}
+
+/** Buffer a small guest HTML document, inject the pill, then send it. */
+async function streamGuestHtml(
+  stream: { body(): AsyncIterable<Uint8Array> },
+  response: ServerResponse,
+  status: number,
+  headers: Record<string, string | string[]>,
+): Promise<'sent' | 'failed'> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let committed = false;
+  try {
+    for await (const chunk of stream.body()) {
+      if (response.destroyed) return 'sent';
+      if (!committed) {
+        if (total + chunk.byteLength > MAX_INJECT_BYTES) {
+          response.writeHead(status, headers);
+          for (const buffered of chunks) await writeWithDrain(response, buffered);
+          chunks.length = 0;
+          committed = true;
+          await writeWithDrain(response, chunk);
+          continue;
+        }
+        chunks.push(chunk);
+        total += chunk.byteLength;
+        continue;
+      }
+      await writeWithDrain(response, chunk);
+    }
+    if (!committed) {
+      const original = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+      const injected = injectGuestPill(original);
+      if (injected === null) {
+        response.writeHead(status, headers);
+        await writeWithDrain(response, original);
+      } else {
+        const injectedHeaders = { ...headers };
+        delete injectedHeaders['content-length'];
+        injectedHeaders['content-length'] = String(injected.byteLength);
+        response.writeHead(status, injectedHeaders);
+        await writeWithDrain(response, injected);
+      }
+    }
+    if (!response.writableEnded && !response.destroyed) response.end();
+    return 'sent';
+  } catch (error) {
+    if (!response.headersSent) response.destroy(error instanceof Error ? error : new Error('guest html failed'));
+    else response.destroy(error instanceof Error ? error : new Error('guest html failed'));
+    return 'failed';
+  }
 }
 
 function headersToRecord(pairs: HeaderPair[]): Record<string, string | string[]> {
@@ -156,12 +226,29 @@ export async function proxyDeviceHttp(input: DeviceHttpRequest): Promise<void> {
     );
     const headersRecord = headersToRecord(filtered);
     // Node requires a valid status message; let it use the default text.
-    response.writeHead(head.status, headersRecord);
     if (head.bodyless === true || method === 'HEAD') {
+      response.writeHead(head.status, headersRecord);
       finished = true;
       response.end();
       return;
     }
+
+    // Guest HTML gets a fixed Disconnect pill. This path buffers at most 2 MiB;
+    // larger documents and compressed responses stream through untouched.
+    const contentType = headerValueOf(filtered, 'content-type') ?? '';
+    const contentEncoding = headerValueOf(filtered, 'content-encoding');
+    const injectGuestPillIntoHtml = input.guest === true
+      && head.status >= 200
+      && head.status <= 299
+      && contentType.toLowerCase().includes('text/html')
+      && contentEncoding === undefined;
+    if (injectGuestPillIntoHtml) {
+      finished = true;
+      await streamGuestHtml(stream, response, head.status, headersRecord);
+      return;
+    }
+
+    response.writeHead(head.status, headersRecord);
     try {
       for await (const chunk of stream.body()) {
         if (response.destroyed) break;

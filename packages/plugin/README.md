@@ -172,6 +172,55 @@ If the host half is not loaded (or its RPC route failed), the panel says
 "Host service unavailable" and disables the actions instead of throwing. The
 panel polls every 4 s closed / 1.5 s open.
 
+
+## Sharing this Harness with guests
+
+The panel has a **Share this Harness** switch (off by default) under the
+connection status. Sharing is per device and is governed by
+[`docs/SHARING.md`](../../docs/SHARING.md).
+
+When sharing is on:
+
+- **Create invite** issues a single-use invite link (15 min / 1 h / 24 h /
+  **Never**). The link and its QR are shown once; `ttlSeconds: 0` means the
+  invite never expires.
+- A guest who opens the link and requests access appears in **Waiting for
+  approval** with their label, IP and age. Approve or deny from this panel.
+- Approved guests appear in **Active guests** with label, IP and since-time.
+  Revoke one guest or **Revoke all**; the session ends immediately.
+- Multiple guests can hold sessions at once. There is no controller lock and
+  no single-controller banner; the panel shows a standing warning that guests
+  share one desktop, workspace, terminal and tools and can interfere with each
+  other.
+- **Guest sessions never expire on their own.** Only a revoke, turning sharing
+  off, revoking the device, the guest's own Disconnect, or deleting the edge
+  database ends one.
+- If the edge advertises a loopback or empty `publicUrl`, the panel warns that
+  invite links will not open from another machine. Guests need a reachable edge
+  (Tailscale Funnel, a VPS edge, or Tailscale Serve for tailnet guests).
+
+The panel polls `GET /v1/devices/me/sharing` every 2 s only while it is open;
+closing the modal stops the timer.
+
+### Sharing security model
+
+- The host authenticates to the device-scoped sharing API with the **device
+  secret** from `<stateDir>/device.json` (mode `0600`; the client refuses a
+  looser file and never logs the secret). The owner password is never involved
+  and never leaves the owner's browser session.
+- An invite is single-use, hashed at rest on the edge, and may be time-limited
+  or never expire. Claiming an invite creates a **pending approval**, never a
+  session.
+- A guest session is a signed cookie scoped to one device. Guests can reach
+  only `/d/<deviceId>/*`; every admin route returns 403. Guests cannot create
+  invites, approve guests, change sharing or manage devices.
+- Disabling sharing revokes every invite and guest session for that device.
+- The plugin exposes only the six control RPCs (`sharing.get`,
+  `sharing.set`, `sharing.invite`, `sharing.revokeInvite`, `sharing.decide`,
+  `sharing.revokeGuest`, `sharing.revokeAll`) over its authenticated loopback
+  channel; the browser never sees the device secret or an edge error body
+  beyond a safe message.
+
 ## Build and test
 
 ```bash

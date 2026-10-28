@@ -7,13 +7,19 @@
  * a device actually see.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import type * as NodeSqlite from 'node:sqlite';
+
+// Vite 2.1 does not know `node:sqlite` as a builtin, so a static runtime import
+// breaks every test file. Resolve it through Node's own builtin registry, with
+// the static import kept type-only (erased at compile/test-transform time).
+const sqliteModule = process.getBuiltinModule('node:sqlite') as typeof NodeSqlite;
 import { MockDsh, startMockDsh } from '../fixtures/mock-dsh.js';
 
 export const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -185,6 +191,8 @@ const EDGE_ENTRY = join(REPO_ROOT, 'apps', 'edge', 'src', 'main.ts');
 export interface StartEdgeOptions {
   dataDir: string;
   setupCode: string;
+  /** Reuse a specific port (edge-restart tests); 0/undefined picks an ephemeral one. */
+  port?: number;
   extraArgs?: string[];
   env?: Record<string, string>;
 }
@@ -195,7 +203,7 @@ export async function startEdge(options: StartEdgeOptions): Promise<EdgeProcess>
     '--import', 'tsx',
     EDGE_ENTRY,
     '--host', '127.0.0.1',
-    '--port', '0',
+    '--port', String(options.port ?? 0),
     '--data-dir', options.dataDir,
     '--setup-code', options.setupCode,
     '--insecure',
@@ -502,6 +510,12 @@ export interface LinkStack {
   browser: CookieJar;
   /** Agent state directory (identity file lives here). */
   agentStateDir: string;
+  /** Edge data directory (dshrc.sqlite lives here). */
+  edgeDataDir: string;
+  /** Device secret from agent device.json (Bearer token for /v1/devices/me/*). */
+  deviceSecret(): Promise<string>;
+  /** Stop the edge and boot a new one on the same port + data dir; agent reconnects. */
+  restartEdge(): Promise<EdgeProcess>;
   /** Full cookie header for the paired browser. */
   browserCookie(): string;
   /** Stop and restart the agent with the same identity/state dir. */
@@ -586,6 +600,17 @@ export async function startStack(options: StackOptions = {}): Promise<LinkStack>
       owner,
       browser: browserJar,
       agentStateDir: agentState,
+      edgeDataDir: edgeData,
+      async deviceSecret() {
+        const identity = JSON.parse(await readFile(join(agentState, 'device.json'), 'utf8')) as { deviceSecret: string };
+        return identity.deviceSecret;
+      },
+      async restartEdge() {
+        const previous = edge;
+        await previous?.stop().catch(() => undefined);
+        edge = await startEdge({ dataDir: edgeData, setupCode, port: previous?.port, extraArgs: options.edgeArgs });
+        return edge;
+      },
       browserCookie: () => browserJar.header() ?? '',
       async restartAgent() {
         // Release the singleton state-dir lock before starting a new instance.
@@ -678,6 +703,7 @@ export async function nextWsMessage(
   socket: import('ws').WebSocket,
   timeoutMs = 5000,
 ): Promise<{ data: Buffer; isBinary: boolean }> {
+  if (socket.readyState === socket.CLOSED) throw new Error('WebSocket is already closed');
   return await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -773,4 +799,483 @@ export async function waitForPort(host: string, port: number, timeoutMs = 5000):
       resolve(false);
     });
   }), { timeoutMs, intervalMs: 25, label: `port ${String(port)}` });
+}
+/* ------------------------------------------------------------------ */
+/* Device-scoped sharing API (Bearer device secret)                    */
+/* ------------------------------------------------------------------ */
+
+export interface SharingInvite {
+  id: string;
+  label: string;
+  expiresAt: number;
+  maxUses: number;
+  uses: number;
+}
+
+export interface SharingGuest {
+  sessionId: string;
+  label?: string;
+  ip?: string;
+  since?: number;
+  expiresAt: number | null;
+}
+
+export interface SharingPendingApproval {
+  id: string;
+  label?: string;
+  ip?: string;
+  createdAt?: number;
+}
+
+export interface SharingState {
+  enabled: boolean;
+  publicUrl?: string;
+  invites: SharingInvite[];
+  pendingApprovals: SharingPendingApproval[];
+  activeGuests: SharingGuest[];
+}
+
+export interface CreatedInvite {
+  id: string;
+  url: string;
+  token: string;
+  expiresAt: number;
+  label?: string;
+  maxUses?: number;
+}
+
+export interface DeviceApiResult {
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  bodyText: string;
+  json: unknown;
+}
+
+/** Call a `/v1/devices/me/*` route with the device secret. */
+export async function deviceApi(
+  edgeUrl: string,
+  deviceSecret: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<DeviceApiResult> {
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${deviceSecret}`,
+    accept: 'application/json',
+  };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const response = await rawRequest(edgeUrl, {
+    method,
+    path,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  let json: unknown;
+  if (response.bodyText !== '') {
+    try {
+      json = JSON.parse(response.bodyText);
+    } catch {
+      json = undefined;
+    }
+  }
+  return { status: response.status, headers: response.headers, bodyText: response.bodyText, json };
+}
+
+export async function getSharing(edgeUrl: string, deviceSecret: string): Promise<SharingState> {
+  const response = await deviceApi(edgeUrl, deviceSecret, 'GET', '/v1/devices/me/sharing');
+  if (response.status !== 200) {
+    throw new Error(`GET sharing failed: HTTP ${String(response.status)} ${response.bodyText.slice(0, 400)}`);
+  }
+  return response.json as SharingState;
+}
+
+export async function setSharing(edgeUrl: string, deviceSecret: string, enabled: boolean): Promise<DeviceApiResult> {
+  return await deviceApi(edgeUrl, deviceSecret, 'PUT', '/v1/devices/me/sharing', { enabled });
+}
+
+export interface InviteOptions {
+  label?: string;
+  /** 0 = never expires (docs/SHARING.md §5). */
+  ttlSeconds?: number;
+  maxUses?: number;
+}
+
+export async function createInvite(
+  edgeUrl: string,
+  deviceSecret: string,
+  options: InviteOptions = {},
+): Promise<CreatedInvite> {
+  const response = await deviceApi(edgeUrl, deviceSecret, 'POST', '/v1/devices/me/invites', {
+    label: options.label ?? 'guest',
+    ttlSeconds: options.ttlSeconds ?? 3600,
+    maxUses: options.maxUses ?? 1,
+  });
+  if (response.status !== 200 && response.status !== 201) {
+    throw new Error(`create invite failed: HTTP ${String(response.status)} ${response.bodyText.slice(0, 400)}`);
+  }
+  return response.json as CreatedInvite;
+}
+
+export async function deleteInvite(edgeUrl: string, deviceSecret: string, inviteId: string): Promise<DeviceApiResult> {
+  return await deviceApi(edgeUrl, deviceSecret, 'DELETE', `/v1/devices/me/invites/${encodeURIComponent(inviteId)}`);
+}
+
+export async function decideApproval(
+  edgeUrl: string,
+  deviceSecret: string,
+  approvalId: string,
+  decision: 'approve' | 'deny',
+  ttlSeconds?: number,
+): Promise<DeviceApiResult> {
+  return await deviceApi(
+    edgeUrl,
+    deviceSecret,
+    'POST',
+    `/v1/devices/me/approvals/${encodeURIComponent(approvalId)}`,
+    ttlSeconds === undefined ? { decision } : { decision, ttlSeconds },
+  );
+}
+
+export async function revokeGuest(edgeUrl: string, deviceSecret: string, sessionId: string): Promise<DeviceApiResult> {
+  return await deviceApi(edgeUrl, deviceSecret, 'DELETE', `/v1/devices/me/guests/${encodeURIComponent(sessionId)}`);
+}
+
+export async function revokeAllGuests(edgeUrl: string, deviceSecret: string): Promise<DeviceApiResult> {
+  return await deviceApi(edgeUrl, deviceSecret, 'DELETE', '/v1/devices/me/guests');
+}
+
+/* ------------------------------------------------------------------ */
+/* Guest invite flow (/i/*)                                            */
+/* ------------------------------------------------------------------ */
+
+export const GUEST_COOKIE = 'dshrc_guest';
+export const CLAIM_COOKIE = 'dshrc_claim';
+
+export interface InviteClaim {
+  jar: CookieJar;
+  status: number;
+  bodyText: string;
+  json: unknown;
+  setCookies: string[];
+}
+
+/** GET the public invite page (also seeds any CSRF cookie the edge sets). */
+export async function getInvitePage(edgeUrl: string, token: string): Promise<RawResponse> {
+  return await rawRequest(edgeUrl, {
+    path: `/i/${encodeURIComponent(token)}`,
+    headers: { accept: 'text/html' },
+  });
+}
+
+/**
+ * POST /i/:token/claim (form-urlencoded `csrf`, same-origin). Accept: json asks
+ * the edge for `{status,approvalId,deviceId}` instead of the 303 page.
+ */
+export async function claimInvite(edgeUrl: string, token: string): Promise<InviteClaim> {
+  const jar = new CookieJar();
+  const page = await getInvitePage(edgeUrl, token);
+  jar.absorb(page.setCookies);
+  const csrfToken = extractCsrf(page.bodyText) ?? csrfFromJar(jar) ?? '';
+  const form = new URLSearchParams({ csrf: csrfToken });
+  const headers: Record<string, string> = {
+    origin: edgeUrl,
+    accept: 'application/json',
+    'content-type': 'application/x-www-form-urlencoded',
+    cookie: jar.header() ?? '',
+    'x-csrf-token': csrfToken,
+  };
+  const response = await rawRequest(edgeUrl, {
+    method: 'POST',
+    path: `/i/${encodeURIComponent(token)}/claim`,
+    headers,
+    body: form.toString(),
+  });
+  jar.absorb(response.setCookies);
+  let json: unknown;
+  if (response.bodyText !== '') {
+    try {
+      json = JSON.parse(response.bodyText);
+    } catch {
+      json = undefined;
+    }
+  }
+  return { jar, status: response.status, bodyText: response.bodyText, json, setCookies: response.setCookies };
+}
+
+export interface GuestStatus {
+  jar: CookieJar;
+  status: number;
+  state: string | undefined;
+  json: unknown;
+  bodyText: string;
+  setCookies: string[];
+}
+
+/** GET /i/:token/status with the claim cookie; absorbs the guest cookie on approval. */
+export async function guestInviteStatus(edgeUrl: string, token: string, jar: CookieJar): Promise<GuestStatus> {
+  const response = await rawRequest(edgeUrl, {
+    path: `/i/${encodeURIComponent(token)}/status`,
+    headers: { accept: 'application/json, text/html', cookie: jar.header() ?? '' },
+  });
+  jar.absorb(response.setCookies);
+  let json: unknown;
+  if (response.bodyText !== '') {
+    try {
+      json = JSON.parse(response.bodyText);
+    } catch {
+      json = undefined;
+    }
+  }
+  let state: string | undefined;
+  if (typeof json === 'object' && json !== null) {
+    const record = json as Record<string, unknown>;
+    for (const key of ['status', 'state']) {
+      if (typeof record[key] === 'string') {
+        state = record[key] as string;
+        break;
+      }
+    }
+  }
+  if (state === undefined) {
+    const match = /\b(pending|approved|denied|expired)\b/i.exec(response.bodyText);
+    state = match?.[1]?.toLowerCase();
+  }
+  return { jar, status: response.status, state, json, bodyText: response.bodyText, setCookies: response.setCookies };
+}
+
+/** Poll the invite status until the guest session cookie exists (approval landed). */
+export async function waitForGuestSession(
+  edgeUrl: string,
+  token: string,
+  jar: CookieJar,
+  timeoutMs = 10_000,
+): Promise<GuestStatus> {
+  return await waitFor(async () => {
+    const status = await guestInviteStatus(edgeUrl, token, jar);
+    if (status.state === 'denied' || status.state === 'expired') {
+      throw new Error(`invite ${token} was ${status.state}: ${status.bodyText.slice(0, 300)}`);
+    }
+    if (jar.get(GUEST_COOKIE) !== undefined || status.state === 'approved') return status;
+    return undefined;
+  }, { timeoutMs, intervalMs: 50, label: 'guest invite approval' });
+}
+
+/** GET /i/session to learn the guest device path and any CSRF token for Disconnect. */
+export async function getGuestSessionPage(
+  edgeUrl: string,
+  jar: CookieJar,
+): Promise<{ response: RawResponse; csrfToken: string | undefined }> {
+  const response = await rawRequest(edgeUrl, {
+    path: '/i/session',
+    headers: { accept: 'text/html', cookie: jar.header() ?? '' },
+  });
+  jar.absorb(response.setCookies);
+  return { response, csrfToken: extractCsrf(response.bodyText) ?? csrfFromJar(jar) };
+}
+
+/** POST /i/session/disconnect (guest-initiated, form-urlencoded csrf). */
+export async function disconnectGuest(edgeUrl: string, jar: CookieJar): Promise<RawResponse> {
+  const page = await getGuestSessionPage(edgeUrl, jar).catch(() => undefined);
+  const csrfToken = page?.csrfToken ?? csrfFromJar(jar) ?? '';
+  const form = new URLSearchParams({ csrf: csrfToken });
+  const response = await rawRequest(edgeUrl, {
+    method: 'POST',
+    path: '/i/session/disconnect',
+    headers: {
+      origin: edgeUrl,
+      accept: 'text/html, application/json',
+      'content-type': 'application/x-www-form-urlencoded',
+      cookie: jar.header() ?? '',
+      'x-csrf-token': csrfToken,
+    },
+    body: form.toString(),
+  });
+  jar.absorb(response.setCookies);
+  return response;
+}
+
+/** Fetch a device resource with a guest cookie jar. */
+export async function guestFetch(
+  edgeUrl: string,
+  deviceId: string,
+  jar: CookieJar,
+  rest = '/',
+  options: { method?: string; headers?: Record<string, string>; body?: string | Buffer; signal?: AbortSignal } = {},
+): Promise<Response> {
+  const suffix = rest === '' ? '' : rest.startsWith('/') ? rest : `/${rest}`;
+  const headers = new Headers(options.headers);
+  if (!headers.has('cookie')) headers.set('cookie', jar.header() ?? '');
+  return await fetch(`${edgeUrl}/d/${deviceId}${suffix}`, {
+    method: options.method ?? 'GET',
+    headers,
+    body: options.body,
+    redirect: 'manual',
+    signal: options.signal,
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Granting a guest session in tests                                   */
+/* ------------------------------------------------------------------ */
+
+export interface GuestSession {
+  label: string;
+  token: string;
+  inviteId: string;
+  approvalId?: string;
+  sessionId?: string;
+  jar: CookieJar;
+  status: GuestStatus;
+}
+
+export interface GrantGuestOptions {
+  label?: string;
+  ttlSeconds?: number;
+  maxUses?: number;
+  /** Extra fields for tests that want to observe the pending approval themselves. */
+  prepareOnly?: boolean;
+}
+
+/**
+ * Create an invite, claim it, approve it with the device secret and return the
+ * guest cookie jar. `prepareOnly` stops after the claim so a test can assert the
+ * pending approval before deciding.
+ */
+export async function createGuestSession(stack: LinkStack, options: GrantGuestOptions = {}): Promise<GuestSession> {
+  const secret = await stack.deviceSecret();
+  const sharing = await getSharing(stack.edgeUrl, secret);
+  if (!sharing.enabled) {
+    const enabled = await setSharing(stack.edgeUrl, secret, true);
+    if (enabled.status !== 200) throw new Error(`enable sharing failed: HTTP ${String(enabled.status)} ${enabled.bodyText}`);
+  }
+  const invite = await createInvite(stack.edgeUrl, secret, {
+    label: options.label ?? 'integration-guest',
+    ttlSeconds: options.ttlSeconds ?? 3600,
+    maxUses: options.maxUses ?? 1,
+  });
+  const claim = await claimInvite(stack.edgeUrl, invite.token);
+  if (claim.status >= 400) {
+    throw new Error(`claim failed: HTTP ${String(claim.status)} ${claim.bodyText.slice(0, 400)}`);
+  }
+  const state = await waitFor(async () => {
+    const current = await getSharing(stack.edgeUrl, secret);
+    const approval = current.pendingApprovals.at(-1);
+    return approval === undefined ? undefined : { current, approval };
+  }, { timeoutMs: 5000, intervalMs: 25, label: 'pending approval appears in sharing state' });
+
+  if (options.prepareOnly === true) {
+    return { label: invite.label ?? options.label ?? 'guest', token: invite.token, inviteId: invite.id, approvalId: state.approval.id, jar: claim.jar, status: { jar: claim.jar, status: 200, state: 'pending', json: undefined, bodyText: '', setCookies: [] } };
+  }
+
+  const decided = await decideApproval(stack.edgeUrl, secret, state.approval.id, 'approve');
+  if (decided.status >= 400) {
+    throw new Error(`approve failed: HTTP ${String(decided.status)} ${decided.bodyText.slice(0, 400)}`);
+  }
+  const status = await waitForGuestSession(stack.edgeUrl, invite.token, claim.jar);
+  if (claim.jar.get(GUEST_COOKIE) === undefined) {
+    throw new Error(`guest session cookie missing after approval; status=${String(status.status)} body=${status.bodyText.slice(0, 300)}`);
+  }
+  const decidedSessionId = typeof (decided.json as { sessionId?: unknown } | undefined)?.sessionId === 'string'
+    ? (decided.json as { sessionId: string }).sessionId
+    : undefined;
+  const active = await getSharing(stack.edgeUrl, secret);
+  const latest = active.activeGuests.find((entry) => entry.label === (invite.label ?? options.label ?? 'guest')) ?? active.activeGuests.at(-1);
+  return {
+    label: invite.label ?? options.label ?? 'guest',
+    token: invite.token,
+    inviteId: invite.id,
+    approvalId: state.approval.id,
+    ...(decidedSessionId === undefined && latest === undefined ? {} : { sessionId: decidedSessionId ?? latest?.sessionId }),
+    jar: claim.jar,
+    status,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Edge database inspection (read-only) and WS close helpers           */
+/* ------------------------------------------------------------------ */
+
+export function sha256HexLocal(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+export interface InviteDbRow {
+  id: string;
+  device_id: string;
+  token_hash: string;
+  label: string;
+  created_at: number;
+  expires_at: number;
+  max_uses: number;
+  uses: number;
+  revoked_at: number | null;
+}
+
+/** Read invite rows straight from the edge SQLite file (hash-at-rest proof). */
+export function readInviteRows(edgeDataDir: string): InviteDbRow[] {
+  const database = new sqliteModule.DatabaseSync(join(edgeDataDir, 'dshrc.sqlite'), { readOnly: true });
+  try {
+    const rows = database.prepare('SELECT id, device_id, token_hash, label, created_at, expires_at, max_uses, uses, revoked_at FROM invites ORDER BY created_at').all();
+    return rows.map((row) => ({
+      id: String(row['id']),
+      device_id: String(row['device_id']),
+      token_hash: String(row['token_hash']),
+      label: String(row['label']),
+      created_at: Number(row['created_at']),
+      expires_at: Number(row['expires_at']),
+      max_uses: Number(row['max_uses']),
+      uses: Number(row['uses']),
+      revoked_at: row['revoked_at'] === null ? null : Number(row['revoked_at']),
+    }));
+  } finally {
+    database.close();
+  }
+}
+
+/** Resolve when a WebSocket closes; rejects on timeout. */
+export async function waitForWsClose(
+  socket: import('ws').WebSocket,
+  timeoutMs = 5000,
+): Promise<{ code: number; reason: string }> {
+  if (socket.readyState === socket.CLOSED) return { code: -1, reason: '' };
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timed out after ${String(timeoutMs)}ms waiting for WebSocket close`));
+    }, timeoutMs);
+    const onClose = (code: number, reason: Buffer): void => {
+      cleanup();
+      resolve({ code, reason: reason.toString('utf8') });
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      socket.off('close', onClose);
+    };
+    socket.once('close', onClose);
+  });
+}
+
+export interface SessionDbRow {
+  id: string;
+  kind: string;
+  device_id: string | null;
+  expires_at: number | null;
+  approval_id: string | null;
+}
+
+/** Read session rows straight from the edge SQLite file. */
+export function readSessionRows(edgeDataDir: string): SessionDbRow[] {
+  const database = new sqliteModule.DatabaseSync(join(edgeDataDir, 'dshrc.sqlite'), { readOnly: true });
+  try {
+    const rows = database.prepare('SELECT id, kind, device_id, expires_at, approval_id FROM sessions ORDER BY created_at').all();
+    return rows.map((row) => ({
+      id: String(row['id']),
+      kind: String(row['kind']),
+      device_id: row['device_id'] === null ? null : String(row['device_id']),
+      expires_at: row['expires_at'] === null ? null : Number(row['expires_at']),
+      approval_id: row['approval_id'] === null ? null : String(row['approval_id']),
+    }));
+  } finally {
+    database.close();
+  }
 }

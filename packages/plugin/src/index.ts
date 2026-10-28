@@ -7,7 +7,18 @@
  */
 
 export { apply, createPluginLogger, inject, name } from './host.js';
-export type { DshRcServiceApi } from './host.js';
+export type { DshRcServiceApi, SharingRpcTarget } from './host.js';
+export { dispatchEndpoint } from './host.js';
+export { SharingClient, SharingError, readDeviceIdentity, sharingErrorCode } from './sharing.js';
+export type {
+  ActiveGuest,
+  CreatedInvite,
+  PendingApproval,
+  SharingClientOptions,
+  SharingErrorCode,
+  SharingInvite,
+  SharingState,
+} from './sharing.js';
 export { Config, DEFAULT_CONFIG, normalizeConfig, resolveDeviceName, resolveDshHome, resolveStateDir } from './config.js';
 export type { PluginConfig, PluginLogLevel } from './config.js';
 export { AgentSupervisor, interpretAgentLine, parseAgentStatus, targetFromSpec } from './agent-supervisor.js';

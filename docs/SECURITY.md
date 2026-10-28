@@ -100,6 +100,9 @@ comes from `node:crypto.randomBytes`.
 - Browser: owner session or owner password + single-use pair code → device
   access (a device-scoped session when authenticated by password). The code
   alone is not sufficient.
+- Guest: single-use invite token + explicit owner approval → device-scoped
+  `dshrc_guest` cookie. The invite alone is not access; approval is the gate.
+  Guest sessions have **no expiry** (`docs/SHARING.md` §6.1).
 - There is no anonymous access to `/d/:deviceId/`, `/v1/devices/*`, or the
   dashboard. `/healthz` and `/v1/edge` are intentionally public and must not
   contain secrets.
@@ -167,6 +170,8 @@ that demonstrates a *new* impact from one of them is still welcome.
 - Set an owner password; otherwise recovery means deleting the owner.
 - Back up SQLite daily and test a restore.
 - Revoke devices you no longer use; rotate secrets quarterly.
+- Review **Active guests** regularly; use **Revoke all** and turn sharing off if
+  a guest machine may be compromised. Guest sessions do not expire on their own.
 - Ship audit/log lines to an append-only sink if they are evidence.
 - Pin container images by digest; install with `npm ci`.
 

@@ -235,6 +235,89 @@ export function reconnectingPage(options: { deviceName: string; reason: 'reconne
   );
 }
 
+export function invitePage(options: {
+  csrf: string;
+  token: string;
+  deviceName: string;
+  label: string;
+  expiresAt: number;
+  pending: boolean;
+  error?: string;
+}): string {
+  const error = options.error === undefined ? '' : `<div class="error">${escapeHtml(options.error)}</div>`;
+  const expiry = options.expiresAt === 0 ? 'Never expires' : `Expires ${formatTime(options.expiresAt)}`;
+  const tokenJson = JSON.stringify(options.token);
+  const body = options.pending
+    ? `<div class="panel">
+  <h1>Waiting for approval</h1>
+  <p class="lede">The host must approve this browser before it can control <strong>${escapeHtml(options.deviceName)}</strong>.</p>
+  <p id="guest-status" class="muted">Pending…</p>
+  <p class="muted">Keep this page open. It checks every two seconds.</p>
+</div>
+<script>
+(function () {
+  var token = ${tokenJson};
+  var statusEl = document.getElementById('guest-status');
+  function poll() {
+    fetch('/i/' + encodeURIComponent(token) + '/status', { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        if (body.status === 'approved' && body.devicePath) { location.href = body.devicePath; return; }
+        if (body.status === 'denied') { statusEl.textContent = 'The host denied this request.'; return; }
+        if (body.status === 'expired') { statusEl.textContent = 'This invite has expired.'; return; }
+        statusEl.textContent = 'Pending approval…';
+        setTimeout(poll, 2000);
+      })
+      .catch(function () { setTimeout(poll, 3000); });
+  }
+  poll();
+})();
+</script>`
+    : `<div class="panel">
+  <h1>Request access</h1>
+  <p class="lede">You are about to ask the host of <strong>${escapeHtml(options.deviceName)}</strong> for remote control of their Harness.</p>
+  <p class="muted">Invite label: <strong>${escapeHtml(options.label)}</strong> · ${escapeHtml(expiry)}</p>
+  <p class="muted">The host sees your IP address and browser before approving. You will only be able to reach this one device.</p>
+  ${error}
+  <form method="post" action="/i/${escapeHtml(options.token)}/claim">
+    <input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}">
+    <button type="submit">Request access</button>
+  </form>
+</div>`;
+  return layout(`Guest invite · ${options.deviceName}`, `${topbar('')}${body}`);
+}
+
+export function guestSessionPage(options: {
+  csrf: string;
+  deviceId: string;
+  deviceName: string;
+  label: string;
+  since: number;
+}): string {
+  return layout(
+    'Remote session',
+    `${topbar('')}
+<h1>Remote session</h1>
+<p class="lede">You are controlling <strong>${escapeHtml(options.deviceName)}</strong> as a guest.</p>
+<div class="panel">
+  <p><span class="badge online">connected</span></p>
+  <table>
+    <tbody>
+      <tr><th>Device</th><td>${escapeHtml(options.deviceName)} <span class="mono">${escapeHtml(options.deviceId)}</span></td></tr>
+      <tr><th>Label</th><td>${escapeHtml(options.label)}</td></tr>
+      <tr><th>Since</th><td>${escapeHtml(formatTime(options.since))}</td></tr>
+      <tr><th>Expires</th><td>Never — the host revokes this session explicitly.</td></tr>
+    </tbody>
+  </table>
+  <p class="row"><a class="button secondary" href="/d/${escapeHtml(options.deviceId)}/">Open Harness</a></p>
+  <form method="post" action="/i/session/disconnect">
+    <input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}">
+    <button class="danger" type="submit">Disconnect</button>
+  </form>
+</div>`,
+  );
+}
+
 export function errorPage(options: { status: number; title: string; message: string }): string {
   return layout(
     options.title,

@@ -28,6 +28,8 @@ import {
 import type { DshRcStatus, RpcReply } from './contract.js';
 import { normalizeConfig, resolveDeviceName, resolveStateDir } from './config.js';
 import type { PluginConfig } from './config.js';
+import { SharingClient, sharingErrorCode } from './sharing.js';
+import type { CreatedInvite, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
 interface LoggerLike {
@@ -86,6 +88,7 @@ const START_URL_POLL_MS = 250;
 class DshRcService {
   readonly api: DshRcServiceApi;
   private readonly supervisor: AgentSupervisor;
+  private readonly sharingClient: SharingClient;
   private readonly logger: SupervisorLogger;
   private readonly dshUrl: () => string;
   private readonly stateDir: string;
@@ -95,6 +98,11 @@ class DshRcService {
     this.logger = options.logger;
     this.dshUrl = options.dshUrl;
     this.stateDir = options.stateDir;
+    this.sharingClient = new SharingClient({
+      stateDir: options.stateDir,
+      edgeUrl: options.config.edgeUrl,
+      logger: options.logger,
+    });
     this.supervisor = new AgentSupervisor({
       config: options.config,
       dshUrl: options.dshUrl,
@@ -110,6 +118,39 @@ class DshRcService {
       restart: () => this.restart(),
       stop: () => this.supervisor.stop(),
     };
+  }
+
+  /* ------------------------------ sharing ------------------------------ */
+
+  sharingGet(): Promise<SharingState> {
+    return this.sharingClient.getSharing();
+  }
+
+  sharingSet(enabled: boolean): Promise<{ enabled: boolean }> {
+    return this.sharingClient.setSharing(enabled);
+  }
+
+  sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite> {
+    return this.sharingClient.createInvite(input);
+  }
+
+  async sharingRevokeInvite(id: string): Promise<{ ok: true }> {
+    await this.sharingClient.revokeInvite(id);
+    return { ok: true };
+  }
+
+  async sharingDecide(id: string, decision: 'approve' | 'deny', ttlSeconds?: number): Promise<{ ok: true }> {
+    await this.sharingClient.decideApproval(id, decision, ttlSeconds);
+    return { ok: true };
+  }
+
+  async sharingRevokeGuest(sessionId: string): Promise<{ ok: true }> {
+    await this.sharingClient.revokeGuest(sessionId);
+    return { ok: true };
+  }
+
+  sharingRevokeAll(): Promise<{ revoked: number }> {
+    return this.sharingClient.revokeAllGuests();
   }
 
   status(): DshRcStatus {
@@ -336,29 +377,93 @@ async function handleRpcRequest(
     return;
   }
 
-  const result = await dispatchEndpoint(service, endpoint);
+  const result = await dispatchEndpoint(service, endpoint, envelope['payload']);
   writeRpcJson(response, 200, { type: 'server-response', rpcId, result });
 }
 
-async function dispatchEndpoint(service: DshRcService, endpoint: string): Promise<RpcReply<unknown>> {
+/** Narrow view of the service the RPC dispatcher needs; exported for tests. */
+export interface SharingRpcTarget {
+  status(): DshRcStatus;
+  start(): Promise<DshRcStatus>;
+  restart(): Promise<DshRcStatus>;
+  stop(): Promise<DshRcStatus>;
+  pairUrl(): string | undefined;
+  sharingGet(): Promise<SharingState>;
+  sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
+  sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
+  sharingRevokeInvite(id: string): Promise<{ ok: true }>;
+  sharingDecide(id: string, decision: 'approve' | 'deny', ttlSeconds?: number): Promise<{ ok: true }>;
+  sharingRevokeGuest(sessionId: string): Promise<{ ok: true }>;
+  sharingRevokeAll(): Promise<{ revoked: number }>;
+}
+
+/**
+ * Dispatch one RPC endpoint. Exported so the request/response shapes can be
+ * unit-tested without a live cordis context.
+ */
+export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: string, payload?: unknown): Promise<RpcReply<unknown>> {
+  const input = isRecord(payload) ? payload : {};
   try {
     switch (endpoint) {
       case 'status':
-        return rpcOk(service.status());
+        return rpcOk(target.status());
       case 'start':
-        return rpcOk(await service.start());
+        return rpcOk(await target.start());
       case 'restart':
-        return rpcOk(await service.restart());
+        return rpcOk(await target.restart());
       case 'stop':
-        return rpcOk(await service.stop());
+        return rpcOk(await target.stop());
       case 'pair-url':
-        return rpcOk({ pairUrl: service.pairUrl() ?? null });
+        return rpcOk({ pairUrl: target.pairUrl() ?? null });
+      case 'sharing.get':
+        return rpcOk(await target.sharingGet());
+      case 'sharing.set': {
+        const enabled = input['enabled'];
+        if (typeof enabled !== 'boolean') return rpcFail('bad-request', 'enabled must be a boolean.');
+        return rpcOk(await target.sharingSet(enabled));
+      }
+      case 'sharing.invite': {
+        const label = typeof input['label'] === 'string' ? input['label'] : undefined;
+        const ttlSeconds = typeof input['ttlSeconds'] === 'number' ? input['ttlSeconds'] : undefined;
+        const maxUses = typeof input['maxUses'] === 'number' ? input['maxUses'] : undefined;
+        return rpcOk(
+          await target.sharingInvite({
+            ...(label === undefined ? {} : { label }),
+            ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+            ...(maxUses === undefined ? {} : { maxUses }),
+          }),
+        );
+      }
+      case 'sharing.revokeInvite': {
+        const id = typeof input['id'] === 'string' ? input['id'] : '';
+        if (id === '') return rpcFail('bad-request', 'id is required.');
+        return rpcOk(await target.sharingRevokeInvite(id));
+      }
+      case 'sharing.decide': {
+        const id = typeof input['id'] === 'string' ? input['id'] : '';
+        const decision = input['decision'];
+        if (id === '') return rpcFail('bad-request', 'id is required.');
+        if (decision !== 'approve' && decision !== 'deny') return rpcFail('bad-request', 'decision must be approve or deny.');
+        const ttlSeconds = typeof input['ttlSeconds'] === 'number' ? input['ttlSeconds'] : undefined;
+        return rpcOk(await target.sharingDecide(id, decision, ttlSeconds));
+      }
+      case 'sharing.revokeGuest': {
+        const sessionId = typeof input['sessionId'] === 'string' ? input['sessionId'] : '';
+        if (sessionId === '') return rpcFail('bad-request', 'sessionId is required.');
+        return rpcOk(await target.sharingRevokeGuest(sessionId));
+      }
+      case 'sharing.revokeAll':
+        return rpcOk(await target.sharingRevokeAll());
       default:
         return rpcFail('not-found', `unknown dsh-rc endpoint ${JSON.stringify(endpoint)}`);
     }
   } catch (error) {
-    return rpcFail('internal', messageOf(error));
+    return rpcFail(sharingErrorCode(error), messageOf(error));
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function endpointOf(pathname: string): string | undefined {

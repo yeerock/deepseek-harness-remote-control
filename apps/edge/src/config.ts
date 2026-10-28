@@ -21,6 +21,9 @@ export interface EdgeRateLimits {
   login: RateLimitRule;
   pair: RateLimitRule;
   register: RateLimitRule;
+  sharingInvite: RateLimitRule;
+  sharingApproval: RateLimitRule;
+  sharingClaim: RateLimitRule;
 }
 
 export interface EdgeConfig {
@@ -70,6 +73,9 @@ export const DEFAULT_RATE_LIMITS: EdgeRateLimits = {
   login: { limit: 10, windowMs: 5 * 60 * 1000 },
   pair: { limit: 20, windowMs: 5 * 60 * 1000 },
   register: { limit: 20, windowMs: 10 * 60 * 1000 },
+  sharingInvite: { limit: 20, windowMs: 60 * 1000 },
+  sharingApproval: { limit: 60, windowMs: 60 * 1000 },
+  sharingClaim: { limit: 20, windowMs: 5 * 60 * 1000 },
 };
 
 const LOG_LEVELS: ReadonlySet<string> = new Set(['debug', 'info', 'warn', 'error', 'silent']);

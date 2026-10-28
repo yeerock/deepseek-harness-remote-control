@@ -38,6 +38,42 @@ interface DshRcStatusView {
   restarts?: number;
 }
 
+interface SharingInviteView {
+  id?: string;
+  label?: string;
+  expiresAt?: number;
+  maxUses?: number;
+  uses?: number;
+}
+
+interface PendingApprovalView {
+  id?: string;
+  label?: string;
+  ip?: string;
+  createdAt?: number;
+}
+
+interface ActiveGuestView {
+  sessionId?: string;
+  label?: string;
+  ip?: string;
+  since?: number;
+}
+
+interface SharingView {
+  enabled?: boolean;
+  publicUrl?: string;
+  invites?: SharingInviteView[];
+  pendingApprovals?: PendingApprovalView[];
+  activeGuests?: ActiveGuestView[];
+}
+
+interface CreatedInviteView {
+  id?: string;
+  url?: string;
+  expiresAt?: number;
+}
+
 interface ClientContext {
   connection: {
     rpc: {
@@ -101,6 +137,42 @@ const EN: Record<string, string> = {
   stoppedHint: 'The agent is not running.',
   qrHint: 'Scan to open the pairing link in a browser.',
   unconfigured: 'Set edgeUrl in the plugin config before starting.',
+  sharingTitle: 'Share this Harness',
+  sharingOffHint: 'Off — nobody else can connect.',
+  sharingOnHint: 'On — anyone with an invite link can request access. You approve every guest.',
+  sharingOn: 'On',
+  sharingOff: 'Off',
+  sharingTtl: 'Invite expires',
+  ttl15: '15 minutes',
+  ttl60: '1 hour',
+  ttl1440: '24 hours',
+  ttlNever: 'Never',
+  sharingCreate: 'Create invite',
+  sharingCreating: 'Creating…',
+  sharingInviteTitle: 'Invite link',
+  sharingInviteOnce: 'Shown once. Anyone with this link can request access until it is used or expires.',
+  sharingCopy: 'Copy',
+  sharingCopied: 'Copied',
+  sharingPending: 'Waiting for approval',
+  sharingNoPending: 'No pending requests.',
+  sharingApprove: 'Approve',
+  sharingDeny: 'Deny',
+  sharingGuests: 'Active guests',
+  sharingNoGuests: 'No guests connected.',
+  sharingRevoke: 'Revoke',
+  sharingRevokeAll: 'Revoke all',
+  sharingConfirmRevoke: 'Revoke this guest? Their browser session ends immediately.',
+  sharingConfirmRevokeAll: 'Revoke all guests? Every guest session ends immediately.',
+  sharingMultiWarning: 'Multiple guests share this one desktop — workspace, terminal and tools. They can interfere with each other.',
+  sharingLoopbackWarning: 'Guests need a public edge URL. This edge advertises a loopback or unknown address, so an invite link will not open from another machine. Use Tailscale Funnel or a VPS edge.',
+  sharingInvites: 'Outstanding invites',
+  sharingNoInvites: 'No outstanding invites.',
+  sharingRevokeInvite: 'Revoke invite',
+  sharingConfirmRevokeInvite: 'Revoke this invite link?',
+  sharingErrorLabel: 'Sharing error',
+  sharingGuestUnknown: 'Guest',
+  sharingExpires: 'expires',
+  sharingUses: 'uses',
 };
 
 const ZH: Record<string, string> = {
@@ -143,6 +215,42 @@ const ZH: Record<string, string> = {
   stoppedHint: '代理未运行。',
   qrHint: '扫码在浏览器中打开配对链接。',
   unconfigured: '请先在插件配置中设置 edgeUrl。',
+  sharingTitle: '共享此 Harness',
+  sharingOffHint: '已关闭——其他人无法连接。',
+  sharingOnHint: '已开启——任何持有邀请链接的人都可以申请访问。每位访客都需要你批准。',
+  sharingOn: '开',
+  sharingOff: '关',
+  sharingTtl: '邀请有效期',
+  ttl15: '15 分钟',
+  ttl60: '1 小时',
+  ttl1440: '24 小时',
+  ttlNever: '永久',
+  sharingCreate: '创建邀请',
+  sharingCreating: '创建中…',
+  sharingInviteTitle: '邀请链接',
+  sharingInviteOnce: '仅显示一次。任何持有此链接的人在被使用或过期前均可申请访问。',
+  sharingCopy: '复制',
+  sharingCopied: '已复制',
+  sharingPending: '等待批准',
+  sharingNoPending: '没有待批准请求。',
+  sharingApprove: '批准',
+  sharingDeny: '拒绝',
+  sharingGuests: '当前访客',
+  sharingNoGuests: '暂无访客连接。',
+  sharingRevoke: '撤销',
+  sharingRevokeAll: '全部撤销',
+  sharingConfirmRevoke: '撤销此访客？其浏览器会话将立即结束。',
+  sharingConfirmRevokeAll: '撤销全部访客？所有访客会话都将立即结束。',
+  sharingMultiWarning: '多位访客共享同一台桌面——工作区、终端和工具都可被操作，他们可能互相干扰。',
+  sharingLoopbackWarning: '访客需要可公开访问的边缘地址。当前边缘节点广播的是回环或未知地址，因此邀请链接无法从其他机器打开。请使用 Tailscale Funnel 或 VPS 边缘节点。',
+  sharingInvites: '未使用的邀请',
+  sharingNoInvites: '没有未使用的邀请。',
+  sharingRevokeInvite: '撤销邀请',
+  sharingConfirmRevokeInvite: '撤销此邀请链接？',
+  sharingErrorLabel: '共享错误',
+  sharingGuestUnknown: '访客',
+  sharingExpires: '到期',
+  sharingUses: '已用',
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -193,6 +301,36 @@ function formatSince(since: number | undefined): string {
   return `${String(Math.floor(hours / 24))}d`;
 }
 
+
+/** True when the edge's advertised URL cannot be reached from another machine. */
+function isLoopbackPublicUrl(value: string | undefined): boolean {
+  if (value === undefined || value.trim() === '') return true;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host === '::1' ||
+      host === '[::1]' ||
+      host === '0.0.0.0' ||
+      host.endsWith('.localhost') ||
+      host.startsWith('127.')
+    );
+  } catch {
+    return true;
+  }
+}
+
+/** Remaining time for an invite expiry; zero means "never" in the edge API. */
+function formatExpiry(expiresAt: number | undefined, neverLabel: string): string {
+  if (expiresAt === undefined || expiresAt === 0) return neverLabel;
+  const remaining = expiresAt - Date.now();
+  if (remaining <= 0) return '0m';
+  const minutes = Math.ceil(remaining / 60_000);
+  if (minutes < 60) return `${String(minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${String(hours)}h`;
+  return `${String(Math.floor(hours / 24))}d`;
+}
 
 /* ------------------------------- styles ---------------------------------- */
 
@@ -426,11 +564,113 @@ function createComponent(React: any): (props: AnyProps) => any {
       padding: '12px',
     } as const,
     footerHint: { marginTop: '12px', fontSize: '11px', color: '#a1a1aa' } as const,
+    divider: {
+      marginTop: '18px',
+      paddingTop: '14px',
+      borderTop: '1px solid rgba(255,255,255,0.10)',
+    } as const,
+    sectionHeader: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+    } as const,
+    sectionTitle: { fontSize: '13px', fontWeight: 600, color: '#f4f4f5' } as const,
+    sectionHint: { marginTop: '6px', fontSize: '11.5px', color: '#a1a1aa' } as const,
+    subheading: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '8px',
+      marginTop: '14px',
+      marginBottom: '6px',
+      fontSize: '12px',
+      fontWeight: 600,
+      color: '#e4e4e7',
+    } as const,
+    countBadge: {
+      marginLeft: '6px',
+      padding: '0 6px',
+      borderRadius: '999px',
+      background: 'rgba(255,255,255,0.10)',
+      color: '#d4d4d8',
+      fontSize: '10.5px',
+      fontWeight: 500,
+    } as const,
+    switch: (enabled: boolean): Record<string, unknown> => ({
+      position: 'relative',
+      width: '36px',
+      height: '20px',
+      flex: '0 0 auto',
+      padding: 0,
+      border: '1px solid ' + (enabled ? '#2563eb' : 'rgba(255,255,255,0.20)'),
+      borderRadius: '999px',
+      background: enabled ? '#2563eb' : 'rgba(255,255,255,0.10)',
+      cursor: 'pointer',
+      transition: 'background 120ms ease',
+    }),
+    switchKnob: (enabled: boolean): Record<string, unknown> => ({
+      position: 'absolute',
+      top: '2px',
+      left: enabled ? '18px' : '2px',
+      width: '14px',
+      height: '14px',
+      borderRadius: '999px',
+      background: '#f8fafc',
+      transition: 'left 120ms ease',
+    }),
+    select: {
+      boxSizing: 'border-box',
+      background: 'rgba(255,255,255,0.06)',
+      border: '1px solid rgba(255,255,255,0.14)',
+      borderRadius: '8px',
+      color: '#f4f4f5',
+      padding: '5px 8px',
+      fontSize: '12px',
+    } as const,
+    smallButton: {
+      border: '1px solid rgba(255,255,255,0.16)',
+      background: 'rgba(255,255,255,0.06)',
+      color: '#f8fafc',
+      borderRadius: '6px',
+      padding: '3px 8px',
+      fontSize: '11px',
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+    } as const,
+    dangerButton: {
+      border: '1px solid rgba(239,68,68,0.55)',
+      background: 'rgba(239,68,68,0.14)',
+      color: '#fecaca',
+      borderRadius: '6px',
+      padding: '3px 8px',
+      fontSize: '11px',
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+    } as const,
+    listRow: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '10px',
+      padding: '6px 0',
+      borderTop: '1px solid rgba(255,255,255,0.06)',
+    } as const,
+    listText: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' } as const,
+    listPrimary: { fontSize: '12px', color: '#f4f4f5', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const,
+    listMeta: { fontSize: '10.5px', color: '#a1a1aa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const,
+    rowActions: { display: 'flex', gap: '6px', flex: '0 0 auto' } as const,
+    inviteRow: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      marginTop: '8px',
+    } as const,
   };
 
   function DshRcAction(props: AnyProps): any {
     const t: (key: string) => string = props.t;
-    const call: (endpoint: string) => Promise<any> = props.call;
+    const call: (endpoint: string, payload?: unknown) => Promise<any> = props.call;
     const ReactUse = React;
     const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
     const [open, setOpen] = ReactUse.useState(false);
@@ -438,6 +678,12 @@ function createComponent(React: any): (props: AnyProps) => any {
     const [error, setError] = ReactUse.useState(undefined as string | undefined);
     const [busy, setBusy] = ReactUse.useState(false);
     const [copied, setCopied] = ReactUse.useState(false);
+    const [sharing, setSharing] = ReactUse.useState(undefined as SharingView | undefined);
+    const [sharingError, setSharingError] = ReactUse.useState(undefined as string | undefined);
+    const [sharingBusy, setSharingBusy] = ReactUse.useState(false);
+    const [ttlSeconds, setTtlSeconds] = ReactUse.useState(900);
+    const [invite, setInvite] = ReactUse.useState(undefined as CreatedInviteView | undefined);
+    const [inviteCopied, setInviteCopied] = ReactUse.useState(false);
 
     const refresh = ReactUse.useCallback(async () => {
       try {
@@ -468,6 +714,30 @@ function createComponent(React: any): (props: AnyProps) => any {
       };
     }, [refresh, open]);
 
+    // Sharing state is polled only while the panel is open; closing the modal
+    // (or unmounting the plugin) stops the timer immediately.
+    ReactUse.useEffect(() => {
+      if (!open || unavailable) return undefined;
+      let alive = true;
+      const tick = async (): Promise<void> => {
+        try {
+          const next = (await call('sharing.get')) as SharingView;
+          if (alive) {
+            setSharing(next);
+            setSharingError(undefined);
+          }
+        } catch (reason) {
+          if (alive) setSharingError(messageOf(reason));
+        }
+      };
+      void tick();
+      const timer = window.setInterval(() => void tick(), 2000);
+      return () => {
+        alive = false;
+        window.clearInterval(timer);
+      };
+    }, [open, unavailable, call]);
+
     ReactUse.useEffect(() => {
       if (!open) return undefined;
       const onKey = (event: KeyboardEvent): void => {
@@ -489,6 +759,109 @@ function createComponent(React: any): (props: AnyProps) => any {
         setBusy(false);
       }
     };
+
+
+    /* ------------------------------ sharing ------------------------------ */
+
+    const sharingEnabled = sharing?.enabled === true;
+
+    const withSharingBusy = async (action: () => Promise<void>): Promise<void> => {
+      setSharingBusy(true);
+      setSharingError(undefined);
+      try {
+        await action();
+      } catch (reason) {
+        setSharingError(messageOf(reason));
+      } finally {
+        setSharingBusy(false);
+      }
+    };
+
+    const refreshSharing = async (): Promise<void> => {
+      const next = (await call('sharing.get')) as SharingView;
+      setSharing(next);
+    };
+
+    const toggleSharing = (): void => {
+      void withSharingBusy(async () => {
+        await call('sharing.set', { enabled: !sharingEnabled });
+        await refreshSharing();
+        if (!sharingEnabled) setInvite(undefined);
+      });
+    };
+
+    const createInvite = (): void => {
+      void withSharingBusy(async () => {
+        const created = (await call('sharing.invite', { ttlSeconds })) as CreatedInviteView;
+        setInvite(created);
+        setInviteCopied(false);
+        await refreshSharing();
+      });
+    };
+
+    const decideApproval = (id: string | undefined, decision: 'approve' | 'deny'): void => {
+      if (id === undefined) return;
+      void withSharingBusy(async () => {
+        await call('sharing.decide', { id, decision });
+        await refreshSharing();
+      });
+    };
+
+    const revokeGuest = (sessionId: string | undefined): void => {
+      if (sessionId === undefined) return;
+      if (!window.confirm(t('sharingConfirmRevoke'))) return;
+      void withSharingBusy(async () => {
+        await call('sharing.revokeGuest', { sessionId });
+        await refreshSharing();
+      });
+    };
+
+    const revokeAllGuests = (): void => {
+      if (!window.confirm(t('sharingConfirmRevokeAll'))) return;
+      void withSharingBusy(async () => {
+        await call('sharing.revokeAll');
+        await refreshSharing();
+      });
+    };
+
+    const revokeInvite = (id: string | undefined): void => {
+      if (id === undefined) return;
+      if (!window.confirm(t('sharingConfirmRevokeInvite'))) return;
+      void withSharingBusy(async () => {
+        await call('sharing.revokeInvite', { id });
+        if (invite?.id === id) setInvite(undefined);
+        await refreshSharing();
+      });
+    };
+
+    const copyInviteUrl = async (): Promise<void> => {
+      const url = invite?.url;
+      if (url === undefined || url === '') return;
+      try {
+        if (navigator.clipboard !== undefined) await navigator.clipboard.writeText(url);
+        else {
+          const area = document.createElement('textarea');
+          area.value = url;
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+        }
+        setInviteCopied(true);
+        window.setTimeout(() => setInviteCopied(false), 1500);
+      } catch (reason) {
+        setSharingError(messageOf(reason));
+      }
+    };
+
+    const inviteQrSvg = ReactUse.useMemo(() => {
+      const url = invite?.url;
+      if (url === undefined || url === '') return undefined;
+      const code = encodeQr(url);
+      return code === undefined ? undefined : qrToSvg(code, 140);
+    }, [invite?.url]);
 
     const pairUrl = status?.pairUrl;
     const qrSvg = ReactUse.useMemo(() => {
@@ -552,6 +925,169 @@ function createComponent(React: any): (props: AnyProps) => any {
     if (status?.lastError !== undefined) rows.push([t('lastError'), status.lastError]);
 
     const disabled = busy || unavailable;
+    const pendingApprovals = Array.isArray(sharing?.pendingApprovals) ? sharing.pendingApprovals : [];
+    const activeGuests = Array.isArray(sharing?.activeGuests) ? sharing.activeGuests : [];
+    const sharingInvites = Array.isArray(sharing?.invites) ? sharing.invites : [];
+    const sharingWarningStyle = (color: string): Record<string, unknown> => ({
+      ...styles.banner(color),
+      marginTop: '10px',
+      marginBottom: 0,
+    });
+
+    const listRow = (key: string, primary: any, meta: any, actions: any[]): any =>
+      h(
+        'div',
+        { style: styles.listRow, key },
+        h(
+          'div',
+          { style: styles.listText },
+          h('div', { style: styles.listPrimary }, primary),
+          meta === undefined || meta === null ? null : h('div', { style: styles.listMeta }, meta),
+        ),
+        h('div', { style: styles.rowActions }, ...actions),
+      );
+
+    const sharingSection = h(
+      'div',
+      { style: styles.divider },
+      h(
+        'div',
+        { style: styles.sectionHeader },
+        h('div', { style: styles.sectionTitle }, t('sharingTitle')),
+        h(
+          'button',
+          {
+            type: 'button',
+            role: 'switch',
+            'aria-checked': sharingEnabled,
+            'aria-label': t('sharingTitle'),
+            title: sharingEnabled ? t('sharingOn') : t('sharingOff'),
+            disabled: sharingBusy || unavailable,
+            onClick: toggleSharing,
+            style: styles.switch(sharingEnabled),
+          },
+          h('span', { style: styles.switchKnob(sharingEnabled) }),
+        ),
+      ),
+      h('div', { style: styles.sectionHint }, sharingEnabled ? t('sharingOnHint') : t('sharingOffHint')),
+      sharingError !== undefined
+        ? h('div', { style: sharingWarningStyle('#f59e0b') }, `${t('sharingErrorLabel')}: ${sharingError}`)
+        : null,
+      sharingEnabled
+        ? [
+            isLoopbackPublicUrl(sharing?.publicUrl)
+              ? h('div', { key: 'loopback', style: sharingWarningStyle('#f59e0b') }, t('sharingLoopbackWarning'))
+              : null,
+            h('div', { key: 'multi', style: sharingWarningStyle('#38bdf8') }, t('sharingMultiWarning')),
+            h(
+              'div',
+              { key: 'invite-controls', style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', flexWrap: 'wrap' } },
+              h('span', { style: styles.label }, t('sharingTtl')),
+              h(
+                'select',
+                {
+                  style: styles.select,
+                  value: String(ttlSeconds),
+                  disabled: sharingBusy,
+                  onChange: (event: any) => setTtlSeconds(Number(event.target.value)),
+                  'aria-label': t('sharingTtl'),
+                },
+                h('option', { value: '900' }, t('ttl15')),
+                h('option', { value: '3600' }, t('ttl60')),
+                h('option', { value: '86400' }, t('ttl1440')),
+                h('option', { value: '0' }, t('ttlNever')),
+              ),
+              h('button', { type: 'button', style: styles.button(true), disabled: sharingBusy, onClick: createInvite }, sharingBusy ? t('sharingCreating') : t('sharingCreate')),
+            ),
+            invite?.url !== undefined && invite.url !== ''
+              ? h(
+                  'div',
+                  { key: 'invite-result', style: { marginTop: '10px' } },
+                  h('div', { style: styles.label }, t('sharingInviteTitle')),
+                  h(
+                    'div',
+                    { style: styles.inviteRow },
+                    h('input', {
+                      style: styles.input,
+                      readOnly: true,
+                      spellCheck: false,
+                      value: invite.url,
+                      onFocus: (event: any) => event.target.select(),
+                      onClick: (event: any) => event.target.select(),
+                      'aria-label': t('sharingInviteTitle'),
+                      'aria-readonly': 'true',
+                    }),
+                    h('button', { type: 'button', style: styles.smallButton, onClick: () => void copyInviteUrl() }, inviteCopied ? t('sharingCopied') : t('sharingCopy')),
+                  ),
+                  h('div', { style: styles.footerHint }, t('sharingInviteOnce')),
+                  h('div', { style: styles.footerHint }, `${t('sharingExpires')}: ${formatExpiry(invite.expiresAt, t('ttlNever'))}`),
+                  inviteQrSvg !== undefined
+                    ? h(
+                        'div',
+                        { style: styles.qrBox },
+                        h('div', { style: { width: '140px', height: '140px' }, dangerouslySetInnerHTML: { __html: inviteQrSvg } }),
+                      )
+                    : null,
+                )
+              : null,
+            h(
+              'div',
+              { key: 'pending-heading', style: styles.subheading },
+              h('span', null, t('sharingPending'), h('span', { style: styles.countBadge }, pendingApprovals.length)),
+            ),
+            pendingApprovals.length === 0
+              ? h('div', { key: 'no-pending', style: styles.footerHint }, t('sharingNoPending'))
+              : pendingApprovals.map((approval: PendingApprovalView) =>
+                  listRow(
+                    `approval-${approval.id ?? approval.ip ?? 'unknown'}`,
+                    approval.label !== undefined && approval.label !== '' ? approval.label : t('sharingGuestUnknown'),
+                    `${approval.ip ?? '—'} · ${formatSince(approval.createdAt)}`,
+                    [
+                      h('button', { key: 'approve', type: 'button', style: styles.smallButton, disabled: sharingBusy, onClick: () => decideApproval(approval.id, 'approve') }, t('sharingApprove')),
+                      h('button', { key: 'deny', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => decideApproval(approval.id, 'deny') }, t('sharingDeny')),
+                    ],
+                  ),
+                ),
+            h(
+              'div',
+              { key: 'guests-heading', style: styles.subheading },
+              h('span', null, t('sharingGuests'), h('span', { style: styles.countBadge }, activeGuests.length)),
+              activeGuests.length > 0
+                ? h('button', { type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: revokeAllGuests }, t('sharingRevokeAll'))
+                : null,
+            ),
+            activeGuests.length === 0
+              ? h('div', { key: 'no-guests', style: styles.footerHint }, t('sharingNoGuests'))
+              : activeGuests.map((guest: ActiveGuestView) =>
+                  listRow(
+                    `guest-${guest.sessionId ?? guest.ip ?? 'unknown'}`,
+                    guest.label !== undefined && guest.label !== '' ? guest.label : t('sharingGuestUnknown'),
+                    `${guest.ip ?? '—'} · ${t('since')} ${formatSince(guest.since)}`,
+                    [
+                      h('button', { key: 'revoke', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => revokeGuest(guest.sessionId) }, t('sharingRevoke')),
+                    ],
+                  ),
+                ),
+            h(
+              'div',
+              { key: 'invites-heading', style: styles.subheading },
+              h('span', null, t('sharingInvites'), h('span', { style: styles.countBadge }, sharingInvites.length)),
+            ),
+            sharingInvites.length === 0
+              ? h('div', { key: 'no-invites', style: styles.footerHint }, t('sharingNoInvites'))
+              : sharingInvites.map((row: SharingInviteView) =>
+                  listRow(
+                    `invite-${row.id ?? 'unknown'}`,
+                    row.label !== undefined && row.label !== '' ? row.label : (row.id ?? '—'),
+                    `${t('sharingExpires')}: ${formatExpiry(row.expiresAt, t('ttlNever'))} · ${String(row.uses ?? 0)}/${String(row.maxUses ?? 1)} ${t('sharingUses')}`,
+                    [
+                      h('button', { key: 'revoke-invite', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => revokeInvite(row.id) }, t('sharingRevokeInvite')),
+                    ],
+                  ),
+                ),
+          ]
+        : null,
+    );
 
     return h(
       'div',
@@ -659,6 +1195,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               ),
               status?.state === 'stopped' && !unavailable ? h('div', { style: styles.footerHint }, t('stoppedHint')) : null,
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,
+              sharingSection,
             ),
           )
         : null,
@@ -680,8 +1217,8 @@ function apply(ctx: ClientContext): void {
   // The component is created inside the factory so `require('react')` is the
   // module loader's shell instance.
   const component = createComponent(requireReact());
-  const call = async (endpoint: string): Promise<any> => {
-    const result = await ctx.connection.rpc.call(RPC_CHANNEL, endpoint, {});
+  const call = async (endpoint: string, payload?: unknown): Promise<any> => {
+    const result = await ctx.connection.rpc.call(RPC_CHANNEL, endpoint, payload ?? {});
     if (result === undefined || result.ok !== true) {
       throw new Error(result?.error?.message ?? `dsh-rc ${endpoint} failed`);
     }
