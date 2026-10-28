@@ -3,7 +3,26 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.2 — 2026-10-28
+## v0.2.3 — 2026-10-29
+
+Auto-approval cleanup.
+
+### Fixed
+
+- Removed the **Manage / approve** button and pending-approval hint from the
+  Remote Control panel. Pairing shows only the setup prompt; no dashboard
+  action is implied.
+- On startup with `--auto-approve-devices`, the edge now approves any Harness
+  that was left `pending` before the flag was enabled (audited as
+  `device-approved`, actor `auto-approve`). New registrations were already
+  approved immediately.
+
+### Verification
+
+- 289 automated tests, including a restart test that registers a pending
+  Harness, restarts the edge with auto-approval, and asserts it becomes
+  approved.
+
 
 Auto-approval, version display and auto-update.
 

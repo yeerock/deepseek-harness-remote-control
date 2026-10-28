@@ -95,6 +95,28 @@ export class DeviceService {
     return { device, deviceSecret, pairCode };
   }
 
+  /** Approve any Harness left pending before auto-approval was enabled. */
+  approveAllPending(meta: RequestMeta): number {
+    const pending = this.db.listDevices().filter((device) => device.status === 'pending');
+    if (pending.length === 0) return 0;
+    const now = Date.now();
+    this.db.transaction(() => {
+      for (const device of pending) {
+        this.db.approveDevice(device.id, now);
+        this.db.addAudit({
+          event: 'device-approved',
+          deviceId: device.id,
+          actor: meta.actor,
+          ip: meta.ip,
+          detail: 'auto-approve on edge startup',
+          ts: now,
+        });
+      }
+    });
+    this.logger.info('auto-approved pending devices', { count: pending.length });
+    return pending.length;
+  }
+
   /**
    * Map a bearer secret back to its device. Every row is compared in
    * constant time and the loop does not short-circuit, so timing does not

@@ -139,6 +139,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
   const db = new EdgeDatabase(config.dataDir);
   const auth = new AuthService(config, db, logger);
   const devices = new DeviceService(config, db, logger);
+  if (config.autoApproveDevices) devices.approveAllPending({ ip: null, actor: 'auto-approve' });
   const sharing = new SharingService(db, logger);
   const guestConnections = new GuestConnections(db, logger);
   const tunnels = new TunnelManager(config, db, devices, logger, auth.edgeId);

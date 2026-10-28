@@ -1159,12 +1159,8 @@ function createComponent(React: any): (props: AnyProps) => any {
         'div',
         { style: styles.sectionHeader },
         h('div', { style: styles.sectionTitle }, t('harnessTitle')),
-        dashboardUrl !== ''
-          ? h('button', { type: 'button', style: styles.smallButton, onClick: openDashboard }, t('harnessManage'))
-          : null,
       ),
       h('div', { style: styles.sectionHint }, t('harnessHint')),
-      state === 'pairing' ? h('div', { style: sharingWarningStyle('#f59e0b') }, t('harnessPending')) : null,
       h('div', { style: styles.subheading }, t('sharingJoinTitle')),
       h('div', { style: styles.footerHint }, t('sharingJoinHint')),
       h(

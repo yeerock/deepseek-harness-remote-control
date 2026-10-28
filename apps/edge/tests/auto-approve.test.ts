@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { startEdge, type TestEdge } from './helpers.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startEdge, startEdgeIn, type TestEdge } from './helpers.js';
 
 const edges: TestEdge[] = [];
 
@@ -36,6 +39,26 @@ describe('device auto-approval', () => {
     });
     expect(me.status).toBe(200);
     expect(((await me.json()) as { status: string }).status).toBe('approved');
+  });
+
+  it('approves a Harness that was left pending when the flag is turned on', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dshrc-auto-'));
+    const first = await startEdgeIn(dir);
+    const device = await register(first.base, 'legacy-pending');
+    expect(device.status).toBe('pending');
+    await first.close();
+
+    const second = await startEdgeIn(dir, { autoApproveDevices: true });
+    try {
+      const me = await fetch(`${second.base}/v1/devices/me`, {
+        headers: { authorization: `Bearer ${device.deviceSecret}` },
+      });
+      expect(me.status).toBe(200);
+      expect(((await me.json()) as { status: string }).status).toBe('approved');
+    } finally {
+      await second.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('parses the CLI flag and env var', async () => {
