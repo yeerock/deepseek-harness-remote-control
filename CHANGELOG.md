@@ -3,6 +3,40 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.2.1 — 2026-10-28
+
+Prompt-only pairing and identifier cleanup.
+
+### Changed
+
+- **Remote Control is prompt-only.** The panel now has a single pairing action:
+  **Harnesses → Build setup prompt → Copy prompt**. Removed the device pair
+  URL, **Copy**/**Open** pair buttons, QR code, guest-sharing panel, invite
+  link/QR and the automatic `sharing.get` poll that surfaced
+  “connection: invalid server-response failure”.
+- **Public edge renamed** to `https://dsh-rc.tail2c6c40.ts.net`; the Tailscale
+  node and the device label no longer contain a personal name. Device label is
+  now **DSH Desktop**.
+- The join prompt resolves the public edge origin from the unauthenticated
+  `/v1/edge` endpoint, independent of guest-sharing auth.
+
+### Fixed
+
+- The Remote Control panel no longer displays `/Users/<name>` or hostnames from
+  agent errors; agent paths are shown relative to `dsh-rc`, and absolute home
+  paths/hostnames are redacted.
+
+### Removed from the UI
+
+- Guest-browser sharing is off and is no longer reachable from the Remote
+  Control panel. The v0.2 edge keeps the optional backend for compatibility.
+
+### Verified
+
+- 280 automated tests; prompt-only panel generates the join prompt against the
+  new public edge; a second Harness joined, was approved and opened at
+  `/d/<deviceId>/` before this release.
+
 ## v0.2.0 — 2026-10-28
 
 Guest sharing and the operations completion pass.

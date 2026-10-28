@@ -8,8 +8,8 @@
  */
 
 export const REPO_URL = 'https://github.com/yeerock/deepseek-harness-remote-control';
-export const REPO_TAG = 'v0.2.0';
-export const PLUGIN_VERSION = '0.2.0';
+export const REPO_TAG = 'v0.2.1';
+export const PLUGIN_VERSION = '0.2.1';
 
 export interface JoinPromptOptions {
   /** Public edge origin; loopback URLs are rejected by the caller. */

@@ -169,6 +169,7 @@ const EN: Record<string, string> = {
   harnessTitle: 'Harnesses',
   harnessManage: 'Manage / approve',
   harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; when it registers, approve it in the edge dashboard.',
+  harnessPending: 'This Harness is waiting for approval. Open the edge dashboard to approve it.',
   sharingJoinTitle: 'Add another DeepSeek Harness',
   sharingJoinHint: 'The prompt installs DSH RC on that Harness, points its agent at this edge, and waits for your approval. It contains no password or secret.',
   sharingJoinButton: 'Build setup prompt',
@@ -259,6 +260,7 @@ const ZH: Record<string, string> = {
   harnessTitle: 'Harness 主机',
   harnessManage: '管理 / 批准',
   harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它注册后，在 edge 仪表盘批准。',
+  harnessPending: '此 Harness 正在等待批准。打开 edge 仪表盘批准它。',
   sharingJoinTitle: '添加另一台 DeepSeek Harness',
   sharingJoinHint: '提示会在那台 Harness 上安装 DSH RC、把 agent 指向此 edge，并等待你的批准。提示中不含密码或密钥。',
   sharingJoinButton: '生成安装提示',
@@ -741,29 +743,6 @@ function createComponent(React: any): (props: AnyProps) => any {
       };
     }, [refresh, open]);
 
-    // Sharing state is polled only while the panel is open; closing the modal
-    // (or unmounting the plugin) stops the timer immediately.
-    ReactUse.useEffect(() => {
-      if (!open || unavailable) return undefined;
-      let alive = true;
-      const tick = async (): Promise<void> => {
-        try {
-          const next = (await call('sharing.get')) as SharingView;
-          if (alive) {
-            setSharing(next);
-            setSharingError(undefined);
-          }
-        } catch (reason) {
-          if (alive) setSharingError(messageOf(reason));
-        }
-      };
-      void tick();
-      const timer = window.setInterval(() => void tick(), 2000);
-      return () => {
-        alive = false;
-        window.clearInterval(timer);
-      };
-    }, [open, unavailable, call]);
 
     ReactUse.useEffect(() => {
       if (!open) return undefined;
@@ -883,11 +862,7 @@ function createComponent(React: any): (props: AnyProps) => any {
       }
     };
 
-    const dashboardUrl = (() => {
-      const publicUrl = typeof sharing?.publicUrl === 'string' ? sharing.publicUrl : '';
-      if (publicUrl !== '' && !isLoopbackPublicUrl(publicUrl)) return publicUrl.replace(/\/+$/, '');
-      return (status?.edgeUrl ?? '').replace(/\/+$/, '');
-    })();
+    const dashboardUrl = (status?.edgeUrl ?? '').replace(/\/+$/, '');
 
     const openDashboard = (): void => {
       if (dashboardUrl === '') return;
@@ -981,20 +956,28 @@ function createComponent(React: any): (props: AnyProps) => any {
       h('div', { style: mono ? styles.mono : styles.value, key: `v-${label}` }, value),
     ];
 
+    const redact = (value: string): string => value
+      .replace(/\/Users\/[^/\s]+/g, '~')
+      .replace(/\b[A-Za-z0-9._-]+\.local\b/gi, 'this-computer');
+    const shortAgentPath = (value: string): string => {
+      const marker = '/dsh-rc/';
+      const at = value.indexOf(marker);
+      return at >= 0 ? value.slice(at + marker.length) : redact(value);
+    };
+
     const rows: any[] = [
       [t('state'), h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px' } }, h('span', { style: styles.dot(color) }), stateLabel)],
-      [t('device'), status?.deviceName ?? '—'],
-      [t('edge'), status?.edgeUrl ?? '—'],
+      [t('device'), redact(status?.deviceName ?? '—')],
+      [t('edge'), redact(status?.edgeUrl ?? '—')],
     ];
     if (status?.deviceId !== undefined) rows.push([t('device') + ' ID', status.deviceId, true]);
-    if (paired) rows.push([t('pairUrl'), t('paired')]);
     if (status?.latencyMs !== undefined) rows.push([t('latency'), `${String(status.latencyMs)} ms`]);
     rows.push([t('reconnects'), status?.reconnects ?? 0]);
     rows.push([t('restarts'), status?.restarts ?? 0]);
     rows.push([t('since'), formatSince(status?.since)]);
-    if (status?.agentEntry !== undefined) rows.push([t('agentEntry'), status.agentEntry, true]);
+    if (status?.agentEntry !== undefined) rows.push([t('agentEntry'), shortAgentPath(status.agentEntry), true]);
     if (status?.pid !== undefined) rows.push([t('pid'), String(status.pid), true]);
-    if (status?.lastError !== undefined) rows.push([t('lastError'), status.lastError]);
+    if (status?.lastError !== undefined) rows.push([t('lastError'), redact(status.lastError)]);
 
     const disabled = busy || unavailable;
     const pendingApprovals = Array.isArray(sharing?.pendingApprovals) ? sharing.pendingApprovals : [];
@@ -1173,6 +1156,7 @@ function createComponent(React: any): (props: AnyProps) => any {
           : null,
       ),
       h('div', { style: styles.sectionHint }, t('harnessHint')),
+      state === 'pairing' ? h('div', { style: sharingWarningStyle('#f59e0b') }, t('harnessPending')) : null,
       h('div', { style: styles.subheading }, t('sharingJoinTitle')),
       h('div', { style: styles.footerHint }, t('sharingJoinHint')),
       h(
@@ -1256,48 +1240,15 @@ function createComponent(React: any): (props: AnyProps) => any {
                 h('button', { type: 'button', style: styles.close, onClick: () => setOpen(false), 'aria-label': t('close') }, '×'),
               ),
               unavailable ? h('div', { style: styles.banner('#ef4444') }, t('hostUnavailable')) : null,
-              error !== undefined && !unavailable ? h('div', { style: styles.banner('#f59e0b') }, error) : null,
+              error !== undefined && !unavailable ? h('div', { style: styles.banner('#f59e0b') }, redact(error)) : null,
               h(
                 'div',
                 { style: styles.grid },
                 ...rows.flatMap(([label, value, mono]) => row(label as string, value, mono === true)),
               ),
-              showPairBlock
-                ? h(
-                    'div',
-                    { style: { marginTop: '14px' } },
-                    h('div', { style: styles.label }, t('pairUrl')),
-                    h('input', {
-                      style: { ...styles.input, marginTop: '6px' },
-                      readOnly: true,
-                      spellCheck: false,
-                      value: pairUrl ?? '',
-                      placeholder: t('noPairUrl'),
-                      onFocus: (event: any) => event.target.select(),
-                      onClick: (event: any) => event.target.select(),
-                      'aria-label': t('pairUrl'),
-                      'aria-readonly': 'true',
-                    }),
-                  )
-                : null,
-              showPairBlock && qrSvg !== undefined
-                ? h(
-                    'div',
-                    { style: styles.qrBox, 'aria-label': t('qrHint') },
-                    h('div', { style: { width: '168px', height: '168px' }, dangerouslySetInnerHTML: { __html: qrSvg } }),
-                  )
-                : null,
-              showPairBlock && qrSvg !== undefined ? h('div', { style: styles.footerHint }, t('qrHint')) : null,
-              paired ? h('div', { style: styles.footerHint }, t('pairedHint')) : null,
               h(
                 'div',
                 { style: { ...styles.actions, marginTop: '10px' } },
-                showPairBlock
-                  ? h('button', { type: 'button', style: styles.button(true), disabled: pairUrl === undefined, onClick: () => void copyPairUrl() }, copied ? t('copied') : t('copy'))
-                  : null,
-                showPairBlock
-                  ? h('button', { type: 'button', style: styles.button(false), disabled: pairUrl === undefined, onClick: openPairUrl }, t('open'))
-                  : null,
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('start') }, t('start')),
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('restart') }, t('restart')),
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('stop') }, t('stop')),
@@ -1305,7 +1256,6 @@ function createComponent(React: any): (props: AnyProps) => any {
               status?.state === 'stopped' && !unavailable ? h('div', { style: styles.footerHint }, t('stoppedHint')) : null,
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,
               harnessSection,
-              sharingSection,
             ),
           )
         : null,

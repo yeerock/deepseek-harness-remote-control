@@ -93,12 +93,14 @@ class DshRcService {
   private readonly logger: SupervisorLogger;
   private readonly dshUrl: () => string;
   private readonly stateDir: string;
+  private readonly edgeUrl: string;
   private setupError: string | undefined;
 
   constructor(options: ServiceOptions) {
     this.logger = options.logger;
     this.dshUrl = options.dshUrl;
     this.stateDir = options.stateDir;
+    this.edgeUrl = options.config.edgeUrl.replace(/\/+$/, '');
     this.sharingClient = new SharingClient({
       stateDir: options.stateDir,
       edgeUrl: options.config.edgeUrl,
@@ -119,6 +121,14 @@ class DshRcService {
       restart: () => this.restart(),
       stop: () => this.supervisor.stop(),
     };
+  }
+
+  /** Public edge origin from /v1/edge; independent of device auth. */
+  async publicUrl(): Promise<string> {
+    const response = await fetch(`${this.edgeUrl}/v1/edge`, { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(`edge returned HTTP ${String(response.status)}`);
+    const body = await response.json() as { publicUrl?: unknown };
+    return typeof body.publicUrl === 'string' ? body.publicUrl : '';
   }
 
   /* ------------------------------ sharing ------------------------------ */
@@ -390,6 +400,7 @@ export interface SharingRpcTarget {
   stop(): Promise<DshRcStatus>;
   pairUrl(): string | undefined;
   sharingGet(): Promise<SharingState>;
+  publicUrl(): Promise<string>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
   sharingRevokeInvite(id: string): Promise<{ ok: true }>;
@@ -456,8 +467,7 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'sharing.revokeAll':
         return rpcOk(await target.sharingRevokeAll());
       case 'sharing.joinPrompt': {
-        const state = await target.sharingGet();
-        const publicUrl = typeof (state as { publicUrl?: unknown }).publicUrl === 'string' ? String((state as { publicUrl: string }).publicUrl) : '';
+        const publicUrl = await target.publicUrl();
         if (publicUrl === '' || isLoopbackOrigin(publicUrl)) {
           return rpcOk({ prompt: null, reason: 'public-url-required' });
         }

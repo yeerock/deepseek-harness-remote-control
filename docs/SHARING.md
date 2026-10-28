@@ -1,3 +1,8 @@
+> **Status in v0.2.1:** the Remote Control panel is prompt-only and does not
+> expose guest invites, invite links or QR codes. This document describes the
+> optional edge backend retained for compatibility; guest sharing is off on the
+> reference install.
+
 # Sharing a Harness with guests
 
 Status: **v0.2 design**. Normative for the implementation in `apps/edge` and
@@ -97,7 +102,7 @@ Validation: `ttlSeconds` 0 (never) or 60..86400, `maxUses` 1..10,
 ```json
 {
   "enabled": true,
-  "publicUrl": "https://dsh-rc-leong.tailnet.ts.net",
+  "publicUrl": "https://dsh-rc.tailnet.ts.net",
   "invites": [{ "id": "inv_…", "label": "Support", "expiresAt": 0, "maxUses": 1, "uses": 0 }],
   "pendingApprovals": [{ "id": "apr_…", "label": "Support", "ip": "203.0.113.9", "createdAt": 0 }],
   "activeGuests": [{ "sessionId": "sess_…", "label": "Support", "ip": "203.0.113.9", "since": 0, "expiresAt": null }]
