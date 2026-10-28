@@ -3,6 +3,8 @@
 **Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
 the browser you already have.**
 
+**Created by Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd (VYROX AI)
+
 DSH Link serves the *unmodified* Harness web UI over a single outbound
 connection. The desktop agent dials the edge; the edge proxies HTTP and
 WebSocket streams to it; your browser opens the real DSH interface. No WebRTC,
@@ -18,38 +20,57 @@ registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
 > **Status: v0.1.0.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 168 automated tests are green, the real-DSH end-to-end proof
+> implemented. 197 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
 
-## Why another remote plugin?
+## The problem with the previous remote plugin
 
-Existing DSH remote plugins are WebRTC-first: ICE, STUN/TURN, a custom client
-for every platform, and a relay that may be a continent away. When UDP is
-filtered or the relay is far, the experience is "it hangs, then it disconnects".
+The reference plugin (`liguobao/ds-harness-remote`) is a serious project, and it
+does things this v1 does not: Android and VS Code clients, and application-layer
+end-to-end encryption against its relay. Its weakness is **topology and surface
+area**, and that is what users outside China experience as "it hangs, then it
+disconnects".
 
-DSH Link makes the opposite bet:
+| # | What the previous plugin does | Why it hurts outside China |
+| --- | --- | --- |
+| 1 | WebRTC is attempted first; ICE is abandoned only after 8 s (`DEFAULT_NEGOTIATE_TIMEOUT_MS`), with a 15 s control handshake | Every connection on a UDP-filtered network starts with a multi-second stall before fallback even begins |
+| 2 | STUN/TURN requires UDP; TURN adds another relay hop and bandwidth cost | Hotel, corporate, campus and CGNAT networks drop UDP; the fallback is slower and still fails |
+| 3 | The documented/default server is `dsh.r2049.cn`, hosted in mainland China | Users outside China relay every session across a long, lossy path; RTT alone makes typing feel stuck |
+| 4 | Android app + VS Code client + `client-core` re-implement Harness RPC | Two protocol surfaces to keep in sync; a stalled projection looks like a frozen app, and desktop features lag |
+| 5 | Reconnect tears the connection down and re-runs membership, fixed-key trust, transport selection and Noise | A Wi-Fi blip costs seconds and loses in-flight UI state |
+| 6 | Node WebRTC is an optional native addon (`@roamhq/wrtc`) | Install/ABI fragility that only appears on some machines, then silently degrades to relay |
 
-- **One transport.** Outbound WSS on 443. No UDP, no STUN/TURN, no ICE
-  negotiation, no native `wrtc` addon. It works on hotel Wi-Fi, corporate TLS
-  inspection, CGNAT and IPv6-only networks.
-- **One client.** The browser loads the real DSH app. Chat streaming, tools,
-  files, terminal and every future feature arrive with the desktop; there is no
-  RPC projection to drift.
-- **One thing to supervise.** Heartbeats, backoff, flow control and priority
-  live in the tunnel. There is no three-path fallback whose first path costs
-  eight seconds before giving up.
-- **Real backpressure.** 256 KiB per stream and 8 MiB per tunnel, credit
-  returned only as bytes are consumed. A 16 MiB download cannot add latency to a
-  keystroke; measured p95 is 3.1 ms under four concurrent 16 MiB transfers.
+None of these is a bug in isolation. Together they explain the complaint: the
+system spends its first seconds trying a transport that usually cannot work,
+through a relay that is far away, and after a blip it starts over.
 
-The trade-off is explicit: the edge terminates TLS and therefore sees plaintext
-proxied traffic. It is a **trusted relay**. Self-hosting is a first-class
-deployment, and [THREAT-MODEL.md](docs/THREAT-MODEL.md) states exactly what that
-trust buys and costs. If you need end-to-end encryption against the relay, this
-is the wrong design for you — and [ADR-0001](docs/adr/0001-no-webrtc.md) explains
-why we chose it anyway.
+## How Remote Control solves it
+
+Remote Control makes the opposite bet: **one reliable transport, the real UI,
+and an edge you place near yourself.**
+
+| Previous problem | What Remote Control does instead | Where |
+| --- | --- | --- |
+| 8 s ICE attempt, 15 s handshake | One outbound WSS on 443; no ICE/STUN/TURN to negotiate or time out | `packages/mux`, `apps/agent` |
+| UDP-dependent paths | TCP/TLS only; works through corporate proxies, TLS inspection, CGNAT and IPv6-only networks | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| China-hosted relay by default | Self-hosted edge; for China ↔ abroad put it in Hong Kong, Singapore, Tokyo or Seoul — it is the only hop | [`docs/DEPLOY.md` §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first) |
+| Second client drifts | The browser loads the unmodified DSH web app under `/d/<device>/`; feature parity is automatic | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 |
+| Slow, state-losing reconnect | 15 s heartbeat, 45 s idle, full-jitter 250 ms–20 s, 30 s presence grace, measured 49 ms forced replacement, no mutation replay | `packages/mux`, `apps/agent` |
+| Bulk transfer starves the UI | 256 KiB/stream and 8 MiB/tunnel credit returned on consumption; high/normal/low scheduler; p95 3.1 ms under 4 × 16 MiB | `packages/mux` |
+| Native `wrtc` fragility | No native addon; Node built-ins plus `ws` | `package.json` |
+| A crash leaves two agents | Per-state-dir `agent.lock` refuses a second instance; 4004 replacement is retryable, not a fight | [`apps/agent/src/lock.ts`](apps/agent/src/lock.ts) |
+
+Security and operations change shape too: the DSH launch token never leaves the
+desktop (0600 hand-off, memory-only cookie), the browser never receives a DSH
+credential, device secrets are SHA-256 at rest, pair codes are single-use and
+require the owner, and the edge can be self-hosted. The trade-off is explicit:
+the edge terminates TLS and therefore sees plaintext proxied traffic. It is a
+**trusted relay**; [THREAT-MODEL.md](docs/THREAT-MODEL.md) states what that trust
+buys and costs. If you need end-to-end encryption against the relay, this v1 is
+the wrong design — [ADR-0001](docs/adr/0001-no-webrtc.md) explains why we chose
+it anyway.
 
 ## Architecture
 
@@ -91,7 +112,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 On a small VPS (or your laptop for a demo):
 
 ```bash
-git clone https://github.com/yeerock/dsh-link && cd dsh-link
+git clone https://github.com/yeerock/dsh-rc && cd dsh-rc
 npm ci && npm run build
 
 node apps/edge/dist/main.js \
@@ -247,6 +268,16 @@ mainland China, which is the failure mode this project removes. Measure both
 legs; details in [DEPLOY.md §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first).
 
 More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
+
+## Creator
+
+**Ts. Dr. Leong Yee Rock** is the creator and maintainer of DSH Link / Remote
+Control.
+
+He is from **VYROX International Sdn Bhd (VYROX AI)**, Malaysia.
+
+- GitHub: [@yeerock](https://github.com/yeerock)
+- Project: [github.com/yeerock/dsh-rc](https://github.com/yeerock/dsh-rc)
 
 ## License
 

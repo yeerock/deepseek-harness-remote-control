@@ -207,3 +207,7 @@ Electron environment construction is covered by
   rather than a full ISO implementation.
 - `agentEntry` pointing at a TypeScript source file is not supported; build
   the agent first (`dist/main.js`) or use a runtime that accepts TS.
+## Creator
+
+**Ts. Dr. Leong Yee Rock** — creator and maintainer.
+VYROX International Sdn Bhd (VYROX AI), Malaysia.

@@ -40,10 +40,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yeerock/dsh-link.git"
+    "url": "git+https://github.com/yeerock/dsh-rc.git"
   },
-  "homepage": "https://github.com/yeerock/dsh-link#readme",
+  "homepage": "https://github.com/yeerock/dsh-rc#readme",
   "bugs": {
-    "url": "https://github.com/yeerock/dsh-link/issues"
-  }
+    "url": "https://github.com/yeerock/dsh-rc/issues"
+  },
+  "author": "Ts. Dr. Leong Yee Rock (VYROX International Sdn Bhd / VYROX AI)"
 }

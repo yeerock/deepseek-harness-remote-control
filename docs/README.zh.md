@@ -2,6 +2,8 @@
 
 **一条 TLS WebSocket，把你正在用的浏览器变成 DeepSeek Harness 桌面版的远程窗口。**
 
+**创作者：Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd（VYROX AI）
+
 DSH Link 通过一条由桌面端主动外连的长连接，把**未经修改的** DeepSeek Harness
 Web UI 提供到任意浏览器：桌面里的 agent 主动连到 edge，edge 把 HTTP 与
 WebSocket 流转发给它，浏览器打开的就是真正的 DSH 界面。没有 WebRTC，没有 UDP，
@@ -19,28 +21,37 @@ edge、agent，完成 owner 初始化与配对后，用无头 Chromium 从
 > 仍是预发布软件：请把插件当 beta，并在暴露桌面之前阅读
 > [`THREAT-MODEL.md`](THREAT-MODEL.md)。
 
-## 为什么再做一个远程插件
+## 上一代远程插件的问题
 
-现有的 DSH 远程插件以 WebRTC 为第一优先级：ICE、STUN/TURN、每个平台一套客户端，
-再加一台可能隔着半个地球的中转服务器。当网络封 UDP 或中转很远时，体验就是
-"先卡住，然后掉线"。
+参考实现（`liguobao/ds-harness-remote`）是一个认真的项目，它也做到了本 v1 还没做的部分：Android 与 VS Code 客户端，以及针对中继的应用层端到端加密。它的问题在于**拓扑与表面面积**，这正是中国境外用户感受到的"先卡住，然后掉线"。
 
-DSH Link 反过来下注：
+| # | 上一代的做法 | 为什么境外用户受伤 |
+| --- | --- | --- |
+| 1 | 优先尝试 WebRTC，ICE 要等 8 秒（`DEFAULT_NEGOTIATE_TIMEOUT_MS`）才放弃，控制握手最长 15 秒 | 在封 UDP 的网络上，每次连接都先卡几秒，然后才开始回退 |
+| 2 | STUN/TURN 依赖 UDP；TURN 还要多一跳中继和带宽成本 | 酒店、企业、校园与 CGNAT 网络会丢弃 UDP；回退更慢，而且仍然失败 |
+| 3 | 文档/默认服务器是 `dsh.r2049.cn`，托管在中国大陆 | 境外用户的每个会话都要跨一条很长、丢包严重的链路；仅 RTT 就足以让输入感觉卡死 |
+| 4 | Android App + VS Code 客户端 + `client-core` 各自重新实现 Harness RPC | 两套协议面要同步；投影一卡，用户看到的就是"应用冻住"，桌面功能也滞后 |
+| 5 | 重连时拆掉连接，重新走 membership、固定密钥信任、选路与 Noise | 一次 Wi-Fi 抖动就丢几秒，并丢失在途 UI 状态 |
+| 6 | Node 侧 WebRTC 是可选原生依赖（`@roamhq/wrtc`） | 安装/ABI 的脆弱性只在部分机器上出现，然后静默降级到中继 |
 
-- **只有一种传输。** 443 端口上的出站 WSS。没有 UDP、没有 STUN/TURN、没有 ICE
-  协商、没有原生 `wrtc` 依赖。酒店 Wi-Fi、企业 TLS 中间人、CGNAT、纯 IPv6
-  网络都能用。
-- **只有一个客户端。** 浏览器加载真实的 DSH 应用。聊天流式输出、工具、文件、
-  终端，以及未来所有功能都随桌面版自动到位，不存在需要同步的 RPC 投影。
-- **只有一处需要监督。** 心跳、退避、流控和优先级都在隧道里，而不是散落在
-  三条回退路径中——其中第一条还要先等八秒才放弃。
-- **真正的背压。** 每流 256 KiB、每隧道 8 MiB，信用只在字节被消费时归还。
-  16 MiB 的下载不会给一次按键增加延迟：四条并发 16 MiB 传输下实测 p95 为 3.1 ms。
+单独看，这些都不是 bug；合在一起，就解释了用户的抱怨：系统先用几秒钟尝试一条通常走不通的路，再经过一台很远的中继，抖动之后又从零开始。
 
-代价说清楚：edge 终止 TLS，因此能看到代理流量的明文。它是**受信任的中转**。
-自托管是一等部署方式，[`THREAT-MODEL.md`](THREAT-MODEL.md) 明确写了这份信任的
-边界。如果你需要"连中转服务器都无法解密"的端到端加密，这个设计不适合你——
-[ADR-0001](adr/0001-no-webrtc.md) 解释了为什么仍然这样选。
+## Remote Control 如何解决
+
+Remote Control 反过来下注：**一种可靠传输、真实 UI、把 edge 放在离自己近的地方。**
+
+| 上一代的问题 | Remote Control 的做法 | 代码位置 |
+| --- | --- | --- |
+| 8 秒 ICE 尝试、15 秒握手 | 只建立一条 443 出站 WSS；没有 ICE/STUN/TURN 需要协商或等待超时 | `packages/mux`、`apps/agent` |
+| 依赖 UDP 的路径 | 只用 TCP/TLS；可穿过企业代理、TLS 中间人、CGNAT 与纯 IPv6 网络 | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
+| 默认使用中国大陆中继 | 自托管 edge；中国 ↔ 境外可放在香港、新加坡、东京或首尔——它就是唯一一跳 | [`DEPLOY.md` §0](DEPLOY.md#0-choosing-a-region-read-this-first) |
+| 第二个客户端会漂移 | 浏览器直接加载 `/d/<device>/` 下未经修改的 DSH Web UI，功能对齐是默认结果 | [`ARCHITECTURE.md`](ARCHITECTURE.md) §2 |
+| 重连慢、丢状态 | 15 秒心跳、45 秒空闲上限、250 ms–20 s full-jitter、30 秒 presence 宽限；实测被 4004 强制替换后 49 ms 恢复；不重放 mutation | `packages/mux`、`apps/agent` |
+| 批量传输拖垮交互 | 每流 256 KiB、每隧道 8 MiB 信用，按消费归还；high/normal/low 调度；4 × 16 MiB 下交互 p95 3.1 ms | `packages/mux` |
+| 原生 `wrtc` 的脆弱性 | 没有原生插件；只用 Node 内置模块与 `ws` | `package.json` |
+| 崩溃后留下两个 agent | 每个 stateDir 一把 `agent.lock`，拒绝第二个实例；4004 替换按可重试处理，而不是互相抢 | [`apps/agent/src/lock.ts`](../apps/agent/src/lock.ts) |
+
+安全与运维的形态也随之改变：DSH 启动 token 不离开桌面（0600 交接、只在内存中的 cookie），浏览器永远拿不到 DSH 凭证，设备密钥只存 SHA-256，配对码一次性且必须由 owner 配合，edge 可以完全自托管。代价仍然明确：edge 终止 TLS，因此能看到代理流量的明文。它是**受信任的中转**；[`THREAT-MODEL.md`](THREAT-MODEL.md) 写清了这份信任的收益与成本。如果你需要"连中继都无法解密"的端到端加密，这个 v1 不适合你——[ADR-0001](adr/0001-no-webrtc.md) 解释了为什么仍然这样选。
 
 ## 架构
 
@@ -79,7 +90,7 @@ DSH Link 反过来下注：
 在一台小 VPS（或本机做演示）上：
 
 ```bash
-git clone https://github.com/yeerock/dsh-link && cd dsh-link
+git clone https://github.com/yeerock/dsh-rc && cd dsh-rc
 npm ci && npm run build
 
 node apps/edge/dist/main.js \
@@ -225,6 +236,15 @@ SHA-256 一致，`remote.mux` 升级成功。
 TLS、一个 SQLite 文件负责备份。
 
 更多：[FAQ.md](FAQ.md) · [OPERATIONS.md](OPERATIONS.md)。
+
+## 创作者
+
+**Ts. Dr. Leong Yee Rock** 是 DSH Link / Remote Control 的创作者与维护者。
+
+他来自马来西亚的 **VYROX International Sdn Bhd（VYROX AI）**。
+
+- GitHub：[@yeerock](https://github.com/yeerock)
+- 项目：[github.com/yeerock/dsh-rc](https://github.com/yeerock/dsh-rc)
 
 ## 许可证
 
