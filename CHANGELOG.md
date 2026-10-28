@@ -23,7 +23,7 @@ First end-to-end release. Desktop-only remote access for DeepSeek Harness
   file, never argv/logs), loopback-only proxy, full-jitter reconnect
   (250 ms–20 s), terminal close-code handling, and a per-state-dir singleton
   lock.
-- **Harness plugin** (`packages/plugin`): host service that mints the
+- **Harness plugin — "Remote Control"** (`packages/plugin`): host service that mints the
   authenticated URL, supervises the agent (Electron-safe runtime selection), and
   a sidebar status panel with state, latency, reconnects, uptime, pairing QR and
   start/restart/stop.

@@ -2,7 +2,7 @@
   "name": "@dsh-link/plugin",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH Link host plugin: starts and supervises the DSH Link tunnel agent and adds a sidebar status panel to DeepSeek Harness.",
+  "description": "Remote Control (DSH Link) host plugin: starts and supervises the tunnel agent and adds a sidebar status panel to DeepSeek Harness.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

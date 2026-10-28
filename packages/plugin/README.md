@@ -1,9 +1,9 @@
-# @dsh-link/plugin — DSH Link for DeepSeek Harness
+# Remote Control — DeepSeek Harness plugin
 
 Host plugin + browser half that expose this DeepSeek Harness through a
 self-hosted **DSH Link edge**. The plugin starts and supervises the tunnel
 agent, hands it the DSH launch URL without putting the token in `argv`, and
-adds a **DSH Link** entry to the sidebar with live state, a pair URL, a QR
+adds a **Remote Control** entry to the sidebar with live state, a pair URL, a QR
 code, and start/restart/stop controls.
 
 - DSH target: **0.2.1-rc.3** (`engines.dsh: ">=0.2.1-rc.3 <0.3.0"`)
@@ -150,7 +150,7 @@ memory.
 
 ## Sidebar panel
 
-A **DSH Link** row in the sidebar footer shows a state dot and label
+A **Remote Control** row in the sidebar footer shows a state dot and label
 (Starting / Pairing / Connecting / Online / Reconnecting / Error / Stopped).
 Clicking opens a modal with:
 

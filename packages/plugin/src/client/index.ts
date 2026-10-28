@@ -1,5 +1,6 @@
 /**
- * DSH Link client half: a sidebar footer entry plus a status modal.
+ * Remote Control client half (DSH Link project): a sidebar footer entry plus
+ * a status modal.
  *
  * Bundle contract (verified against `@deepseek-ai/dsh-client-modules`): the
  * file is a classic script that calls `window.__ModuleLoader__.load({ id,
@@ -61,8 +62,8 @@ const MODAL_ID = 'dsh-link-status-modal';
 /* ------------------------------ dictionaries ------------------------------ */
 
 const EN: Record<string, string> = {
-  title: 'DSH Link',
-  subtitle: 'Remote access to this Harness',
+  title: 'Remote Control',
+  subtitle: 'Remote control of this Harness',
   state: 'State',
   stateStarting: 'Starting',
   statePairing: 'Pairing',
@@ -94,7 +95,7 @@ const EN: Record<string, string> = {
   stop: 'Stop',
   close: 'Close',
   refresh: 'Refresh',
-  hostUnavailable: 'Host service unavailable. The DSH Link host plugin is not loaded in this profile, or its RPC channel failed to register.',
+  hostUnavailable: 'Host service unavailable. The Remote Control host plugin is not loaded in this profile, or its RPC channel failed to register.',
   disabledHint: 'The plugin is disabled in configuration. Press Start to run the agent anyway.',
   stoppedHint: 'The agent is not running.',
   qrHint: 'Scan to open the pairing link in a browser.',
@@ -102,8 +103,8 @@ const EN: Record<string, string> = {
 };
 
 const ZH: Record<string, string> = {
-  title: 'DSH 远程访问',
-  subtitle: '远程访问此 Harness',
+  title: '远程控制',
+  subtitle: '远程控制此 Harness',
   state: '状态',
   stateStarting: '启动中',
   statePairing: '等待配对',
@@ -135,7 +136,7 @@ const ZH: Record<string, string> = {
   stop: '停止',
   close: '关闭',
   refresh: '刷新',
-  hostUnavailable: '宿主服务不可用：此配置未加载 DSH Link 宿主插件，或其 RPC 通道注册失败。',
+  hostUnavailable: '宿主服务不可用：此配置未加载 Remote Control 宿主插件，或其 RPC 通道注册失败。',
   disabledHint: '插件在配置中处于禁用状态。点击“启动”仍可手动运行代理。',
   stoppedHint: '代理未运行。',
   qrHint: '扫码在浏览器中打开配对链接。',

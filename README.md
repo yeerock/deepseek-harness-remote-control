@@ -122,13 +122,13 @@ the device and pair the browser. The DSH UI is then at
 
 ### 3. Desktop plugin (recommended)
 
-The plugin mints the authenticated URL from the running DSH desktop, writes it
-to a 0600 file, spawns and supervises the agent, and shows a status panel in the
-Harness sidebar: state, device id, latency, reconnects, start/restart/stop
+The plugin appears in Harness as **Remote Control**. It mints the authenticated
+URL from the running DSH desktop, writes it to a 0600 file, spawns and
+supervises the agent, and shows a status panel in the Harness sidebar: state, device id, latency, reconnects, start/restart/stop
 controls, and — while pairing only — the pair link with a QR code. Once online
 the panel shows "Paired" instead of a dead QR.
 
-![DSH Link status panel in Harness: state, device, latency, QR pairing and controls](docs/images/plugin-panel.png)
+![Remote Control panel in Harness: state, device, latency, QR pairing and controls](docs/images/plugin-panel.png)
 
 ```bash
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"

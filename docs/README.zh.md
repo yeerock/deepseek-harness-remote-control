@@ -117,7 +117,7 @@ pairing（或带新配对码的 error）时**，弹窗才显示 pair URL 的 Cop
 online/connecting/reconnecting 后只显示 Paired + device id，因为配对码一次性，
 需要重启 agent 才会产生新码。
 
-![Harness 侧边栏中的 DSH Link 状态](images/plugin-sidebar.png)
+![Harness 中的远程控制面板：状态、设备、延迟、配对二维码与操作](images/plugin-panel.png)
 
 ```bash
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
