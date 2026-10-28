@@ -3,7 +3,7 @@
 **Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
 the browser you already have.**
 
-**Created by [yeerock](https://github.com/yeerock)**
+**A project by Ts. Dr. Leong Yee Rock · VYROX International Sdn Bhd · VYROX AI**
 
 DSH RC serves the *unmodified* Harness web UI over a single outbound
 connection. The desktop agent dials the edge; the edge proxies HTTP and
@@ -64,8 +64,9 @@ and an edge you place near yourself.**
 
 Security and operations change shape too: the DSH launch token never leaves the
 desktop (0600 hand-off, memory-only cookie), the browser never receives a DSH
-credential, device secrets are SHA-256 at rest, pair codes are single-use and
-require the owner, and the edge can be self-hosted. The trade-off is explicit:
+credential, device secrets are SHA-256 at rest, and the edge can be self-hosted.
+Auto-approval is explicit: it is on in the bundled macOS host and off by
+default on a shared edge. The trade-off is explicit:
 the edge terminates TLS and therefore sees plaintext proxied traffic. It is a
 **trusted relay**; [THREAT-MODEL.md](docs/THREAT-MODEL.md) states what that trust
 buys and costs. If you need end-to-end encryption against the relay, this v1 is
@@ -79,7 +80,7 @@ it anyway.
 │   browser   │ ────────────────────▶ │     edge     │ ◀────────────────────── │   agent   │ ───────────────────▶ │ DSH desktop │
 │ (anywhere)  │ ◀──────────────────── │  (self-host) │ ──────────────────────▶ │ (desktop) │ ◀─────────────────── │ web server  │
 └─────────────┘                       └──────────────┘                         └───────────┘                      └─────────────┘
-                                       auth · pairing                          mints the DSH                     unchanged
+                                       auth · devices                          mints the DSH                     unchanged
                                        presence · audit                        cookie, proxies
 ```
 
@@ -117,8 +118,12 @@ npm ci && npm run build
 
 node apps/edge/dist/main.js \
   --host 0.0.0.0 --port 8787 \
-  --data-dir ~/.dsh-rc --public-url https://link.example.com
+  --data-dir ~/.dsh-rc --public-url https://link.example.com \
+  --auto-approve-devices
 ```
+
+`--auto-approve-devices` is what makes prompt pairing one-step; omit it to
+approve each Harness from the dashboard.
 
 It prints a one-time **setup code** (rotated each boot until setup completes).
 Put TLS in front with the included [Caddy + Docker setup](docker/docker-compose.yml),
@@ -136,20 +141,19 @@ node apps/agent/dist/main.js \
 ```
 
 `upstream.json` is `{ "url": "http://127.0.0.1:<port>/?token=…" }`, mode 0600.
-The token is deliberately **not** accepted on argv. On first run the agent
-prints `DSHRC_PAIR_URL=…`; open it while signed in as the owner to approve
-the device and pair the browser. The DSH UI is then at
-`https://link.example.com/d/<deviceId>/`.
+The token is deliberately **not** accepted on argv. With
+`--auto-approve-devices` on the edge (the macOS installer enables it) the device
+is approved immediately; otherwise approve it from the dashboard. The UI is
+then at `https://link.example.com/d/<deviceId>/`.
 
 ### 3. Desktop plugin (recommended)
 
 The plugin appears in Harness as **Remote Control**. It mints the authenticated
 URL from the running DSH desktop, writes it to a 0600 file, spawns and
-supervises the agent, and shows a status panel in the Harness sidebar: state, device id, latency, reconnects, start/restart/stop
-controls, and — while pairing only — the pair link with a QR code. Once online
-the panel shows "Paired" instead of a dead QR.
-
-![Remote Control panel in Harness: state, device, latency, QR pairing and controls](docs/images/plugin-panel.png)
+supervises the agent, and shows a status panel in the Harness sidebar: version,
+state, device id, latency, reconnects, start/restart/stop controls, auto-update
+state, and the prompt-only **Harnesses** flow. There is no pair link, QR code,
+invite link or approval step in the panel.
 
 ```bash
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
@@ -174,19 +178,38 @@ Full install, configuration and troubleshooting:
 [packages/plugin/README.md](packages/plugin/README.md). Deployment shapes,
 flags and systemd: [DEPLOY.md](docs/DEPLOY.md).
 
+### Version and auto-update
+
+The Remote Control modal shows the plugin **version** and the update state. On
+start and every six hours the host checks the latest GitHub release. When a
+newer tag exists it runs `scripts/self-update.sh` detached: checks out the tag,
+runs `npm ci`, rebuilds the plugin and the standalone edge bundle, refreshes
+`~/Library/Application Support/dsh-rc/edge/main.cjs` and restarts the launchd
+edge. The modal reports `installing` / `installed`; **restart DeepSeek
+Harness** once to load the new host code. Set `DSHRC_AUTO_UPDATE=0` to opt out.
+
+### Auto-approval
+
+The macOS host runs the edge with `--auto-approve-devices` (or
+`DSHRC_AUTO_APPROVE_DEVICES=1`). A Harness that registers from the setup
+prompt is approved immediately, so there is no dashboard login, no pending
+device and no approval click. A shared edge can omit the flag and approve
+devices manually.
+
 ## Pair another DeepSeek Harness
 
 A Harness is a host computer running DSH. To bring another one onto the same
 edge, open **Remote Control → Harnesses → Build setup prompt** on this host,
 copy the one-paragraph prompt, and paste it into the other Harness's agent.
 The prompt clones the pinned release, installs the plugin into that machine's
-profile, points its agent at this edge, and asks you to restart. When it
-registers it appears as a pending Harness in the edge dashboard; approve it,
-and its UI is available at `https://<edge>/d/<deviceId>/`.
+profile, points its agent at this edge, and asks you to restart. The edge
+auto-approves the Harness, so its UI is available at
+`https://<edge>/d/<deviceId>/` immediately after the restart; no dashboard
+login or approval click is needed.
 
-The prompt contains no password, device secret or invite token. This is
-different from guest sharing below: a Harness is a host you own and can open
-directly; a guest is a browser you have granted control of one host.
+The prompt contains no password, device secret or invite token. A Harness is a
+host you own and can open directly; the optional guest-browser backend is not
+exposed in the panel.
 
 ## Guest browsers are not part of this flow
 
@@ -211,19 +234,19 @@ self-host it if that matters. Residual risk and the full STRIDE pass:
 [THREAT-MODEL.md](docs/THREAT-MODEL.md). Report issues per
 [SECURITY.md](docs/SECURITY.md).
 
-![Edge dashboard: Harnesses, approval and audit](docs/images/edge-dashboard-sharing.png)
+![Edge dashboard: Harnesses and audit](docs/images/edge-dashboard-sharing.png)
 
 ## Verification
 
 ```bash
 npm run typecheck        # tsc -b across all workspaces
-npm test                 # 168 tests: unit + integration
+npm test                 # 288 tests: unit + integration
 npm run bench:quick      # tools/bench, JSON + markdown to tools/bench/results
 npm run e2e              # boots a real DSH web profile, edge and agent, then Chromium
 ```
 
 `npm run e2e` is the proof behind the screenshot: isolated `DSH_HOME`, real
-`dsh --profile web`, real edge, real agent, owner setup, pairing, index fetch,
+`dsh --profile web`, real edge, real agent, owner setup, device registration, index fetch,
 `/api/remote.mux` upgrade and a Chromium render. It asserts the proxied HTML is
 the Harness shell, contains no loopback origin, and that the UI renders.
 
@@ -263,6 +286,7 @@ SHA-256-equal through the tunnel, `remote.mux` OPEN.
 | [`apps/edge`](apps/edge) | Public HTTPS/WSS relay, auth, pairing, SQLite, dashboard |
 | [`apps/agent`](apps/agent) | Desktop tunnel client and loopback proxy |
 | [`packages/plugin`](packages/plugin) | DeepSeek Harness plugin (host + sidebar UI) |
+| [`scripts`](scripts) | `join-edge.sh` (pair a host), `self-update.sh`, `install-macos.sh`, edge bundle build |
 | [`tests`](tests), [`tools/bench`](tools/bench) | Integration, fault injection, benchmarks |
 | [`docs`](docs) | Architecture, protocol, ADRs, threat model, deployment, runbook |
 
@@ -295,8 +319,10 @@ More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Creator
 
-**[yeerock](https://github.com/yeerock)** is the creator and maintainer of DSH RC /
-Remote Control.
+**A project by Ts. Dr. Leong Yee Rock · VYROX International Sdn Bhd · VYROX AI.**
+
+DSH RC / Remote Control is created and maintained by Ts. Dr. Leong Yee Rock;
+the GitHub repository is [yeerock/deepseek-harness-remote-control](https://github.com/yeerock/deepseek-harness-remote-control).
 
 
 - GitHub: [@yeerock](https://github.com/yeerock)
