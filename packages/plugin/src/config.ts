@@ -155,9 +155,9 @@ export function resolveDshHome(configured?: string): string {
   return join(homedir(), '.dsh');
 }
 
-/** Default agent state directory: `<DSH home>/link`. */
+/** Default agent state directory: `<DSH home>/rc`. */
 export function resolveStateDir(config: PluginConfig): string {
-  return join(resolveDshHome(config.stateDir), 'link');
+  return join(resolveDshHome(config.stateDir), 'rc');
 }
 
 /**

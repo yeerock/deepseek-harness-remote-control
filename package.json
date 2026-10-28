@@ -40,11 +40,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yeerock/dsh-rc.git"
+    "url": "git+https://github.com/yeerock/deepseek-harness-remote-control.git"
   },
-  "homepage": "https://github.com/yeerock/dsh-rc#readme",
+  "homepage": "https://github.com/yeerock/deepseek-harness-remote-control#readme",
   "bugs": {
-    "url": "https://github.com/yeerock/dsh-rc/issues"
+    "url": "https://github.com/yeerock/deepseek-harness-remote-control/issues"
   },
   "author": "Ts. Dr. Leong Yee Rock (VYROX International Sdn Bhd / VYROX AI)"
 }

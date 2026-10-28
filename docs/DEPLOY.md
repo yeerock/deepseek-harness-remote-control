@@ -100,7 +100,7 @@ the agent uses `DSHRC_`. This is the current code, not a typo in the docs.
 
 The agent requires exactly one of `--dsh-url` / `--dsh-url-file`; it cannot
 discover the DSH port itself. A plugin-launched agent does not use the manual
-default above: its state dir is `<DSH home>/link`, or `<stateDir>/link` when the
+default above: its state dir is `<DSH home>/rc`, or `<stateDir>/link` when the
 plugin's optional `stateDir` config overrides the DSH home
 (`packages/plugin/README.md`). Exit codes are `0` clean stop, `1` terminal error
 (device revoked, tunnel auth failed, protocol mismatch, state-dir lock

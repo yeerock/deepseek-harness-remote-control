@@ -343,7 +343,7 @@ States: `starting`, `pairing`, `connecting`, `online`, `reconnecting`, `error`,
 ### 7.1 State directory and the single-instance lock
 
 One state directory per DSH host/profile. A manually started agent defaults to
-`~/.dsh-rc/agent`; a plugin-launched agent uses `<DSH home>/link` (or
+`~/.dsh-rc/agent`; a plugin-launched agent uses `<DSH home>/rc` (or
 `<stateDir>/link` when the plugin overrides the DSH home). The directory
 contains:
 

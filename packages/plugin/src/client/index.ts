@@ -96,6 +96,7 @@ const EN: Record<string, string> = {
   close: 'Close',
   refresh: 'Refresh',
   hostUnavailable: 'Host service unavailable. The Remote Control host plugin is not loaded in this profile, or its RPC channel failed to register.',
+  hostUnavailableShort: 'Unavailable',
   disabledHint: 'The plugin is disabled in configuration. Press Start to run the agent anyway.',
   stoppedHint: 'The agent is not running.',
   qrHint: 'Scan to open the pairing link in a browser.',
@@ -137,6 +138,7 @@ const ZH: Record<string, string> = {
   close: '关闭',
   refresh: '刷新',
   hostUnavailable: '宿主服务不可用：此配置未加载 Remote Control 宿主插件，或其 RPC 通道注册失败。',
+  hostUnavailableShort: '不可用',
   disabledHint: '插件在配置中处于禁用状态。点击“启动”仍可手动运行代理。',
   stoppedHint: '代理未运行。',
   qrHint: '扫码在浏览器中打开配对链接。',
@@ -189,6 +191,99 @@ function formatSince(since: number | undefined): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${String(hours)}h`;
   return `${String(Math.floor(hours / 24))}d`;
+}
+
+
+/* ------------------------------- styles ---------------------------------- */
+
+/**
+ * The Harness sidebar renders `sidebar.footer.action` inside a horizontal flex
+ * row. With more than one plugin entry the rows squeeze into a single line.
+ * Stack the footer when this plugin is present, and give the entry the same
+ * metrics as a native panel row.
+ */
+function ensureStyles(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('dsh-rc-sidebar-style') !== null) return;
+  const style = document.createElement('style');
+  style.id = 'dsh-rc-sidebar-style';
+  style.textContent = `
+div[class*="footerActions"]:has([data-dsh-rc-entry]) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 2px;
+}
+[data-dsh-rc-entry] {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  margin: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+[data-dsh-rc-entry]:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+[data-dsh-rc-entry]:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4c8dff);
+  outline-offset: -2px;
+}
+[data-dsh-rc-entry] .dsh-rc-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-dsh-rc-entry] .dsh-rc-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary, #8a8f98);
+}
+[data-dsh-rc-entry] .dsh-rc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+[data-dsh-rc-entry][data-collapsed="true"] {
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+}
+`;
+  document.head.append(style);
+}
+
+function entryIcon(h: any): any {
+  return h(
+    'svg',
+    {
+      width: 16,
+      height: 16,
+      viewBox: '0 0 16 16',
+      fill: 'none',
+      'aria-hidden': 'true',
+      style: { flex: '0 0 auto', display: 'block' },
+    },
+    h('rect', { x: 1.75, y: 2.75, width: 12.5, height: 8.5, rx: 1.5, stroke: 'currentColor', strokeWidth: 1.2 }),
+    h('path', { d: 'M5.25 14h5.5M8 11.5V14', stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round' }),
+  );
 }
 
 /* ------------------------------- component -------------------------------- */
@@ -465,14 +560,25 @@ function createComponent(React: any): (props: AnyProps) => any {
         'button',
         {
           type: 'button',
-          style: styles.footerButton,
+          'data-dsh-rc-entry': 'true',
+          'data-collapsed': props.wide === false ? 'true' : 'false',
           title: `${t('title')} — ${stateLabel}`,
           onClick: () => setOpen(true),
           'aria-haspopup': 'dialog',
+          'aria-label': `${t('title')} — ${stateLabel}`,
         },
-        h('span', { style: styles.dot(color) }),
-        h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t('title')),
-        h('span', { style: { marginLeft: 'auto', color: '#a1a1aa', fontSize: '11px' } }, unavailable ? '!' : (STATE_LABELS[state] !== undefined ? t(STATE_LABELS[state] as string) : '')),
+        entryIcon(h),
+        props.wide === false
+          ? null
+          : h('span', { className: 'dsh-rc-label', key: 'label' }, t('title')),
+        props.wide === false
+          ? null
+          : h(
+              'span',
+              { className: 'dsh-rc-status', key: 'status' },
+              h('span', { className: 'dsh-rc-dot', style: { background: color } }),
+              unavailable ? t('hostUnavailableShort') : (STATE_LABELS[state] !== undefined ? t(STATE_LABELS[state] as string) : ''),
+            ),
       ),
       open
         ? h(
@@ -594,6 +700,7 @@ function apply(ctx: ClientContext): void {
       component,
     ),
   );
+  ensureStyles();
   void t;
 }
 

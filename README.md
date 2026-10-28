@@ -1,4 +1,4 @@
-# DSH RC
+# DeepSeek Harness Remote Control (DSH RC)
 
 **Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
 the browser you already have.**
@@ -112,7 +112,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 On a small VPS (or your laptop for a demo):
 
 ```bash
-git clone https://github.com/yeerock/dsh-rc && cd dsh-rc
+git clone https://github.com/yeerock/deepseek-harness-remote-control && cd deepseek-harness-remote-control
 npm ci && npm run build
 
 node apps/edge/dist/main.js \
@@ -277,7 +277,7 @@ Control.
 He is from **VYROX International Sdn Bhd (VYROX AI)**, Malaysia.
 
 - GitHub: [@yeerock](https://github.com/yeerock)
-- Project: [github.com/yeerock/dsh-rc](https://github.com/yeerock/dsh-rc)
+- Project: [github.com/yeerock/deepseek-harness-remote-control](https://github.com/yeerock/deepseek-harness-remote-control)
 
 ## License
 

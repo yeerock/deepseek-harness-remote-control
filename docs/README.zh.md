@@ -1,4 +1,4 @@
-# DSH RC
+# DeepSeek Harness 远程控制（DSH RC）
 
 **一条 TLS WebSocket，把你正在用的浏览器变成 DeepSeek Harness 桌面版的远程窗口。**
 
@@ -90,7 +90,7 @@ Remote Control 反过来下注：**一种可靠传输、真实 UI、把 edge 放
 在一台小 VPS（或本机做演示）上：
 
 ```bash
-git clone https://github.com/yeerock/dsh-rc && cd dsh-rc
+git clone https://github.com/yeerock/deepseek-harness-remote-control && cd deepseek-harness-remote-control
 npm ci && npm run build
 
 node apps/edge/dist/main.js \
@@ -244,7 +244,7 @@ TLS、一个 SQLite 文件负责备份。
 他来自马来西亚的 **VYROX International Sdn Bhd（VYROX AI）**。
 
 - GitHub：[@yeerock](https://github.com/yeerock)
-- 项目：[github.com/yeerock/dsh-rc](https://github.com/yeerock/dsh-rc)
+- 项目：[github.com/yeerock/deepseek-harness-remote-control](https://github.com/yeerock/deepseek-harness-remote-control)
 
 ## 许可证
 
