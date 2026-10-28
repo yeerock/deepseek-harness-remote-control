@@ -119,9 +119,11 @@ Both systems make the same correct choice about mutation replay: neither
 replays an action whose outcome is unknown. DSH Link relies on DSH's own client
 for stream resumption instead of building a second recovery layer.
 
-Measured reconnect time under packet loss: **TBD** (`tools/bench`). The design
-target is < 2 s median for a 100 % packet-loss blip
-(`docs/ARCHITECTURE.md:157-166`), not a claim.
+A true packet-loss blip remains **TBD**. The published loopback measurement for
+a forced tunnel replacement (close 4004) is 49 ms, and tunnel connect after an
+agent restart is 2.7 ms (root README, `tools/bench/results`). The design target
+for a 100 % packet-loss blip is < 2 s median (`docs/ARCHITECTURE.md:157-166`),
+not a claim.
 
 ## 6. Security model
 
@@ -246,9 +248,10 @@ wins are in §1-§7 and do not need repeating.
 
 ## 12. Open items
 
-- Performance numbers for both systems on the same network: **TBD**. The
-  reference plugin publishes no latency benchmark in the cited tree; DSH Link
-  has `tools/bench` but no published run yet.
+- Cross-system performance on the same network: **TBD**. DSH Link's loopback
+  results are published in the root README (`tools/bench/results`); the
+  reference plugin publishes no latency benchmark in the cited tree, and nobody
+  has run both on identical hardware.
 - The reference implementation's exact behaviour when a relay is reachable but
   slow (as opposed to unreachable) is **TBD**; the cited code shows timeouts,
   not a latency-based switch.

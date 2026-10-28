@@ -17,6 +17,38 @@ installed (`package.json` `engines`).
 > agent CLIs are new; if `--help` disagrees with a table here, the code wins and
 > this file has a bug.
 
+## 0. Choosing a region (read this first)
+
+The edge sits in the path of every keystroke, so its location is a product
+decision, not an ops detail.
+
+- **If both ends are in one country:** put the edge there. A 5 ms edge beats any
+  amount of protocol tuning.
+- **If the desktop is in mainland China and you work from Europe or North
+  America:** do **not** put the edge inside mainland China. That is the failure
+  mode this project exists to remove — the browser leg becomes transcontinental
+  and every interactive request pays it. Prefer Hong Kong, Singapore, Tokyo or
+  Seoul; measure both legs before settling:
+  ```bash
+  # from the desktop
+  ping -c 20 edge.example.com
+  # from the browser machine
+  ping -c 20 edge.example.com
+  ```
+  A balanced choice (e.g. Singapore for China ↔ Europe) usually feels better
+  than optimising either leg alone, because model output is streamed while you
+  type.
+- **If you work from the same continent as the desktop:** a single edge in that
+  continent is enough. One edge serves one desktop; multi-region routing is
+  roadmap (`docs/ARCHITECTURE.md` §8), not a v1 feature.
+- **Legal/policy:** you are operating a relay that carries your own traffic.
+  Check the hosting jurisdiction you are comfortable with; self-hosting is the
+  point.
+
+The numbers in the README are loopback measurements of tunnel overhead. Add the
+RTT of both legs to estimate the interactive floor; no protocol can beat
+physics, but DSH Link pays it once, not once per WebRTC fallback.
+
 ## 1. Build once
 
 ```bash
@@ -67,7 +99,10 @@ the agent uses `DSH_LINK_`. This is the current code, not a typo in the docs.
 | `--log-level` | `DSH_LINK_LOG_LEVEL` | `info` | Same levels as the edge. |
 
 The agent requires exactly one of `--dsh-url` / `--dsh-url-file`; it cannot
-discover the DSH port itself. Exit codes are `0` clean stop, `1` terminal error
+discover the DSH port itself. A plugin-launched agent does not use the manual
+default above: its state dir is `<DSH home>/link`, or `<stateDir>/link` when the
+plugin's optional `stateDir` config overrides the DSH home
+(`packages/plugin/README.md`). Exit codes are `0` clean stop, `1` terminal error
 (device revoked, tunnel auth failed, protocol mismatch, state-dir lock
 held, crash), `2` usage or configuration error. A DSH upstream `401` with no usable token is **not** a
 terminal exit: the agent stays alive in `state: error` with an actionable

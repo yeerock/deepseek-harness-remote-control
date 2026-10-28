@@ -109,8 +109,13 @@ node apps/agent/dist/main.js \
 
 ### 3. 桌面插件（推荐）
 
-插件从运行中的 DSH 桌面取得已认证 URL，写入 0600 文件，启动并监管 agent，
-并在 Harness 侧边栏显示状态。
+插件从运行中的 DSH 桌面取得已认证 URL，写入 0600 文件，启动并监管 agent。
+Harness 侧边栏显示状态点与标签；弹窗显示设备、edge、延迟、重连/重启次数、
+运行时间、agent/pid、last error 和 Start/Restart/Stop 控制。**仅在状态为
+pairing（或带新配对码的 error）时**，弹窗才显示 pair URL 的 Copy/Open 和配对
+二维码，提示语是“扫描即可在浏览器中打开配对链接”；进入
+online/connecting/reconnecting 后只显示 Paired + device id，因为配对码一次性，
+需要重启 agent 才会产生新码。
 
 ![Harness 侧边栏中的 DSH Link 状态](images/plugin-sidebar.png)
 
@@ -118,15 +123,19 @@ node apps/agent/dist/main.js \
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
 ```
 
-启用 `dsh-link` 条目：
+在 profile 的用户层 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 中启用：
 
 ```yaml
-config:
-  enabled: true
-  edgeUrl: https://link.example.com
-  deviceName: my-desktop
-  autoStart: true
+- id: dsh-link
+  config:
+    enabled: true
+    edgeUrl: https://link.example.com
+    deviceName: my-desktop
+    autoStart: true
 ```
+
+然后以 `dsh --profile <profile> --port 0 --no-open` 启动；
+`--profile <name>` 已替代 `dsh web` 简写，不要再追加 `web`。
 
 安装、配置与排错见 [`packages/plugin/README.md`](../packages/plugin/README.md)；
 部署形态、参数与 systemd 见 [DEPLOY.md](DEPLOY.md)。

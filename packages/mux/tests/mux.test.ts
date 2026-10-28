@@ -131,8 +131,9 @@ describe('mux', () => {
     expect(frames).toContain('1:ack:ping');
   });
 
-  it('propagates a reset to the peer stream', async () => {
+  it('propagates a reset to the peer stream and reports it locally', async () => {
     let received: string | undefined;
+    let local: string | undefined;
     const { edge } = pair({
       onStream: (stream: Stream) => {
         stream.onReset((reset) => {
@@ -142,10 +143,14 @@ describe('mux', () => {
       },
     });
     const stream = edge.open(httpOpen('/cancel'));
+    stream.onReset((reset) => {
+      local = reset.code;
+    });
     await stream.head();
     stream.reset('CLIENT_ABORTED', 'browser left');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(received).toBe('CLIENT_ABORTED');
+    expect(local).toBe('CLIENT_ABORTED');
   });
 
   it('serves a high-priority stream ahead of a low-priority backlog', async () => {

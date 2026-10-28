@@ -210,7 +210,7 @@ export class Stream {
     } catch {
       /* transport already gone */
     }
-    this.failLocal(new Error(`${code}: ${message}`));
+    this.failLocal(new Error(`${code}: ${message}`), code);
     // RESET is terminal for both directions: holding the entry would leak one
     // Stream (and its buffered body) per aborted request.
     this.mux.releaseStream(this.id);
@@ -438,9 +438,9 @@ export class Stream {
   }
 
   /** Transport died or the mux closed: fail the local side without protocol frames. */
-  failLocal(error: Error): void {
+  failLocal(error: Error, code = 'STREAM_CLOSED'): void {
     if (this.resetReason === undefined) {
-      this.resetReason = { code: 'STREAM_CLOSED', message: error.message };
+      this.resetReason = { code, message: error.message };
     }
     this.closed = true;
     this.wakeBody();

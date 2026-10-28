@@ -10,3 +10,5 @@ tools/bench/results/*.json
 tools/bench/results/*.md
 /tmp/
 *.log
+tools/e2e/artifacts/
+

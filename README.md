@@ -108,7 +108,7 @@ or terminate TLS at your load balancer and run with `--trust-proxy`.
 ```bash
 node apps/agent/dist/main.js \
   --edge https://link.example.com \
-  --dsh-url-file ~/.dsh-link/upstream.json \
+  --dsh-url-file ~/.dsh-link/agent/upstream.json \
   --state-dir ~/.dsh-link/agent \
   --name my-desktop \
   --status-file ~/.dsh-link/agent/status.json
@@ -124,8 +124,9 @@ the device and pair the browser. The DSH UI is then at
 
 The plugin mints the authenticated URL from the running DSH desktop, writes it
 to a 0600 file, spawns and supervises the agent, and shows a status panel in the
-Harness sidebar: state, device id, latency, reconnects, a QR pairing link, and
-start/restart/stop controls.
+Harness sidebar: state, device id, latency, reconnects, start/restart/stop
+controls, and — while pairing only — the pair link with a QR code. Once online
+the panel shows "Paired" instead of a dead QR.
 
 ![DSH Link status panel in Harness: state, device, latency, QR pairing and controls](docs/images/plugin-panel.png)
 
@@ -133,15 +134,20 @@ start/restart/stop controls.
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
 ```
 
-Enable the `dsh-link` entry with:
+Enable the `dsh-link` entry in your profile's user layer,
+`$DSH_HOME/profiles/<profile>/cordis.patch.yml`:
 
 ```yaml
-config:
-  enabled: true
-  edgeUrl: https://link.example.com
-  deviceName: my-desktop
-  autoStart: true
+- id: dsh-link
+  config:
+    enabled: true
+    edgeUrl: https://link.example.com
+    deviceName: my-desktop
+    autoStart: true
 ```
+
+Then boot that profile with `dsh --profile <profile> --port 0 --no-open`
+(`--profile <name>` replaces the `dsh web` shorthand; do not append `web`).
 
 Full install, configuration and troubleshooting:
 [packages/plugin/README.md](packages/plugin/README.md). Deployment shapes,
@@ -217,9 +223,10 @@ SHA-256-equal through the tunnel, `remote.mux` OPEN.
 
 ## FAQ
 
-**Does my DSH token leave the machine?** No. It is exchanged in-process for a
-loopback-bound cookie; the browser never sees it and it is never written to
-disk or argv.
+**Does my DSH token leave the machine?** No. It is never logged and never placed
+in argv: the plugin hands it to the agent in a 0600 file, the agent exchanges it
+once for a loopback-bound cookie held in memory, and the browser never sees
+either.
 
 **Why not P2P?** Because the reported failure is networks where P2P cannot
 work, and because a browser cannot speak WebRTC to an HTTP origin without a
@@ -232,6 +239,12 @@ per-state-dir lock refuses the second one.
 
 **Can I self-host the edge?** That is the intended deployment. One Docker
 Compose file, Caddy for TLS, a SQLite file to back up.
+
+**Where should the edge live?** Near enough to both ends that interactive RTT
+stays low. If your desktop is in mainland China and you work from Europe or
+North America, put the edge in Hong Kong, Singapore, Tokyo or Seoul — *not* in
+mainland China, which is the failure mode this project removes. Measure both
+legs; details in [DEPLOY.md §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first).
 
 More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
 

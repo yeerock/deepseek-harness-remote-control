@@ -13,7 +13,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json",
+    "build": "tsc -b tsconfig.json && node packages/plugin/scripts/build.mjs",
     "typecheck": "tsc -b tsconfig.json --pretty false",
     "clean": "tsc -b tsconfig.json --clean",
     "test": "vitest run",
@@ -24,7 +24,8 @@
     "bench": "tsx tools/bench/bench.ts",
     "bench:quick": "tsx tools/bench/bench.ts --quick",
     "e2e": "npm run build && node tools/e2e/real-dsh.mjs",
-    "e2e:fast": "node tools/e2e/real-dsh.mjs --no-browser"
+    "e2e:fast": "node tools/e2e/real-dsh.mjs --no-browser",
+    "build:types": "tsc -b tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
