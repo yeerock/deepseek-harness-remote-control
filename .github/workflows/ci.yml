@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep npm output deterministic in CI logs.
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Typecheck tests and bench
+        run: npx tsc -p tests/tsconfig.json
+
+      - name: Unit + integration tests
+        run: npx vitest run --reporter=verbose
+
+      - name: Upload vitest failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-failure-node${{ matrix.node }}
+          path: |
+            **/*.log
+            test-results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  bench:
+    name: bench (quick, node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build workspace packages
+        run: npm run build
+
+      - name: Run quick benchmark
+        run: npx tsx tools/bench/bench.ts --quick
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: tools/bench/results/
+          if-no-files-found: ignore
+          retention-days: 30
