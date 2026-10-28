@@ -48,5 +48,8 @@
   "bugs": {
     "url": "https://github.com/yeerock/deepseek-harness-remote-control/issues"
   },
-  "author": "Ts. Dr. Leong Yee Rock (VYROX International Sdn Bhd / VYROX AI)"
+  "author": "yeerock",
+  "contributors": [
+    "yeerock"
+  ]
 }

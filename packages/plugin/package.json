@@ -51,5 +51,8 @@
     "typecheck": "tsc -b",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
-  "author": "Ts. Dr. Leong Yee Rock (VYROX International Sdn Bhd / VYROX AI)"
+  "author": "yeerock",
+  "contributors": [
+    "yeerock"
+  ]
 }

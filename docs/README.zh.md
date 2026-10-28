@@ -2,7 +2,7 @@
 
 **一条 TLS WebSocket，把你正在用的浏览器变成 DeepSeek Harness 桌面版的远程窗口。**
 
-**创作者：Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd（VYROX AI）
+**创作者：[yeerock](https://github.com/yeerock)**
 
 DSH RC 通过一条由桌面端主动外连的长连接，把**未经修改的** DeepSeek Harness
 Web UI 提供到任意浏览器：桌面里的 agent 主动连到 edge，edge 把 HTTP 与
@@ -239,9 +239,8 @@ TLS、一个 SQLite 文件负责备份。
 
 ## 创作者
 
-**Ts. Dr. Leong Yee Rock** 是 DSH RC / Remote Control 的创作者与维护者。
+**[yeerock](https://github.com/yeerock)** 是 DSH RC / Remote Control 的创作者与维护者。
 
-他来自马来西亚的 **VYROX International Sdn Bhd（VYROX AI）**。
 
 - GitHub：[@yeerock](https://github.com/yeerock)
 - 项目：[github.com/yeerock/deepseek-harness-remote-control](https://github.com/yeerock/deepseek-harness-remote-control)

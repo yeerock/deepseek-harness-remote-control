@@ -3,7 +3,7 @@
 **Remote access to your DeepSeek Harness desktop, through one TLS WebSocket and
 the browser you already have.**
 
-**Created by Ts. Dr. Leong Yee Rock** · VYROX International Sdn Bhd (VYROX AI)
+**Created by [yeerock](https://github.com/yeerock)**
 
 DSH RC serves the *unmodified* Harness web UI over a single outbound
 connection. The desktop agent dials the edge; the edge proxies HTTP and
@@ -295,10 +295,9 @@ More: [FAQ.md](docs/FAQ.md) · [OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Creator
 
-**Ts. Dr. Leong Yee Rock** is the creator and maintainer of DSH RC / Remote
-Control.
+**[yeerock](https://github.com/yeerock)** is the creator and maintainer of DSH RC /
+Remote Control.
 
-He is from **VYROX International Sdn Bhd (VYROX AI)**, Malaysia.
 
 - GitHub: [@yeerock](https://github.com/yeerock)
 - Project: [github.com/yeerock/deepseek-harness-remote-control](https://github.com/yeerock/deepseek-harness-remote-control)
