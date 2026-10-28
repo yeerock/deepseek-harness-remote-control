@@ -1,0 +1,22 @@
+{
+  "name": "@dsh-link/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@dsh-link/protocol": "0.1.0",
+    "@dsh-link/mux": "0.1.0",
+    "ws": "^8.21.3"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "dsh-link",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reliable, single-transport remote access for the DeepSeek Harness desktop app.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:edge": "tsx apps/edge/src/main.ts",
+    "dev:agent": "tsx apps/agent/src/main.ts",
+    "lint": "tsc -b --pretty false"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
