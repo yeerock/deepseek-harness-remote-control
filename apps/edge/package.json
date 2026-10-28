@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-link/edge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH Link public edge: auth, pairing, presence, SQLite and the HTTP/WS proxy.",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "dependencies": {
+    "@dsh-link/mux": "0.1.0",
+    "@dsh-link/protocol": "0.1.0",
+    "@dsh-link/shared": "0.1.0",
+    "ws": "^8.21.3"
+  },
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "build": "tsc -b",
+    "test": "npm --prefix ../.. run test -- apps/edge"
+  }
+}

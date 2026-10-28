@@ -1,0 +1,763 @@
+/**
+ * The DSH Link edge server: HTTP routing, browser auth, device API, tunnel
+ * upgrades and the `/d/<deviceId>/` proxy.
+ *
+ * Everything the edge renders itself is small and local; everything under
+ * `/d/` is passed through opaquely to the agent.
+ */
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import {
+  DEVICE_MOUNT_PREFIX,
+  PROTOCOL_VERSION,
+  assertSafeOriginPath,
+  isValidDeviceId,
+  parseDevicePath,
+} from '@dsh-link/protocol';
+import {
+  VERSION,
+  clientAddress,
+  createLogger,
+  readFormBody,
+  readJsonBody,
+  requestHeader,
+  requestOrigin,
+  sendJson,
+  type Logger,
+} from '@dsh-link/shared';
+import { WebSocketServer } from 'ws';
+import { AuthService } from './auth.js';
+import { loadConfig, type EdgeConfig } from './config.js';
+import { EdgeDatabase, type DeviceRow } from './db.js';
+import { DeviceService, validateRegisterBody } from './devices.js';
+import { proxyDeviceHttp } from './proxy-http.js';
+import { proxyDeviceWs } from './proxy-ws.js';
+import { dashboardPage, loginPage, pairPage, reconnectingPage, setupPage } from './pages.js';
+import { RateLimiter } from './rate-limit.js';
+import { sendErrorPage, sendJsonError, sendPage } from './respond.js';
+import { TunnelManager } from './tunnels.js';
+import { rejectUpgrade } from './upgrade.js';
+
+const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
+const DEVICE_ACTION_RE = /^\/v1\/devices\/([^/]+)\/(approve|revoke)$/;
+const TRAVERSAL_RE = /[\u0000-\u001f\u007f\\]/;
+const AUDIT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export interface EdgeAddress {
+  host: string;
+  port: number;
+  url: string;
+}
+
+export interface EdgeServerOptions {
+  config: EdgeConfig;
+  logger?: Logger;
+}
+
+export interface EdgeServer {
+  readonly config: EdgeConfig;
+  readonly db: EdgeDatabase;
+  readonly edgeId: string;
+  readonly startedAt: number;
+  /** The one-time setup code, present only while no owner exists and after this boot generated it. */
+  readonly setupCode: string | undefined;
+  readonly setupComplete: boolean;
+  /** Public-facing origin: --public-url, or the listening address for loopback demos. */
+  readonly origin: string;
+  readonly address: EdgeAddress | undefined;
+  listen(): Promise<EdgeAddress>;
+  close(): Promise<void>;
+}
+
+/** Path safety beyond URL normalisation: reject encoded traversal and absolute forms. */
+function hasEncodedTraversal(path: string): boolean {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return true;
+  }
+  if (decoded.startsWith('//') || TRAVERSAL_RE.test(decoded)) return true;
+  for (const segment of decoded.split('/')) if (segment === '..') return true;
+  return false;
+}
+
+function bearerToken(request: IncomingMessage): string | undefined {
+  const header = requestHeader(request, 'authorization');
+  if (header === undefined) return undefined;
+  const match = /^Bearer[ \t]+(.+)$/i.exec(header.trim());
+  if (match === null) return undefined;
+  const token = match[1]?.trim() ?? '';
+  return token === '' ? undefined : token;
+}
+
+function wantsJson(request: IncomingMessage): boolean {
+  const accept = requestHeader(request, 'accept') ?? '';
+  const contentType = requestHeader(request, 'content-type') ?? '';
+  return accept.includes('application/json') || contentType.includes('application/json');
+}
+
+function isFormRequest(request: IncomingMessage): boolean {
+  return (requestHeader(request, 'content-type') ?? '').includes(FORM_CONTENT_TYPE);
+}
+
+function safeNextPath(value: string | null | undefined): string {
+  if (value === undefined || value === null || value === '') return '/';
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  if (value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return '/';
+  return value;
+}
+
+function metaFor(request: IncomingMessage, config: EdgeConfig, actor: string | null) {
+  return { ip: clientAddress(request, config.trustProxy), actor };
+}
+
+function displayHost(address: AddressInfo): string {
+  if (address.address === '0.0.0.0') return '127.0.0.1';
+  if (address.address === '::') return '[::1]';
+  return address.family === 'IPv6' ? `[${address.address}]` : address.address;
+}
+
+export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
+  const config = options.config;
+  const logger = options.logger ?? createLogger('edge', config.logLevel);
+  const db = new EdgeDatabase(config.dataDir);
+  const auth = new AuthService(config, db, logger);
+  const devices = new DeviceService(config, db, logger);
+  const tunnels = new TunnelManager(config, db, devices, logger, auth.edgeId);
+  const browserWss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+  const limiter = new RateLimiter();
+  const startedAt = Date.now();
+
+  // Audit retention: prune on boot and once a day. 0 disables pruning.
+  const pruneAudit = (): void => {
+    if (config.auditRetentionDays <= 0) return;
+    const cutoff = Date.now() - config.auditRetentionDays * 24 * 60 * 60 * 1000;
+    const removed = db.pruneAudit(cutoff);
+    if (removed > 0) logger.info('pruned old audit rows', { removed, retentionDays: config.auditRetentionDays });
+  };
+  pruneAudit();
+  const auditPruneTimer = setInterval(pruneAudit, AUDIT_PRUNE_INTERVAL_MS);
+  auditPruneTimer.unref?.();
+
+  let server: Server | undefined;
+  let listening = false;
+  let address: EdgeAddress | undefined;
+
+  const publicOrigin = (request: IncomingMessage): string => requestOrigin(request, config.publicUrl, config.trustProxy);
+
+  const rateLimited = (response: ServerResponse, key: string, rule: { limit: number; windowMs: number }, json: boolean): boolean => {
+    const result = limiter.check(key, rule.limit, rule.windowMs);
+    if (result.ok) return false;
+    const headers = { 'retry-after': String(result.retryAfterSeconds) };
+    if (json) {
+      response.writeHead(429, { ...headers, 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ error: 'RATE_LIMITED', retryAfterSeconds: result.retryAfterSeconds }));
+    } else {
+      sendErrorPage(response, 429, 'Too many requests', 'Slow down and try again in a moment.', headers);
+    }
+    return true;
+  };
+
+  const ownerSession = (request: IncomingMessage) => {
+    const session = auth.readSession(request);
+    return session?.kind === 'owner' ? session : undefined;
+  };
+
+  async function submittedCsrf(request: IncomingMessage): Promise<string | undefined> {
+    const header = requestHeader(request, 'x-csrf-token');
+    if (header !== undefined && header !== '') return header;
+    if (!isFormRequest(request)) return undefined;
+    const form = await readFormBody(request);
+    return form?.get('csrf') ?? undefined;
+  }
+
+  /* ------------------------------- routes ------------------------------- */
+
+  async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const url = new URL(request.url ?? '/', 'http://edge.local');
+    const pathname = url.pathname;
+    const method = (request.method ?? 'GET').toUpperCase();
+    const origin = publicOrigin(request);
+
+    if (pathname === '/healthz') {
+      if (method !== 'GET' && method !== 'HEAD') return methodNotAllowed(response, ['GET', 'HEAD']);
+      sendJson(response, 200, {
+        ok: true,
+        status: 'ok',
+        version: VERSION,
+        uptimeMs: Date.now() - startedAt,
+        setupComplete: auth.setupComplete,
+      });
+      return;
+    }
+
+    if (pathname === '/v1/edge') {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      sendJson(response, 200, {
+        name: 'dsh-link-edge',
+        edgeId: auth.edgeId,
+        version: VERSION,
+        protocol: PROTOCOL_VERSION,
+        publicUrl: origin,
+        uptimeMs: Date.now() - startedAt,
+        presenceGraceMs: config.presenceGraceMs,
+        auditRetentionDays: config.auditRetentionDays,
+        setupComplete: auth.setupComplete,
+        devices: db.countDevices(),
+        tunnels: tunnels.size,
+      });
+      return;
+    }
+
+    if (pathname === '/v1/devices/register') {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      await handleRegister(request, response);
+      return;
+    }
+
+    if (pathname === '/v1/devices/me') {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      handleDeviceMe(request, response);
+      return;
+    }
+
+    const deviceAction = DEVICE_ACTION_RE.exec(pathname);
+    if (deviceAction !== null) {
+      const deviceId = deviceAction[1] ?? '';
+      const action = deviceAction[2] ?? '';
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      if (!isValidDeviceId(deviceId)) return sendJsonError(response, 404, 'NOT_FOUND');
+      await handleDeviceAction(request, response, deviceId, action === 'approve' ? 'approve' : 'revoke');
+      return;
+    }
+
+    if (pathname === '/setup') {
+      if (method === 'GET') {
+        if (auth.setupComplete) {
+          return sendErrorPage(response, 403, 'Already configured', 'This edge already has an owner. Sign in instead.');
+        }
+        const csrf = auth.ensureCsrf(request, response);
+        return sendPage(response, 200, setupPage({ csrf, ...(url.searchParams.get('code') === null ? {} : { code: url.searchParams.get('code') ?? '' }) }));
+      }
+      if (method === 'POST') return handleSetup(request, response);
+      return methodNotAllowed(response, ['GET', 'POST']);
+    }
+
+    if (pathname === '/login') {
+      if (method === 'GET') {
+        if (!auth.setupComplete) return redirect(response, 303, '/setup');
+        const csrf = auth.ensureCsrf(request, response);
+        return sendPage(response, 200, loginPage({ csrf, hasPassword: auth.hasOwnerPassword(), next: safeNextPath(url.searchParams.get('next')) }));
+      }
+      if (method === 'POST') return handleLogin(request, response);
+      return methodNotAllowed(response, ['GET', 'POST']);
+    }
+
+    if (pathname === '/logout') {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleLogout(request, response);
+    }
+
+    if (pathname === '/pair') {
+      if (method === 'GET') {
+        const csrf = auth.ensureCsrf(request, response);
+        const code = url.searchParams.get('code') ?? undefined;
+        const session = auth.readSession(request);
+        return sendPage(
+          response,
+          200,
+          pairPage({ csrf, ...(code === undefined ? {} : { code }), requiresPassword: session?.kind !== 'owner' }),
+        );
+      }
+      if (method === 'POST') return handlePair(request, response);
+      return methodNotAllowed(response, ['GET', 'POST']);
+    }
+
+    if (pathname === '/') {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      return handleDashboard(request, response);
+    }
+
+    if (pathname === '/favicon.ico') {
+      response.writeHead(204, { 'cache-control': 'public, max-age=86400' });
+      response.end();
+      return;
+    }
+
+    if (pathname === '/d' || pathname.startsWith(DEVICE_MOUNT_PREFIX)) {
+      await handleDeviceHttp(request, response, pathname, url.search);
+      return;
+    }
+
+    if (pathname.startsWith('/v1/')) return sendJsonError(response, 404, 'NOT_FOUND');
+    return sendErrorPage(response, 404, 'Not found', 'No such page on this edge.');
+  }
+
+  function methodNotAllowed(response: ServerResponse, allowed: string[]): void {
+    sendJsonError(response, 405, 'METHOD_NOT_ALLOWED', `allowed: ${allowed.join(', ')}`);
+  }
+
+  function redirect(response: ServerResponse, status: 302 | 303 | 307 | 308, location: string): void {
+    response.writeHead(status, { location, 'cache-control': 'no-store', 'content-length': '0' });
+    response.end();
+  }
+
+  /* ------------------------------ registration ----------------------------- */
+
+  async function handleRegister(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const ip = clientAddress(request, config.trustProxy);
+    if (rateLimited(response, `register:${ip}`, config.rateLimits.register, true)) return;
+    const body = await readJsonBody(request, 16 * 1024);
+    if (body === undefined) return sendJsonError(response, 400, 'BAD_REQUEST', 'expected a JSON object');
+    const validated = validateRegisterBody(body);
+    if (!validated.ok) return sendJsonError(response, 400, 'BAD_REQUEST', validated.error);
+    const registered = devices.register(validated.value, metaFor(request, config, 'agent'));
+    const pairUrl = `${publicOrigin(request)}/pair?code=${encodeURIComponent(registered.pairCode)}`;
+    sendJson(response, 201, {
+      deviceId: registered.device.id,
+      deviceSecret: registered.deviceSecret,
+      pairCode: registered.pairCode,
+      pairUrl,
+      status: registered.device.status,
+    });
+  }
+
+  function handleDeviceMe(request: IncomingMessage, response: ServerResponse): void {
+    const token = bearerToken(request);
+    if (token === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'missing bearer device secret');
+    const device = devices.findBySecret(token);
+    if (device === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'unknown device secret');
+    if (device.status === 'revoked') return sendJsonError(response, 403, 'DEVICE_REVOKED', 'this device was revoked by the owner');
+    sendJson(response, 200, devices.publicDevice(device, tunnels.isOnline(device.id)));
+  }
+
+  async function handleDeviceAction(
+    request: IncomingMessage,
+    response: ServerResponse,
+    deviceId: string,
+    action: 'approve' | 'revoke',
+  ): Promise<void> {
+    const json = wantsJson(request);
+    const session = ownerSession(request);
+    if (session === undefined) {
+      if (json) return sendJsonError(response, 401, 'UNAUTHORIZED', 'owner session required');
+      return redirect(response, 303, '/login');
+    }
+    const submitted = await submittedCsrf(request);
+    const check = auth.verifyStateChange(request, submitted);
+    if (!check.ok) {
+      if (json) return sendJsonError(response, 403, 'CSRF_FAILED', check.reason);
+      return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    }
+    const device = db.getDevice(deviceId);
+    if (device === undefined) {
+      if (json) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown device');
+      return sendErrorPage(response, 404, 'Unknown device', 'That device does not exist on this edge.');
+    }
+    const meta = metaFor(request, config, 'owner');
+    const updated = action === 'approve' ? devices.approve(deviceId, meta) : devices.revoke(deviceId, meta);
+    if (updated === undefined) return sendJsonError(response, 404, 'NOT_FOUND', 'unknown device');
+    if (action === 'revoke') {
+      tunnels.closeDevice(deviceId, 4003, 'DEVICE_REVOKED');
+      auth.revokeDeviceSessions(deviceId);
+    }
+    if (json) {
+      sendJson(response, 200, { ok: true, device: devices.publicDevice(updated, tunnels.isOnline(updated.id)) });
+      return;
+    }
+    redirect(response, 303, '/');
+  }
+
+  /* -------------------------------- setup -------------------------------- */
+
+  async function handleSetup(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const ip = clientAddress(request, config.trustProxy);
+    if (rateLimited(response, `setup:${ip}`, config.rateLimits.setup, false)) return;
+    if (auth.setupComplete) return sendErrorPage(response, 403, 'Already configured', 'This edge already has an owner.');
+    const form = await readFormBody(request);
+    if (form === undefined) return sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    const code = form.get('code') ?? '';
+    const passwordRaw = form.get('password') ?? '';
+    const password = passwordRaw === '' ? null : passwordRaw;
+    if (password !== null && (password.length < 8 || password.length > 256)) {
+      const csrf = auth.ensureCsrf(request, response);
+      return sendPage(response, 400, setupPage({ csrf, code, error: 'The owner password must be 8-256 characters.' }));
+    }
+    if (!auth.verifySetupCode(code)) {
+      const csrf = auth.ensureCsrf(request, response);
+      return sendPage(response, 403, setupPage({ csrf, code, error: 'That setup code is not valid or has expired.' }));
+    }
+    const meta = { ip, userAgent: requestHeader(request, 'user-agent') ?? null, now: Date.now() };
+    const created = auth.completeSetup('owner', password, meta);
+    auth.setSessionCookie(request, response, created.session);
+    db.addAudit({ event: 'owner-setup', actor: 'owner', ip, detail: 'owner session created', ts: meta.now });
+    logger.info('owner configured', { ip });
+    limiter.reset(`setup:${ip}`);
+    redirect(response, 303, '/');
+  }
+
+  async function handleLogin(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const ip = clientAddress(request, config.trustProxy);
+    if (rateLimited(response, `login:${ip}`, config.rateLimits.login, false)) return;
+    if (!auth.setupComplete) return redirect(response, 303, '/setup');
+    const form = await readFormBody(request);
+    if (form === undefined) return sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    const password = form.get('password') ?? '';
+    const next = safeNextPath(form.get('next'));
+    if (!auth.hasOwnerPassword()) {
+      const csrf = auth.ensureCsrf(request, response);
+      return sendPage(response, 403, loginPage({ csrf, hasPassword: false, next }));
+    }
+    if (!auth.verifyOwnerPassword(password)) {
+      const csrf = auth.ensureCsrf(request, response);
+      return sendPage(response, 403, loginPage({ csrf, hasPassword: true, error: 'Incorrect password.', next }));
+    }
+    const session = auth.createSession('owner', null, {
+      ip,
+      userAgent: requestHeader(request, 'user-agent') ?? null,
+      now: Date.now(),
+    });
+    auth.setSessionCookie(request, response, session);
+    db.addAudit({ event: 'login', actor: 'owner', ip, ts: Date.now() });
+    limiter.reset(`login:${ip}`);
+    redirect(response, 303, next);
+  }
+
+  async function handleLogout(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const session = auth.readSession(request);
+    const submitted = await submittedCsrf(request);
+    const check = auth.verifyStateChange(request, submitted);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    if (session !== undefined) {
+      db.deleteSession(session.id);
+      db.addAudit({ event: 'logout', actor: session.kind, deviceId: session.deviceId, ts: Date.now() });
+    }
+    auth.clearSessionCookie(request, response);
+    redirect(response, 303, '/login');
+  }
+
+  /* --------------------------------- pair --------------------------------- */
+
+  async function handlePair(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const ip = clientAddress(request, config.trustProxy);
+    if (rateLimited(response, `pair:${ip}`, config.rateLimits.pair, false)) return;
+    const form = await readFormBody(request);
+    if (form === undefined) return sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) return sendErrorPage(response, 403, 'Request rejected', check.reason);
+    const code = form.get('code') ?? '';
+
+    // A pair code is proof of proximity, not a login. Redeeming it requires an
+    // owner session, or the owner password in the same submission.
+    const session = auth.readSession(request);
+    const isOwner = session?.kind === 'owner';
+    if (!isOwner) {
+      const password = form.get('password') ?? '';
+      const csrf = auth.ensureCsrf(request, response);
+      if (!auth.hasOwnerPassword()) {
+        return sendPage(
+          response,
+          401,
+          pairPage({ csrf, code, requiresPassword: true, error: 'This edge has no owner password configured. Sign in as the owner instead.' }),
+        );
+      }
+      if (!auth.verifyOwnerPassword(password)) {
+        return sendPage(
+          response,
+          401,
+          pairPage({ csrf, code, requiresPassword: true, error: 'The owner password is incorrect. The device was not approved.' }),
+        );
+      }
+    }
+
+    const result = devices.redeemPairCode(code, metaFor(request, config, 'owner'));
+    if (!result.ok) {
+      const csrf = auth.ensureCsrf(request, response);
+      return sendPage(response, 403, pairPage({ csrf, code, requiresPassword: !isOwner, error: result.reason }));
+    }
+    if (!isOwner) {
+      const created = auth.createSession('device', result.device.id, {
+        ip,
+        userAgent: requestHeader(request, 'user-agent') ?? null,
+        now: Date.now(),
+      });
+      auth.setSessionCookie(request, response, created);
+    }
+    limiter.reset(`pair:${ip}`);
+    redirect(response, 303, `/d/${result.device.id}/`);
+  }
+
+  /* ------------------------------- dashboard ------------------------------ */
+
+  function handleDashboard(request: IncomingMessage, response: ServerResponse): void {
+    const session = auth.readSession(request);
+    if (session === undefined) {
+      return redirect(response, 303, auth.setupComplete ? '/login' : '/setup');
+    }
+    if (session.kind !== 'owner') {
+      return sendErrorPage(response, 403, 'Owner access required', 'This session is paired to a single device.');
+    }
+    const owner = db.getOwner();
+    const csrf = auth.ensureCsrf(request, response);
+    const deviceRows = db.listDevices().map((device) => {
+      const presence = tunnels.presence(device);
+      return { device, online: presence.online, reconnecting: presence.reconnecting };
+    });
+    sendPage(
+      response,
+      200,
+      dashboardPage({
+        ownerName: owner?.name ?? 'owner',
+        csrf,
+        devices: deviceRows,
+        audit: db.listAudit(20),
+        edgeId: auth.edgeId,
+        publicOrigin: publicOrigin(request),
+      }),
+    );
+  }
+
+  /* ----------------------------- device proxy ---------------------------- */
+
+  function checkDeviceAccess(
+    request: IncomingMessage,
+    device: DeviceRow,
+  ): { ok: true } | { ok: false; status: number; title: string; message: string } {
+    const session = auth.readSession(request);
+    if (session === undefined) {
+      return { ok: false, status: 401, title: 'Sign in required', message: 'Sign in to the edge before opening a device.' };
+    }
+    if (!auth.deviceAccessAllowed(session, device)) {
+      return { ok: false, status: 403, title: 'Access denied', message: 'This session is not paired to that device.' };
+    }
+    if (device.status === 'revoked') {
+      return { ok: false, status: 403, title: 'Device revoked', message: 'The owner revoked this device. Ask for a new pairing.' };
+    }
+    if (device.status === 'pending') {
+      return { ok: false, status: 403, title: 'Device pending', message: 'This device has not been approved yet.' };
+    }
+    return { ok: true };
+  }
+
+  async function handleDeviceHttp(
+    request: IncomingMessage,
+    response: ServerResponse,
+    pathname: string,
+    search: string,
+  ): Promise<void> {
+    const parsed = parseDevicePath(pathname);
+    if (parsed === null) return sendErrorPage(response, 404, 'Not found', 'That is not a valid device path.');
+    if (parsed.needsSlash) {
+      return redirect(response, 302, `${pathname}/${search}`);
+    }
+    const device = db.getDevice(parsed.deviceId);
+    if (device === undefined) return sendErrorPage(response, 404, 'Unknown device', 'No such device on this edge.');
+    const access = checkDeviceAccess(request, device);
+    if (!access.ok) return sendErrorPage(response, access.status, access.title, access.message, access.status === 401 ? { 'www-authenticate': 'Cookie' } : {});
+
+    if (hasEncodedTraversal(parsed.rest)) {
+      return sendErrorPage(response, 400, 'Bad request', 'Path traversal is not allowed.');
+    }
+    try {
+      assertSafeOriginPath(parsed.rest);
+    } catch (error) {
+      return sendErrorPage(response, 400, 'Bad request', error instanceof Error ? error.message : 'invalid path');
+    }
+
+    const presence = tunnels.presence(device);
+    if (!presence.online) {
+      // API calls get JSON (DSH's own client can retry), navigations get the
+      // reconnecting page. Both carry Retry-After so well-behaved clients back
+      // off instead of hammering the edge.
+      const apiRequest = parsed.rest.startsWith('/api/')
+        || (requestHeader(request, 'accept') ?? '').includes('application/json');
+      if (apiRequest) {
+        sendJson(response, 503, {
+          error: 'DEVICE_OFFLINE',
+          retryable: presence.reconnecting,
+          reconnecting: presence.reconnecting,
+          retryAfterSeconds: 5,
+        }, { 'retry-after': '5' });
+      } else {
+        const html = reconnectingPage({ deviceName: device.name, reason: presence.reconnecting ? 'reconnecting' : 'offline' });
+        sendPage(response, 503, html, { 'retry-after': '5' });
+      }
+      return;
+    }
+
+    await proxyDeviceHttp({
+      config,
+      logger,
+      tunnels,
+      device,
+      request,
+      response,
+      rest: parsed.rest,
+      search,
+      publicOrigin: publicOrigin(request),
+    });
+  }
+
+  /* ------------------------------- upgrades ------------------------------- */
+
+  function handleUpgrade(request: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
+    let pathname: string;
+    try {
+      pathname = new URL(request.url ?? '/', 'http://edge.local').pathname;
+    } catch {
+      rejectUpgrade(socket, 400, 'invalid URL');
+      return;
+    }
+    if (pathname === '/v1/tunnel') {
+      tunnels.handleUpgrade(request, socket, head);
+      return;
+    }
+    const parsed = parseDevicePath(pathname);
+    if (parsed === null) {
+      rejectUpgrade(socket, 404, 'unknown websocket path');
+      return;
+    }
+    if (parsed.needsSlash) {
+      rejectUpgrade(socket, 400, 'device path must end with /');
+      return;
+    }
+    const device = db.getDevice(parsed.deviceId);
+    if (device === undefined) {
+      rejectUpgrade(socket, 404, 'unknown device');
+      return;
+    }
+    const access = checkDeviceAccess(request, device);
+    if (!access.ok) {
+      rejectUpgrade(socket, access.status, access.message);
+      return;
+    }
+    if (hasEncodedTraversal(parsed.rest)) {
+      rejectUpgrade(socket, 400, 'path traversal is not allowed');
+      return;
+    }
+    try {
+      assertSafeOriginPath(parsed.rest);
+    } catch (error) {
+      rejectUpgrade(socket, 400, error instanceof Error ? error.message : 'invalid path');
+      return;
+    }
+    const presence = tunnels.presence(device);
+    if (!presence.online) {
+      rejectUpgrade(socket, 503, presence.reconnecting ? 'reconnecting' : 'device offline', { 'retry-after': '5' });
+      return;
+    }
+    const url = new URL(request.url ?? '/', 'http://edge.local');
+    void proxyDeviceWs({
+      config,
+      logger,
+      tunnels,
+      device,
+      request,
+      socket,
+      head,
+      rest: parsed.rest,
+      search: url.search,
+      browserWss,
+    }).catch((error: unknown) => {
+      logger.warn('websocket proxy failed', { deviceId: device.id, error });
+      rejectUpgrade(socket, 500, 'websocket proxy failed');
+    });
+  }
+
+  /* -------------------------------- server -------------------------------- */
+
+  const httpServer = createServer((request, response) => {
+    void handleRequest(request, response).catch((error: unknown) => {
+      logger.error('unhandled request error', { error, method: request.method, url: request.url });
+      if (!response.headersSent) sendErrorPage(response, 500, 'Internal error', 'The edge could not complete this request.');
+      else response.destroy();
+    });
+  });
+  httpServer.on('upgrade', handleUpgrade);
+  httpServer.on('clientError', (_error, socket) => {
+    if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nconnection: close\r\ncontent-length: 0\r\n\r\n');
+    else socket.destroy();
+  });
+  server = httpServer;
+
+  return {
+    config,
+    db,
+    edgeId: auth.edgeId,
+    startedAt,
+    get setupCode() {
+      return auth.setupCode;
+    },
+    get setupComplete() {
+      return auth.setupComplete;
+    },
+    get origin() {
+      if (config.publicUrl !== '') return config.publicUrl;
+      return address?.url ?? '';
+    },
+    get address() {
+      return address;
+    },
+    listen(): Promise<EdgeAddress> {
+      if (address !== undefined) return Promise.resolve(address);
+      return new Promise<EdgeAddress>((resolve, reject) => {
+        const onError = (error: Error): void => {
+          httpServer.off('listening', onListening);
+          reject(error);
+        };
+        const onListening = (): void => {
+          httpServer.off('error', onError);
+          listening = true;
+          const bound = httpServer.address();
+          if (bound === null || typeof bound === 'string') {
+            reject(new Error('edge did not bind a TCP address'));
+            return;
+          }
+          const url = `http://${displayHost(bound)}:${String(bound.port)}`;
+          address = { host: bound.address, port: bound.port, url };
+          logger.info('edge listening', { host: bound.address, port: bound.port, publicUrl: config.publicUrl });
+          resolve(address);
+        };
+        httpServer.once('error', onError);
+        httpServer.once('listening', onListening);
+        httpServer.listen({ host: config.host, port: config.port });
+      });
+    },
+    async close(): Promise<void> {
+      clearInterval(auditPruneTimer);
+      tunnels.closeAll('edge shutting down');
+      tunnels.closeServer();
+      for (const client of browserWss.clients) {
+        try {
+          client.terminate();
+        } catch {
+          /* best effort */
+        }
+      }
+      browserWss.close();
+      if (listening) {
+        await new Promise<void>((resolve) => {
+          httpServer.close(() => resolve());
+          httpServer.closeAllConnections();
+        });
+        listening = false;
+        address = undefined;
+      }
+      db.close();
+      logger.info('edge stopped');
+    },
+  };
+}
+
+/** One-shot helper used by main.ts and tests. */
+export async function startEdge(overrides: Partial<EdgeConfig> = {}): Promise<{ edge: EdgeServer; address: EdgeAddress }> {
+  const config = loadConfig({ overrides });
+  const edge = createEdgeServer({ config });
+  const bound = await edge.listen();
+  return { edge, address: bound };
+}

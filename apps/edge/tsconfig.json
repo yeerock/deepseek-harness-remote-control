@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/mux" },
+    { "path": "../../packages/shared" }
+  ],
+  "include": ["src/**/*.ts"]
+}
