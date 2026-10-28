@@ -79,7 +79,7 @@ DSH Link 反过来下注：
 在一台小 VPS（或本机做演示）上：
 
 ```bash
-git clone https://github.com/openvapt-ai/dsh-link && cd dsh-link
+git clone https://github.com/yeerock/dsh-link && cd dsh-link
 npm ci && npm run build
 
 node apps/edge/dist/main.js \

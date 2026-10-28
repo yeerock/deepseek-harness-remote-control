@@ -37,5 +37,13 @@
   },
   "dependencies": {
     "ws": "^8.21.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yeerock/dsh-link.git"
+  },
+  "homepage": "https://github.com/yeerock/dsh-link#readme",
+  "bugs": {
+    "url": "https://github.com/yeerock/dsh-link/issues"
   }
 }

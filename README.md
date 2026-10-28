@@ -91,7 +91,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 On a small VPS (or your laptop for a demo):
 
 ```bash
-git clone https://github.com/openvapt-ai/dsh-link && cd dsh-link
+git clone https://github.com/yeerock/dsh-link && cd dsh-link
 npm ci && npm run build
 
 node apps/edge/dist/main.js \
