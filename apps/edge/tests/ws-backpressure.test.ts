@@ -1,18 +1,29 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
+import type { IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
-import type { Stream } from '@dsh-link/mux';
+import WebSocket, { type WebSocketServer } from 'ws';
+import type { Mux, Stream } from '@dsh-link/mux';
 import type { Reset } from '@dsh-link/protocol';
+import { createLogger } from '@dsh-link/shared';
+import type { EdgeConfig } from '../src/config.js';
+import type { DeviceRow } from '../src/db.js';
 import {
   MAX_BROWSER_WS_BUFFERED_BYTES,
   MAX_TUNNEL_QUEUED_FRAMES,
+  WS_BACKPRESSURE,
+  browserBackpressureDecision,
   browserBackpressureExceeded,
+  proxyDeviceWs,
+  tunnelBackpressureDecision,
   tunnelBackpressureExceeded,
+  type DeviceWsRequest,
 } from '../src/proxy-ws.js';
+import type { TunnelManager } from '../src/tunnels.js';
 import {
   TEST_SETUP_CODE,
   connectTunnel,
@@ -123,14 +134,117 @@ function processRssBytes(pid: number): number {
   return kib * 1024;
 }
 
-describe('websocket backpressure limits', () => {
-  it('uses the documented thresholds', () => {
+describe('websocket backpressure decisions', () => {
+  it('aborts at the documented bufferedAmount boundaries', () => {
+    expect(browserBackpressureDecision(MAX_BROWSER_WS_BUFFERED_BYTES - 1)).toBeUndefined();
+    expect(browserBackpressureDecision(MAX_BROWSER_WS_BUFFERED_BYTES)).toBeUndefined();
+    expect(browserBackpressureDecision(MAX_BROWSER_WS_BUFFERED_BYTES + 1)).toMatchObject({
+      code: WS_BACKPRESSURE,
+      retryable: true,
+    });
     expect(browserBackpressureExceeded(MAX_BROWSER_WS_BUFFERED_BYTES)).toBe(false);
     expect(browserBackpressureExceeded(MAX_BROWSER_WS_BUFFERED_BYTES + 1)).toBe(true);
-    expect(tunnelBackpressureExceeded(MAX_TUNNEL_QUEUED_FRAMES)).toBe(false);
-    expect(tunnelBackpressureExceeded(MAX_TUNNEL_QUEUED_FRAMES + 1)).toBe(true);
   });
 
+  it('aborts at the documented tunnel queue boundaries', () => {
+    expect(tunnelBackpressureDecision(1023)).toBeUndefined();
+    expect(tunnelBackpressureDecision(1024)).toBeUndefined();
+    expect(tunnelBackpressureDecision(1025)).toMatchObject({ code: WS_BACKPRESSURE, retryable: true });
+    expect(MAX_TUNNEL_QUEUED_FRAMES).toBe(1024);
+    expect(tunnelBackpressureExceeded(1024)).toBe(false);
+    expect(tunnelBackpressureExceeded(1025)).toBe(true);
+  });
+
+  it('wires the tunnel queue decision into the browser message relay', async () => {
+    const resets: Array<{ code: string; retryable?: boolean }> = [];
+    const closeCalls: Array<{ code: number; reason: string }> = [];
+    const handlers = new Map<string, (...args: never[]) => void>();
+    let frameHandler: ((opcode: number, data: Uint8Array) => void) | undefined;
+
+    const stream = {
+      isClosed: false,
+      openAck: async () => ({ ok: true }),
+      sendOpenAck: () => undefined,
+      sendFrame: () => undefined,
+      sendClose: () => undefined,
+      end: async () => undefined,
+      reset: (code: string, _message: string, retryable?: boolean) => {
+        resets.push({ code, ...(retryable === undefined ? {} : { retryable }) });
+      },
+      onFrame: (listener: (opcode: number, data: Uint8Array) => void) => {
+        frameHandler = listener;
+        return () => undefined;
+      },
+      onReset: () => () => undefined,
+      waitForEnd: () => Promise.resolve(),
+    };
+    const stats = {
+      bytesIn: 0,
+      bytesOut: 0,
+      streamsOpened: 1,
+      streamsActive: 1,
+      rttMs: undefined,
+      queuedFrames: MAX_TUNNEL_QUEUED_FRAMES + 1,
+      sendCredit: 0,
+    };
+    const mux = {
+      open: () => stream,
+      stats: () => stats,
+    } as unknown as Mux;
+    const tunnels = {
+      get: () => ({ attached: { mux } }),
+    } as unknown as TunnelManager;
+
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      on: (event: string, callback: (...args: never[]) => void) => {
+        handlers.set(event, callback);
+        return ws;
+      },
+      once: (event: string, callback: (...args: never[]) => void) => {
+        handlers.set(event, callback);
+        return ws;
+      },
+      send: () => undefined,
+      ping: () => undefined,
+      pong: () => undefined,
+      close: (code: number, reason: string) => {
+        closeCalls.push({ code, reason });
+      },
+      terminate: () => undefined,
+    };
+    const browserWss = {
+      handleUpgrade: (_request: IncomingMessage, _socket: Duplex, _head: Buffer, callback: (socket: WebSocket) => void) => {
+        callback(ws as unknown as WebSocket);
+      },
+    } as unknown as WebSocketServer;
+    const request = { method: 'GET', headers: {} } as unknown as IncomingMessage;
+    const input: DeviceWsRequest = {
+      config: { wsOpenTimeoutMs: 1_000 } as EdgeConfig,
+      logger: createLogger('edge-ws-test', 'silent'),
+      tunnels,
+      device: { id: 'dev_aaaaaaaaaaaaaaaaaaaa' } as DeviceRow,
+      request,
+      socket: {} as Duplex,
+      head: Buffer.alloc(0),
+      rest: '/api/remote.mux',
+      search: '',
+      browserWss,
+    };
+
+    await proxyDeviceWs(input);
+    const onMessage = handlers.get('message') as ((data: unknown, isBinary: boolean) => void) | undefined;
+    expect(onMessage).toBeDefined();
+    onMessage?.(Buffer.alloc(1024), true);
+
+    expect(frameHandler).toBeDefined();
+    expect(resets).toContainEqual({ code: WS_BACKPRESSURE, retryable: true });
+    expect(closeCalls[0]).toMatchObject({ code: 1013 });
+  });
+});
+
+describe('websocket backpressure integration', () => {
   it('resets a stream with WS_BACKPRESSURE when the browser stops reading, and RSS stays sublinear', async () => {
     const child = await startChildEdge();
     let agent: Awaited<ReturnType<typeof connectTunnel>> | undefined;
@@ -181,7 +295,7 @@ describe('websocket backpressure limits', () => {
             if (frame % 16 === 0) await new Promise((resolve) => setTimeout(resolve, 1));
           }
           const reset = await waitFor(() => resetInfo, 5_000, 'WS_BACKPRESSURE reset');
-          expect(reset.code).toBe('WS_BACKPRESSURE');
+          expect(reset.code).toBe(WS_BACKPRESSURE);
           expect(reset.retryable).toBe(true);
           // Cut before the whole burst is queued: memory is bounded, not linear.
           expect(bytesSent).toBeLessThan(burstBytes);
@@ -207,72 +321,6 @@ describe('websocket backpressure limits', () => {
     } finally {
       await agent?.close();
       await child.stop();
-    }
-  });
-
-  it('resets WS_BACKPRESSURE when browser frames would grow the tunnel queue without bound', async () => {
-    const edge = await startEdge();
-    edges.push(edge);
-    const owner = await setupOwner(edge.base);
-    const { device } = await provisionDevice(edge.base, owner.jar);
-
-    let agentStream: Stream | undefined;
-    let resetInfo: Reset | undefined;
-    const agent = await connectTunnel(edge.base, device.deviceId, device.deviceSecret, {
-      onStream: (stream) => {
-        agentStream = stream;
-        stream.sendOpenAck({ ok: true });
-        // Consume frames so the mux does not trip its own early-frame cap; this
-        // test is about the edge scheduler's backpressure.
-        stream.onFrame(() => undefined);
-        stream.onReset((reset) => {
-          resetInfo = reset;
-        });
-      },
-    });
-
-    const browser = new WebSocket(`${edge.base.replace(/^http/, 'ws')}/d/${device.deviceId}/api/remote.mux`, {
-      headers: { cookie: owner.jar.header() },
-    });
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        browser.once('open', resolve);
-        browser.once('error', reject);
-        browser.once('unexpected-response', (_request, response) => reject(new Error(`upgrade ${String(response.statusCode)}`)));
-      });
-      expect(agentStream).toBeDefined();
-
-      // Stop the agent reading its tunnel; browser frames then pile up in the
-      // edge mux scheduler instead of crossing the wire.
-      const agentSocket = (agent.ws as unknown as { _socket?: import('node:net').Socket })._socket;
-      expect(agentSocket).toBeDefined();
-      agentSocket?.pause();
-
-      const chunk = Buffer.alloc(8 * 1024, 0x42);
-      for (let index = 0; index < 1_600; index += 1) {
-        if (browser.readyState !== WebSocket.OPEN) break;
-        browser.send(chunk);
-        if (index % 32 === 0) await new Promise((resolve) => setImmediate(resolve));
-      }
-
-      const closeCode = await new Promise<number>((resolve) => {
-        browser.once('close', (code) => resolve(code));
-        setTimeout(() => resolve(-1), 5_000).unref();
-      });
-      expect(closeCode).not.toBe(-1);
-
-      agentSocket?.resume();
-      const reset = await waitFor(() => resetInfo, 5_000, 'WS_BACKPRESSURE reset');
-      expect(reset.code).toBe('WS_BACKPRESSURE');
-      expect(reset.retryable).toBe(true);
-    } finally {
-      try {
-        browser.terminate();
-      } catch {
-        /* already gone */
-      }
-      await agent.close();
     }
   });
 });

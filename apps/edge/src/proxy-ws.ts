@@ -33,13 +33,32 @@ import { rejectUpgrade, toBytes } from './upgrade.js';
  */
 export const MAX_BROWSER_WS_BUFFERED_BYTES = 16 * 1024 * 1024;
 export const MAX_TUNNEL_QUEUED_FRAMES = 1024;
+export const WS_BACKPRESSURE = 'WS_BACKPRESSURE' as const;
+
+export interface BackpressureAbort {
+  code: typeof WS_BACKPRESSURE;
+  reason: string;
+  retryable: true;
+}
+
+/** Decision for the agent -> browser direction. */
+export function browserBackpressureDecision(bufferedAmount: number): BackpressureAbort | undefined {
+  if (bufferedAmount <= MAX_BROWSER_WS_BUFFERED_BYTES) return undefined;
+  return { code: WS_BACKPRESSURE, reason: 'browser is not consuming websocket frames', retryable: true };
+}
+
+/** Decision for the browser -> agent direction (outbound mux scheduler). */
+export function tunnelBackpressureDecision(queuedFrames: number): BackpressureAbort | undefined {
+  if (queuedFrames <= MAX_TUNNEL_QUEUED_FRAMES) return undefined;
+  return { code: WS_BACKPRESSURE, reason: 'tunnel outbound queue is saturated', retryable: true };
+}
 
 export function browserBackpressureExceeded(bufferedAmount: number): boolean {
-  return bufferedAmount > MAX_BROWSER_WS_BUFFERED_BYTES;
+  return browserBackpressureDecision(bufferedAmount) !== undefined;
 }
 
 export function tunnelBackpressureExceeded(queuedFrames: number): boolean {
-  return queuedFrames > MAX_TUNNEL_QUEUED_FRAMES;
+  return tunnelBackpressureDecision(queuedFrames) !== undefined;
 }
 
 export interface DeviceWsRequest {
@@ -192,8 +211,9 @@ function relay(ws: WebSocket, stream: Stream, mux: Mux, input: DeviceWsRequest):
     if (closed || ws.readyState !== 1) return;
 
     // Agent -> browser: never let a slow/paused browser grow edge memory.
-    if (browserBackpressureExceeded(ws.bufferedAmount)) {
-      abortBackpressure('WS_BACKPRESSURE', 'browser is not consuming websocket frames');
+    const browserAbort = browserBackpressureDecision(ws.bufferedAmount);
+    if (browserAbort !== undefined) {
+      abortBackpressure(browserAbort.code, browserAbort.reason);
       return;
     }
 
@@ -249,8 +269,9 @@ function relay(ws: WebSocket, stream: Stream, mux: Mux, input: DeviceWsRequest):
     }
     // Browser -> agent: stop before the outbound mux queues grow without
     // bound. This is a byte-budgeted stream in reverse, not a normal path.
-    if (tunnelBackpressureExceeded(mux.stats().queuedFrames)) {
-      abortBackpressure('WS_BACKPRESSURE', 'tunnel outbound queue is saturated');
+    const tunnelAbort = tunnelBackpressureDecision(mux.stats().queuedFrames);
+    if (tunnelAbort !== undefined) {
+      abortBackpressure(tunnelAbort.code, tunnelAbort.reason);
       return;
     }
     try {
