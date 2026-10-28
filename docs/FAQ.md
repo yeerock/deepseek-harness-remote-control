@@ -213,7 +213,7 @@ Tailscale supervision on Linux — run `tailscaled` or `tailscale up` separately
 ## How do I update Node and Tailscale?
 
 The verified runtime is **Node 24.22.1** and **Tailscale 1.104.4**. The
-repository engine floor is `node >=22.13.0`; do not run older than that.
+repository engine floor is `node >=24.0.0`; do not run older than that.
 
 On macOS, Node's absolute path is embedded in `~/.dsh-rc/run-edge.sh`, so
 re-run the installer after changing Node:

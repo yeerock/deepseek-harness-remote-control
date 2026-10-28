@@ -12,7 +12,7 @@ Four supported shapes:
 4. **macOS host + Tailscale Funnel** — launchd user agents and userspace
    Tailscale; the tested personal-host shape (§6).
 
-Everything below assumes the repository is checked out and Node.js ≥ 22.13 is
+Everything below assumes the repository is checked out and Node.js ≥ 24.0 is
 installed (`package.json` `engines`). The v0.2.0 macOS host is verified with
 **Node 24.22.1** and **Tailscale 1.104.4**; use Node 24 LTS.
 
@@ -434,7 +434,7 @@ Tailscale runs as a **userspace daemon** under a second agent, and **Tailscale
 Funnel** provides the public HTTPS origin. No sudo, no router port forwarding.
 
 Verified with **Node 24.22.1** and **Tailscale 1.104.4** (Homebrew latest at the
-time). The repository engine floor is `node >=22.13.0`; use Node 24 LTS. Funnel
+time). The repository engine floor is `node >=24.0.0`; use Node 24 LTS. Funnel
 requires a tailnet with HTTPS certificates and Funnel enabled.
 
 ### 6.1 Install

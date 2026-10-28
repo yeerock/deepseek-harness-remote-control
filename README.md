@@ -101,7 +101,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 | Component | Requirement |
 | --- | --- |
 | Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.0`) |
-| Edge | Node.js ≥ 22.13 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. macOS hosts use the included launchd installer |
+| Edge | Node.js ≥ 24.0 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. macOS hosts use the included launchd installer |
 | Browser | Any current Chromium, Firefox or Safari |
 | Network | Outbound 443 from the desktop; no inbound ports, no UDP |
 

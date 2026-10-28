@@ -5,7 +5,7 @@
 #
 #   DSHRC_PUBLIC_URL=https://your-name.tailnet.ts.net ./scripts/install-macos.sh
 #
-# Requirements: Node >= 22.13, Tailscale CLI (`brew install tailscale`), and a
+# Requirements: Node >= 24.0, Tailscale CLI (`brew install tailscale`), and a
 # tailnet with Funnel enabled. Runs entirely as the current user; no sudo.
 set -eu
 
@@ -26,8 +26,8 @@ die() { printf 'dsh-rc install: %s\n' "$*" >&2; exit 1; }
 [ -n "$NODE_BIN" ] || die "node not found; install Node 24 LTS and retry"
 NODE_VERSION=$("$NODE_BIN" -p 'process.versions.node')
 say "node $NODE_VERSION ($NODE_BIN)"
-"$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<22||(a===22&&b<13)) process.exit(1)' \
-  || die "Node >= 22.13 is required (24 LTS recommended)"
+"$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<24) process.exit(1)' \
+  || die "Node >= 24.0 is required (24 LTS recommended)"
 
 [ -n "$PUBLIC_URL" ] || die "set DSHRC_PUBLIC_URL, e.g. https://machine.tailnet.ts.net"
 case "$PUBLIC_URL" in

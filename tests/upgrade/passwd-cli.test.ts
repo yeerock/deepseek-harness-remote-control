@@ -117,7 +117,9 @@ describe('dsh-rc-edge-passwd', () => {
 
   it('rotates the owner password so the old one fails and the new one works', async () => {
     const cli = await runPasswd(rotatedDir, NEW_PASSWORD);
-    expect(cli.stderr).toBe('');
+    // Node 22 prints an ExperimentalWarning for node:sqlite; only our own
+    // errors matter here.
+    expect(cli.stderr).not.toContain('dsh-rc passwd:');
     expect(cli.code).toBe(0);
     expect(cli.stdout).toContain('owner password updated');
 

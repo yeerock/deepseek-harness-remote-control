@@ -36,7 +36,7 @@ npx tsx tools/bench/bench.ts
 DSH_BIN=/path/to/@deepseek-ai/dsh/lib/bin.js npx tsx tests/smoke/real-dsh.ts
 ```
 
-Requirements: Node >= 22.13 (the edge uses `node:sqlite`), deps installed
+Requirements: Node >= 24.0 (the edge uses `node:sqlite`), deps installed
 (`npm ci`), and the workspace packages built at least once (`npm run build`) so
 the spawned edge can resolve `@dsh-rc/*` dist files. The bench and integration
 harness fail with `apps/edge/src/main.ts …` / `apps/agent/src/index.ts …` in the
@@ -217,5 +217,5 @@ Run command: `npx vitest run tests/upgrade` (21 tests, ~2.5 s).
   not a headless browser; the actual JS client is package scope.
 - **Real DSH smoke** requires a local DSH install and is manual/optional; CI uses
   the mock only.
-- CI runs Node 22 and 24 on Ubuntu; local numbers above are macOS/arm64 and are
+- CI runs Node 24 on Ubuntu; local numbers above are macOS/arm64 and are
   not comparable to CI runner numbers.

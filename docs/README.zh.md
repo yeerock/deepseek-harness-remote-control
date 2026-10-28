@@ -79,7 +79,7 @@ Remote Control 反过来下注：**一种可靠传输、真实 UI、把 edge 放
 | 组件 | 要求 |
 | --- | --- |
 | 桌面端 | DeepSeek Harness **0.2.1-rc.3**；插件声明 `>=0.2.1-rc.3 <0.3.0` |
-| Edge | Node.js ≥ 22.13（或 Docker 镜像），生产环境需要一个域名做 TLS |
+| Edge | Node.js ≥ 24.0（或 Docker 镜像），生产环境需要一个域名做 TLS |
 | 浏览器 | 任意较新的 Chromium、Firefox 或 Safari |
 | 网络 | 桌面端能出站访问 443；不需要入站端口，不需要 UDP |
 
