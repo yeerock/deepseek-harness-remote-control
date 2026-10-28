@@ -4,7 +4,6 @@ import { buildJoinPrompt, isLoopbackOrigin, REPO_TAG, REPO_URL } from '../src/on
 describe('join prompt', () => {
   const base = {
     publicUrl: 'https://dsh-rc.example.ts.net',
-    hostname: 'workshop-mac',
     version: '0.2.0',
   };
 
@@ -13,7 +12,8 @@ describe('join prompt', () => {
     expect(prompt).toContain('https://dsh-rc.example.ts.net');
     expect(prompt).toContain(REPO_URL);
     expect(prompt).toContain(REPO_TAG);
-    expect(prompt).toContain('workshop-mac');
+    expect(prompt).toContain('$(hostname)');
+    expect(prompt).not.toContain('workshop-mac');
     expect(prompt).toContain('DSH RC 0.2.0');
     expect(prompt).toContain('git clone --branch');
     expect(prompt).toContain('scripts/join-edge.sh');
@@ -31,11 +31,10 @@ describe('join prompt', () => {
   });
 
   it('sanitizes the device name and trailing slashes', () => {
-    const prompt = buildJoinPrompt({ ...base, publicUrl: 'https://edge.example/', hostname: 'bad\r\nname"' });
+    const prompt = buildJoinPrompt({ ...base, publicUrl: 'https://edge.example/' });
     expect(prompt).toContain('https://edge.example');
     expect(prompt).not.toContain('https://edge.example/');
     expect(prompt).not.toContain('\r');
-    expect(prompt).not.toContain('bad\nname');
   });
 
   it('classifies loopback and invalid origins', () => {

@@ -14,8 +14,6 @@ export const PLUGIN_VERSION = '0.2.0';
 export interface JoinPromptOptions {
   /** Public edge origin; loopback URLs are rejected by the caller. */
   publicUrl: string;
-  /** Device label the new host should use. */
-  hostname: string;
   /** Plugin version pinned into the prompt. */
   version?: string;
   /** Repository URL; tests may override, production uses the constant. */
@@ -43,11 +41,10 @@ export function buildJoinPrompt(options: JoinPromptOptions): string {
   const tag = options.tag ?? REPO_TAG;
   const version = options.version ?? PLUGIN_VERSION;
   const edge = options.publicUrl.replace(/\/+$/, '');
-  const hostname = options.hostname.replace(/["\r\n]/g, '').slice(0, 64) || 'dsh-desktop';
   return [
-    `You are on a DeepSeek Harness desktop. Pair this Harness as a DSH RC ${version} host on the existing edge at ${edge} (device name "${hostname}"), end to end, without asking for the owner password or any secret.`,
+    `You are on a DeepSeek Harness desktop. Pair this Harness as a DSH RC ${version} host on the existing edge at ${edge}, using this computer's hostname as its device name, end to end, without asking for the owner password or any secret.`,
     `(1) If ~/dsh-rc does not exist, run: git clone --branch ${tag} ${repo} ~/dsh-rc ; otherwise run: cd ~/dsh-rc && git fetch --tags && git checkout ${tag}.`,
-    `(2) Run: ~/dsh-rc/scripts/join-edge.sh "${edge}" "${hostname}" . That script installs DSH RC into the profile this Harness instance uses, points its agent at the edge, and prints the restart step.`,
+    `(2) Run: ~/dsh-rc/scripts/join-edge.sh "${edge}" "$(hostname)" . That script installs DSH RC into the profile this Harness instance uses, points its agent at the edge, and prints the restart step.`,
     `(3) Ask me to restart DeepSeek Harness; after the restart confirm that ~/.dsh/rc/status.json reaches state "online" and report its deviceId.`,
     `(4) Stop and wait: I will approve this Harness as a device in Remote Control or the edge dashboard. Do not enable sharing, do not request or share the owner password, do not use a guest invite link, and do not modify other profile entries. Report every command you ran and any error.`,
   ].join(' ');

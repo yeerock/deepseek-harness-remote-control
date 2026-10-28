@@ -10,7 +10,6 @@
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
-import { hostname } from 'node:os';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
@@ -462,7 +461,7 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         if (publicUrl === '' || isLoopbackOrigin(publicUrl)) {
           return rpcOk({ prompt: null, reason: 'public-url-required' });
         }
-        return rpcOk({ prompt: buildJoinPrompt({ publicUrl, hostname: hostname(), version: PLUGIN_VERSION }) });
+        return rpcOk({ prompt: buildJoinPrompt({ publicUrl, version: PLUGIN_VERSION }) });
       }
       default:
         return rpcFail('not-found', `unknown dsh-rc endpoint ${JSON.stringify(endpoint)}`);
