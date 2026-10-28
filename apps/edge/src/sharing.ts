@@ -84,8 +84,9 @@ export function validateInviteInput(body: unknown): { ok: true; value: InviteInp
   }
   const record = body as Record<string, unknown>;
   const rawLabel = record['label'];
-  const label = rawLabel === undefined ? 'Guest' : typeof rawLabel === 'string' ? rawLabel.trim() : undefined;
-  if (label === undefined || label === '' || label.length > MAX_INVITE_LABEL || CONTROL_RE.test(label)) {
+  const trimmedLabel = rawLabel === undefined ? 'Guest' : typeof rawLabel === 'string' ? rawLabel.trim() : undefined;
+  const label = trimmedLabel === '' ? 'Guest' : trimmedLabel;
+  if (label === undefined || label.length > MAX_INVITE_LABEL || CONTROL_RE.test(label)) {
     return { ok: false, error: `label must be 1-${String(MAX_INVITE_LABEL)} printable characters` };
   }
   const ttlSeconds = record['ttlSeconds'] === undefined

@@ -34,7 +34,7 @@ import { DeviceService, validateRegisterBody } from './devices.js';
 import { GuestConnections } from './guest-connections.js';
 import { proxyDeviceHttp } from './proxy-http.js';
 import { proxyDeviceWs } from './proxy-ws.js';
-import { dashboardPage, guestSessionPage, invitePage, loginPage, pairPage, reconnectingPage, setupPage } from './pages.js';
+import { dashboardPage, guestSessionPage, inviteCreatedPage, invitePage, loginPage, pairPage, reconnectingPage, setupPage } from './pages.js';
 import { SharingService, validateApprovalInput, validateInviteInput } from './sharing.js';
 import { RateLimiter } from './rate-limit.js';
 import { sendErrorPage, sendJsonError, sendPage } from './respond.js';
@@ -49,6 +49,12 @@ const APPROVAL_ID_RE = /^\/v1\/devices\/me\/approvals\/([^/]+)$/;
 const GUESTS_PATH = '/v1/devices/me/guests';
 const GUEST_ID_RE = /^\/v1\/devices\/me\/guests\/([^/]+)$/;
 const INVITE_ROUTE_RE = /^\/i\/([A-Za-z0-9_-]{16,128})(?:\/(claim|status))?$/;
+const OWNER_SHARING_RE = /^\/v1\/devices\/([^/]+)\/sharing$/;
+const OWNER_INVITES_RE = /^\/v1\/devices\/([^/]+)\/invites$/;
+const OWNER_INVITE_REVOKE_RE = /^\/v1\/devices\/([^/]+)\/invites\/([^/]+)\/revoke$/;
+const OWNER_APPROVAL_RE = /^\/v1\/devices\/([^/]+)\/approvals\/([^/]+)$/;
+const OWNER_GUESTS_REVOKE_ALL_RE = /^\/v1\/devices\/([^/]+)\/guests\/revoke-all$/;
+const OWNER_GUEST_REVOKE_RE = /^\/v1\/devices\/([^/]+)\/guests\/([^/]+)\/revoke$/;
 const TRAVERSAL_RE = /[\u0000-\u001f\u007f\\]/;
 const AUDIT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -287,6 +293,42 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     if (guestMatch !== null) {
       if (method !== 'DELETE') return methodNotAllowed(response, ['DELETE']);
       return handleRevokeGuest(request, response, guestMatch[1] ?? '');
+    }
+
+    const ownerSharing = OWNER_SHARING_RE.exec(pathname);
+    if (ownerSharing !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerSharingToggle(request, response, ownerSharing[1] ?? '');
+    }
+
+    const ownerInvites = OWNER_INVITES_RE.exec(pathname);
+    if (ownerInvites !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerInviteCreate(request, response, ownerInvites[1] ?? '');
+    }
+
+    const ownerInviteRevoke = OWNER_INVITE_REVOKE_RE.exec(pathname);
+    if (ownerInviteRevoke !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerInviteRevoke(request, response, ownerInviteRevoke[1] ?? '', ownerInviteRevoke[2] ?? '');
+    }
+
+    const ownerApproval = OWNER_APPROVAL_RE.exec(pathname);
+    if (ownerApproval !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerApproval(request, response, ownerApproval[1] ?? '', ownerApproval[2] ?? '');
+    }
+
+    const ownerGuestsRevokeAll = OWNER_GUESTS_REVOKE_ALL_RE.exec(pathname);
+    if (ownerGuestsRevokeAll !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerGuestsRevokeAll(request, response, ownerGuestsRevokeAll[1] ?? '');
+    }
+
+    const ownerGuestRevoke = OWNER_GUEST_REVOKE_RE.exec(pathname);
+    if (ownerGuestRevoke !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleOwnerGuestRevoke(request, response, ownerGuestRevoke[1] ?? '', ownerGuestRevoke[2] ?? '');
     }
 
     const deviceAction = DEVICE_ACTION_RE.exec(pathname);
@@ -712,6 +754,162 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     sendJson(response, 200, { revoked: result.revoked });
   }
 
+  /* --------------------------- owner dashboard forms ---------------------- */
+
+  async function ownerFormContext(request: IncomingMessage, response: ServerResponse): Promise<URLSearchParams | undefined> {
+    const session = ownerSession(request);
+    if (session === undefined) {
+      redirect(response, 303, '/login');
+      return undefined;
+    }
+    const form = await readFormBody(request);
+    if (form === undefined) {
+      sendErrorPage(response, 400, 'Bad request', 'expected a form submission');
+      return undefined;
+    }
+    const check = auth.verifyStateChange(request, form.get('csrf') ?? undefined);
+    if (!check.ok) {
+      sendErrorPage(response, 403, 'Request rejected', check.reason);
+      return undefined;
+    }
+    return form;
+  }
+
+  function ownerDeviceFor(deviceId: string, response: ServerResponse): DeviceRow | undefined {
+    if (!isValidDeviceId(deviceId)) {
+      sendErrorPage(response, 404, 'Unknown device', 'That device does not exist on this edge.');
+      return undefined;
+    }
+    const device = db.getDevice(deviceId);
+    if (device === undefined) {
+      sendErrorPage(response, 404, 'Unknown device', 'That device does not exist on this edge.');
+      return undefined;
+    }
+    if (device.status !== 'approved') {
+      sendErrorPage(response, 400, 'Device not approved', 'Approve this device before sharing it.');
+      return undefined;
+    }
+    return device;
+  }
+
+  async function handleOwnerSharingToggle(request: IncomingMessage, response: ServerResponse, deviceId: string): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    const enabled = form.get('enabled') === '1';
+    const result = sharing.setEnabled(device, enabled, sharingMeta(request, 'owner'));
+    if (!result.enabled) guestConnections.closeMany(result.sessionIds, 'sharing disabled');
+    redirect(response, 303, '/');
+  }
+
+  async function handleOwnerInviteCreate(request: IncomingMessage, response: ServerResponse, deviceId: string): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    if (!device.sharingEnabled) {
+      sendErrorPage(response, 409, 'Sharing is off', 'Turn on "Share this Harness" before creating an invite.');
+      return;
+    }
+    if (rateLimited(response, `sharing-invite:${device.id}`, config.rateLimits.sharingInvite, false)) return;
+    const body: Record<string, unknown> = {
+      label: form.get('label') ?? 'Guest',
+      ttlSeconds: Number(form.get('ttlSeconds') ?? '3600'),
+      maxUses: Number(form.get('maxUses') ?? '1'),
+    };
+    const validated = validateInviteInput(body);
+    if (!validated.ok) {
+      sendErrorPage(response, 400, 'Invite not created', validated.error);
+      return;
+    }
+    try {
+      const created = sharing.createInvite(device, validated.value, sharingMeta(request, 'owner'), sharingPublicUrl(request));
+      sendPage(response, 200, inviteCreatedPage({
+        deviceName: device.name,
+        label: created.invite.label,
+        url: created.url,
+        expiresAt: created.invite.expiresAt,
+      }));
+    } catch (error) {
+      logger.warn('owner invite creation failed', { deviceId: device.id, error });
+      sendErrorPage(response, 409, 'Invite not created', 'Sharing is disabled for this device.');
+    }
+  }
+
+  async function handleOwnerInviteRevoke(
+    request: IncomingMessage,
+    response: ServerResponse,
+    deviceId: string,
+    inviteId: string,
+  ): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    const result = sharing.deleteInvite(device.id, inviteId, sharingMeta(request, 'owner'));
+    if (!result.ok) {
+      sendErrorPage(response, 404, 'Unknown invite', 'That invite does not exist for this device.');
+      return;
+    }
+    redirect(response, 303, '/');
+  }
+
+  async function handleOwnerApproval(
+    request: IncomingMessage,
+    response: ServerResponse,
+    deviceId: string,
+    approvalId: string,
+  ): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    const raw = form.get('decision');
+    if (raw !== 'approve' && raw !== 'deny') {
+      sendErrorPage(response, 400, 'Bad request', 'decision must be approve or deny');
+      return;
+    }
+    const result = sharing.decideApproval(device.id, approvalId, raw, sharingMeta(request, 'owner'));
+    if (!result.ok) {
+      sendErrorPage(response, 409, 'Approval failed', result.error);
+      return;
+    }
+    redirect(response, 303, '/');
+  }
+
+  async function handleOwnerGuestRevoke(
+    request: IncomingMessage,
+    response: ServerResponse,
+    deviceId: string,
+    sessionId: string,
+  ): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    if (!sharing.revokeGuest(device.id, sessionId, sharingMeta(request, 'owner'))) {
+      sendErrorPage(response, 404, 'Unknown guest', 'That guest session does not exist for this device.');
+      return;
+    }
+    guestConnections.closeSession(sessionId, 'guest session revoked');
+    redirect(response, 303, '/');
+  }
+
+  async function handleOwnerGuestsRevokeAll(
+    request: IncomingMessage,
+    response: ServerResponse,
+    deviceId: string,
+  ): Promise<void> {
+    const form = await ownerFormContext(request, response);
+    if (form === undefined) return;
+    const device = ownerDeviceFor(deviceId, response);
+    if (device === undefined) return;
+    const result = sharing.revokeAllGuests(device.id, sharingMeta(request, 'owner'));
+    guestConnections.closeMany(result.sessionIds, 'guest session revoked');
+    redirect(response, 303, '/');
+  }
+
   /* ------------------------------ guest invites --------------------------- */
 
   function inviteLookup(token: string): { invite: ReturnType<EdgeDatabase['getInvite']>; device: DeviceRow | undefined } {
@@ -884,9 +1082,15 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     }
     const owner = db.getOwner();
     const csrf = auth.ensureCsrf(request, response);
+    const sharingUrl = config.publicUrl !== '' ? config.publicUrl : publicOrigin(request);
     const deviceRows = db.listDevices().map((device) => {
       const presence = tunnels.presence(device);
-      return { device, online: presence.online, reconnecting: presence.reconnecting };
+      return {
+        device,
+        online: presence.online,
+        reconnecting: presence.reconnecting,
+        sharing: sharing.summary(device, sharingUrl),
+      };
     });
     sendPage(
       response,
@@ -961,6 +1165,9 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     const access = checkDeviceAccess(request, device);
     if (!access.ok) return sendErrorPage(response, access.status, access.title, access.message, access.status === 401 ? { 'www-authenticate': 'Cookie' } : {});
 
+    if (access.guest && (parsed.rest === '/dsh-rc' || parsed.rest.startsWith('/dsh-rc/'))) {
+      return sendJsonError(response, 403, 'FORBIDDEN', 'guest sessions cannot call the host plugin');
+    }
     if (hasEncodedTraversal(parsed.rest)) {
       return sendErrorPage(response, 400, 'Bad request', 'Path traversal is not allowed.');
     }
@@ -1036,6 +1243,10 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     const access = checkDeviceAccess(request, device);
     if (!access.ok) {
       rejectUpgrade(socket, access.status, access.message);
+      return;
+    }
+    if (access.guest && (parsed.rest === '/dsh-rc' || parsed.rest.startsWith('/dsh-rc/'))) {
+      rejectUpgrade(socket, 403, 'guest sessions cannot call the host plugin');
       return;
     }
     if (hasEncodedTraversal(parsed.rest)) {

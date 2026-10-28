@@ -1208,6 +1208,10 @@ function createComponent(React: any): (props: AnyProps) => any {
 /* --------------------------------- plugin --------------------------------- */
 
 function apply(ctx: ClientContext): void {
+  // The same client bundle is served to owners and guests. A guest must not
+  // see (or attempt to call) the host sharing controls; the edge also blocks
+  // /dsh-rc for guest sessions as defence in depth.
+  if ((globalThis as unknown as Record<string, unknown>)['__DSH_RC_GUEST__'] === true) return;
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
   ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, { en: EN, zh: ZH }), 'dsh-rc: dictionaries');
 

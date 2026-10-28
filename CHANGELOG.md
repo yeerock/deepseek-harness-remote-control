@@ -3,6 +3,46 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.2.0 — 2026-10-28
+
+Guest sharing and the operations completion pass.
+
+### Added
+
+- **Share this Harness**: owner-scoped sharing toggle, single-use invite links
+  with 15 min / 1 h / 24 h / **Never** TTL, owner approval, multiple
+  simultaneous guests, permanent guest sessions, per-guest Revoke and Revoke
+  all. Guest sessions are device-scoped; admin routes return 403.
+- **Guest Disconnect**: injected `Remote session · Disconnect` pill plus the
+  `/i/session` page; explicit disconnect, owner revoke, sharing-off and device
+  revoke close live guest WebSockets (1008).
+- **Edge dashboard sharing controls**: enable/disable, create invite (URL shown
+  once), approve/deny, list and revoke guests, revoke all.
+- **`dsh-rc-edge-passwd`**: owner password rotation from `DSHRC_NEW_PASSWORD`
+  (never argv), scrypt, no restart.
+- **macOS supervision**: standalone CJS edge bundle, `com.dshrc.edge` and
+  `com.dshrc.tailscaled` launchd agents, `scripts/install-macos.sh`,
+  `npm run build:bundle`.
+
+### Fixed
+
+- Real-browser form POSTs: `Referrer-Policy: no-referrer` made Chromium send
+  `Origin: null`; owner login/setup/pair/claim were rejected as cross-site.
+  Edge pages now use `same-origin` and accept `Origin: null` only with
+  `Sec-Fetch-Site: same-origin`.
+- Post-claim guest page showed “Invite unavailable” instead of “Waiting for
+  approval”; the claim cookie now takes precedence.
+- Guest Disconnect pill was skipped on DSH's gzipped HTML; guest document
+  requests ask for identity encoding.
+- Upgrades no longer orphan the approved device: the plugin falls back to the
+  legacy `<DSH_HOME>/link` state dir when `<DSH_HOME>/rc` is absent.
+
+### Verified
+
+- 276 automated tests; real-DSH E2E; guest flow through Tailscale Funnel
+  (request → waiting → approve → Harness UI + `remote.mux` WebSocket).
+- Runtime verified with Node 24.22.1 and Tailscale 1.104.4.
+
 ## v0.1.0 — 2026-10-28
 
 First end-to-end release. Desktop-only remote access for DeepSeek Harness

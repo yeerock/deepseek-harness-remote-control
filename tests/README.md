@@ -19,6 +19,9 @@ npx vitest run tests/integration
 # idle timeout by waiting 61 s; the other three files run in parallel with it)
 npx vitest run tests/sharing
 
+# v0.2 browser/upgrade regression suite (21 tests, ~2.5 s)
+npx vitest run tests/upgrade
+
 # Typecheck tests + bench without touching the app builds
 npx tsc -p tests/tsconfig.json
 
@@ -53,6 +56,10 @@ message if a piece is missing.
 | `sharing/guest-flow.test.ts` | Claim → approval → guest cookie, admin isolation, disconnect, revoke one/all, sharing off, device revoke, WS across agent restart. |
 | `sharing/multiple-guests.test.ts` | Concurrent claims/approvals and simultaneous guest HTTP + WS with no 409. |
 | `sharing/permanence.test.ts` | `expiresAt: null`, 10-year cookie, edge-restart survival, >60 s idle survival. |
+| `upgrade/browser-regressions.test.ts` | `Origin: null` + Fetch Metadata policy, guest Disconnect pill, API/asset/owner non-injection. |
+| `upgrade/dashboard-sharing.test.ts` | Owner login → dashboard toggle → Never invite → claim → dashboard approve → guest `/d/` + WS → Revoke all closes. |
+| `upgrade/passwd-cli.test.ts` | DB copy + password rotation, old fails/new works, short/no-owner non-zero, bin mapping. |
+| `upgrade/state-dir.test.ts` | Plugin `<DSH_HOME>/link` → `<DSH_HOME>/rc` upgrade fallback and precedence. |
 | `smoke/real-dsh.ts` | Boots an isolated real DSH web profile and loads its index + main JS bundle + `/api/remote.mux` through edge → agent. |
 
 ## Coverage matrix
@@ -145,6 +152,27 @@ edge's 2 s approval poll). Run `tests/smoke/real-dsh.ts` for current numbers.
 - The harness kills the edge with SIGTERM→SIGKILL and the agent `stop()` is
   idempotent, so vitest exits with no open handles.
 
+## v0.2 upgrade/browser coverage (`tests/upgrade`)
+
+| Requirement | Test | What is asserted |
+| --- | --- | --- |
+| `Origin: null` + `Sec-Fetch-Site: same-origin` accepted | browser-regressions "accepts Origin: null … guest claim" | 200 pending + `dshrc_claim` cookie |
+| `Origin: null` + cross-site rejected | browser-regressions "rejects Origin: null when Fetch Metadata says cross-site" | 403, no claim cookie, no pending approval |
+| Explicit cross-site rejected | browser-regressions "rejects an explicit cross-site Origin" | 403 even with same-origin Fetch Metadata |
+| Missing CSRF still rejected | browser-regressions "no CSRF token" | 403 |
+| Owner form POST accepts `Origin: null` | browser-regressions "owner-session form POST (device approve)" | 303, device becomes approved |
+| Guest Disconnect pill | browser-regressions "injects the Disconnect pill" | browser-like `Accept`/`Accept-Encoding` → `id="dshrc-guest-pill"` once, link `/i/session`, no `content-encoding`; session page + Disconnect works |
+| No pill for API/assets/owner | browser-regressions "does not inject the pill" | API/JS bodies and owner HTML untouched |
+| Password rotation | passwd-cli "rotates the owner password" | copied DB, old password 403, new password 303 + session + dashboard 200 |
+| Short password | passwd-cli "rejects a short password" | non-zero exit, no update, previous password still works |
+| No owner | passwd-cli "database has no owner" | non-zero exit and actionable stderr |
+| Bin packaging | passwd-cli "packaged as" | `apps/edge/package.json` bin maps `dsh-rc-edge-passwd` → `dist/passwd.js` |
+| Legacy state dir | state-dir "uses the legacy `<DSH_HOME>/link` identity" | legacy wins when `rc/device.json` absent |
+| Modern precedence | state-dir "prefers the modern", "neither identity", "config.stateDir" | modern wins when both exist; default is `rc`; explicit config overrides DSH_HOME |
+| Owner dashboard sharing | dashboard-sharing 5 tests | login redirect + password login, toggle on, Never invite URL shown once, pending approval approved from dashboard, guest `/d/` + WS, Revoke all → 303 + WS 1008 + guest 401 |
+
+Run command: `npx vitest run tests/upgrade` (21 tests, ~2.5 s).
+
 ## Contract notes
 
 - `docs/SHARING.md` v0.2 supersedes the earlier task-6 draft wording that
@@ -179,6 +207,14 @@ edge's 2 s approval poll). Run `tests/smoke/real-dsh.ts` for current numbers.
   are covered by edge unit tests; the integration suite stays below them.
 - **Plugin share panel** (toggle, QR, approvals UI) is out of scope for this
   suite and covered by `packages/plugin/tests/sharing.test.ts`.
+- **Password CLI binary linkage**: workspaces do not link private-package bins
+  into `node_modules/.bin`, so the test runs the same entry through
+  `node --import tsx apps/edge/src/passwd.ts`; the `bin` mapping to
+  `dist/passwd.js` is asserted separately. CI builds dist before tests.
+- **Disconnect-pill injection cap**: HTML over the edge's 2 MiB inject buffer is
+  streamed without the pill by design; the 37 KiB index is the tested path.
+- **Browser DOM**: dashboard and pill tests use real HTTP form posts and bodies,
+  not a headless browser; the actual JS client is package scope.
 - **Real DSH smoke** requires a local DSH install and is manual/optional; CI uses
   the mock only.
 - CI runs Node 22 and 24 on Ubuntu; local numbers above are macOS/arm64 and are

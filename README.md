@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.1.0.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 245 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.2.0.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 276 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -101,7 +101,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 | Component | Requirement |
 | --- | --- |
 | Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.0`) |
-| Edge | Node.js ≥ 22.13 (or the Docker image), a domain for TLS in production |
+| Edge | Node.js ≥ 22.13 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. macOS hosts use the included launchd installer |
 | Browser | Any current Chromium, Firefox or Safari |
 | Network | Outbound 443 from the desktop; no inbound ports, no UDP |
 
@@ -194,7 +194,8 @@ default**, and it is scoped to one device.
    Harness before you approve.
 5. The guest lands in the real Harness UI at `/d/<deviceId>/`. You can watch
    them under **Active guests** (label, IP, since) and press **Revoke**, or
-   **Revoke all**.
+   **Revoke all**. The same controls are available in the edge owner dashboard
+   at `/` for operators who prefer the browser.
 
 ### What a guest can and cannot do
 
@@ -252,7 +253,7 @@ self-host it if that matters. Residual risk and the full STRIDE pass:
 [THREAT-MODEL.md](docs/THREAT-MODEL.md). Report issues per
 [SECURITY.md](docs/SECURITY.md).
 
-![Edge dashboard: devices, online state and audit tail](docs/images/edge-dashboard.png)
+![Edge dashboard: sharing controls, devices, approvals and audit](docs/images/edge-dashboard-sharing.png)
 
 ## Verification
 

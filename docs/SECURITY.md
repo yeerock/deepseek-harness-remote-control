@@ -106,6 +106,9 @@ comes from `node:crypto.randomBytes`.
 - There is no anonymous access to `/d/:deviceId/`, `/v1/devices/*`, or the
   dashboard. `/healthz` and `/v1/edge` are intentionally public and must not
   contain secrets.
+- Guests are blocked from the host plugin RPC: the edge rejects
+  `/d/<device>/dsh-rc` and its subtree with 403, and guest HTML sets
+  `globalThis.__DSH_RC_GUEST__=true` so the client does not register its UI.
 
 ### Request policy
 
@@ -173,6 +176,9 @@ that demonstrates a *new* impact from one of them is still welcome.
 - Review **Active guests** regularly; use **Revoke all** and turn sharing off if
   a guest machine may be compromised. Guest sessions do not expire on their own.
 - Ship audit/log lines to an append-only sink if they are evidence.
+- On macOS, treat `~/Library/LaunchAgents/com.dshrc.*.plist`,
+  `~/.dsh-rc/run-edge.sh` and the Tailscale state as user-level credentials;
+  keep the account and disk encrypted.
 - Pin container images by digest; install with `npm ci`.
 
 ## Safe harbor

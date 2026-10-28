@@ -5,7 +5,7 @@ own connection.
 
 Commands assume a systemd install under `/opt/dsh-rc` with the edge service
 `dsh-rc-edge` and data directory `/var/lib/dsh-rc`. Docker equivalents are
-in `docs/DEPLOY.md` §6-7. Replace `link.example.com` with your origin.
+in `docs/DEPLOY.md` §7-8. Replace `link.example.com` with your origin.
 
 ## 1. First-run setup
 
@@ -158,7 +158,32 @@ guest, and guest sessions are device-scoped but **never expire on their own**.
 
 ### 3.1 Turn sharing on and create an invite
 
-In the sidebar panel: **Share this Harness → On**, choose **Invite expires**
+There are two front ends for the same service: the plugin's sidebar panel and
+the edge dashboard. Both approve every guest.
+
+**Edge dashboard (owner session).** Sign in at `/login`, then use the
+**Sharing** section on `/`:
+
+- per approved device: **Share this Harness** / **Stop sharing** (off shows
+  “Off — nobody else can connect”), the advertised public URL, and a loopback
+  warning when the URL cannot reach another machine;
+- **Create invite** form: **Label**, **Expires** (15 minutes / 1 hour / 24 hours
+  / **Never**), **Max uses** (1–10). After the form POST the one-time URL is
+  shown on an **Invite created** page; it is not retrievable again from the
+  dashboard;
+- **Outstanding invites** with **Revoke**;
+- **Waiting for approval** with label, IP, age, **Approve** / **Deny**;
+- **Active guests** with label, IP, since, **Revoke**, and **Revoke all guests**;
+- a standing warning: guest sessions never expire; multiple guests share one
+  desktop and can interfere.
+
+The dashboard forms are owner-session + CSRF and post to
+`/v1/devices/:id/sharing`, `/invites`, `/invites/:inviteId/revoke`,
+`/approvals/:approvalId`, `/guests/:sessionId/revoke` and
+`/guests/revoke-all`. They are not the device-secret API; a guest session
+cannot reach any of them (403).
+
+**Plugin sidebar.** Turn on **Share this Harness**, choose **Invite expires**
 (**15 minutes**, **1 hour**, **24 hours**, or **Never**), press **Create
 invite**. The link is shown once, with **Copy** and a QR code.
 
@@ -257,8 +282,9 @@ curl -fsS -H "authorization: Bearer $SECRET" -H 'content-type: application/json'
 ```
 
 Guest HTML responses also carry a fixed **Remote session · Disconnect** pill
-that links to `/i/session`; if injection is skipped (compressed or large
-responses), `/i/session` remains the canonical control.
+that links to `/i/session`. The edge decodes gzip, injects the pill and strips
+the content-encoding; for large or unknown encodings it skips injection and
+`/i/session` remains the canonical control.
 
 Revocation is immediate: the session row is deleted and its browser WebSockets
 are closed. A revoked guest gets `401`/`403` on the next request. To
@@ -379,15 +405,20 @@ whenever a laptop changes hands.
 - **Log out one browser**: `POST /logout` from that browser.
 - **Invalidate every session**: delete/rotate the `session_secret` setting and
   restart the edge. Every `dshrc_session` cookie becomes unverifiable.
-- **Change the owner password**: use the `dsh-rc-edge-passwd` command; no
-  database surgery and no restart:
+- **Change the owner password**: use `dsh-rc-edge-passwd` (or the same script
+  from the repo); no database surgery and no restart:
   ```bash
   read -s NEW_PW
-  DSHRC_NEW_PASSWORD="$NEW_PW" node apps/edge/dist/passwd.js --data-dir ~/.dsh-rc/edge
+  DSHRC_NEW_PASSWORD="$NEW_PW" dsh-rc-edge-passwd --data-dir "$HOME/.dsh-rc/edge"
+
+  # from a checkout, if the bin is not on PATH:
+  DSHRC_NEW_PASSWORD="$NEW_PW" node apps/edge/dist/passwd.js --data-dir "$HOME/.dsh-rc/edge"
   ```
   The password is read from the environment (never argv, never logged), must be
-  12-256 characters, and replaces the owner hash in place. The next login uses
-  it; existing owner sessions remain valid until logout or secret rotation.
+  12–256 characters, and replaces the owner hash in place. The command exits
+  `2` for a too-short password and `1` if the database or owner row is missing.
+  The next login uses the new password; existing owner sessions remain valid
+  until logout or secret rotation.
 
 ## 7. Reading audit rows
 
@@ -571,6 +602,9 @@ alive.
 - CSRF: a `POST` without the double-submit token is rejected, and so is one
   with a cross-site `Origin`. Send both cookies and the token (see §2.2):
   `-b "dshrc_session=…; dshrc_csrf=…" -H "x-csrf-token: …" -d "csrf=…"`.
+- `Origin: null` is accepted only with `Sec-Fetch-Site: same-origin`. This is
+  what a real browser sends when `Referrer-Policy: no-referrer` hides the
+  origin; a script that sends `Origin: null` without that header is rejected.
 
 ## 10. Diagnosing WebSocket and tunnel failures
 
@@ -681,12 +715,94 @@ Revoke its device, stop the agent, restart DSH, rotate the OS account password
 and any credentials in the workspace. The edge cannot inspect what the agent
 did before revocation; DSH's own logs are the record.
 
-## 14. Maintenance calendar
+## 14. macOS launchd supervision
+
+On macOS the edge is supervised by two per-user LaunchAgents, not by a root
+daemon and not by a terminal window. This is the tested v0.2.0 shape
+(`docs/DEPLOY.md` §6).
+
+| Label | Program | Log |
+| --- | --- | --- |
+| `com.dshrc.edge` | `~/.dsh-rc/run-edge.sh` → `~/Library/Application Support/dsh-rc/edge/main.cjs` | `~/.dsh-rc/edge.log` |
+| `com.dshrc.tailscaled` | `/opt/homebrew/opt/tailscale/bin/tailscaled --tun=userspace-networking` with state/socket under `~/.dsh-rc/tailscale/` | `~/.dsh-rc/tailscale/tailscaled.log` |
+
+Both plists live in `~/Library/LaunchAgents/`, use `RunAtLoad` and `KeepAlive`,
+and run in the GUI domain.
+
+### 14.1 Reboot and sleep behaviour
+
+- The agents start when the user **logs in**, not at boot before login. A Mac
+  sitting at the login screen has no edge.
+- After login, launchd starts tailscaled and the edge; the edge reopens
+  `~/.dsh-rc/edge/dshrc.sqlite` and the agent reconnects its tunnel. The Funnel
+  configuration persists in the tailscaled state directory.
+- **No access while the Mac is asleep or powered off.** Guest sessions are
+  permanent and survive; the path does not. They resume when the host returns.
+- Verify after a reboot:
+  ```bash
+  launchctl print "gui/$(id -u)/com.dshrc.edge" | grep -E 'state|pid'
+  curl -fsS http://127.0.0.1:8787/healthz
+  curl -fsS "https://<machine>.<tailnet>.ts.net/healthz"
+  ```
+
+### 14.2 Restart the edge safely
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+sleep 1
+curl -fsS http://127.0.0.1:8787/healthz
+```
+
+`kickstart -k` restarts the service without unloading the plist. In-flight
+browser requests fail; agents reconnect automatically (full-jitter 250 ms–20 s)
+and guest sessions remain valid. Do not `kill` the PID: launchd will restart it,
+but you lose the clean shutdown path that closes tunnels and the database.
+
+If Funnel itself is broken, restart tailscaled first, then the edge:
+
+```bash
+SOCK="$HOME/.dsh-rc/tailscale/tailscaled.sock"
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.tailscaled"
+tailscale --socket="$SOCK" funnel status
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+tailscale --socket="$SOCK" funnel status
+```
+
+### 14.3 Update Node and Tailscale
+
+Node is embedded by absolute path in `~/.dsh-rc/run-edge.sh` at install time.
+After installing Node 24.22+ (or switching nvm versions), re-run the installer
+so the new path is written, or edit `run-edge.sh` and kickstart the agent:
+
+```bash
+DSHRC_PUBLIC_URL="https://<machine>.<tailnet>.ts.net" \
+  DSHRC_NODE="$(command -v node)" \
+  ./scripts/install-macos.sh
+```
+
+Tailscale:
+
+```bash
+brew upgrade tailscale
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.tailscaled"
+tailscale version                     # verified with 1.104.4
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+```
+
+Re-running the installer is idempotent and keeps the data directory. Confirm the
+version you actually run, not just the one on `PATH`:
+
+```bash
+NODE_USED=$(awk '/^exec /{print $2; exit}' "$HOME/.dsh-rc/run-edge.sh")
+"$NODE_USED" --version
+```
+
+## 15. Maintenance calendar
 
 | Interval | Task |
 | --- | --- |
 | Daily | Backup succeeded; error logs reviewed; certificate valid |
 | Weekly | Audit rows for unexpected `pair`/`register`/`revoke`; disk headroom |
 | Monthly | Restore a backup to a scratch path and verify it opens; review device list |
-| Quarterly | Rotate device secrets (§5); upgrade to the latest tag (§7 of `docs/DEPLOY.md`) |
+| Quarterly | Rotate device secrets (§5); upgrade to the latest tag (§8 of `docs/DEPLOY.md`); check Node/Tailscale versions and update per §14.3 |
 | On change | Re-read `docs/THREAT-MODEL.md` §11 triggers |

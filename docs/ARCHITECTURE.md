@@ -164,3 +164,89 @@ browser ──pair code (8 chars, 10 min, single use)──▶ access to that de
 
 These are targets to measure, not claims. `tools/bench` reports the numbers and
 the README cites them with the machine and date.
+
+## 10. Guest sharing (v0.2)
+
+Sharing is a second authorization path layered on the same proxy. It is **off by
+default and per device**; the owner enables it on the device that owns the
+Harness. A guest is neither an owner nor a paired browser: it holds a
+device-scoped session and reaches only `/d/<deviceId>/*`.
+
+```
+sharing off
+   │ owner enables (dashboard or device API)
+   ▼
+enabled ──create invite──▶ invite (single-use default; TTL 15m/1h/24h/Never)
+   │                              │ guest opens /i/<token>
+   │                              ▼
+   │                         claim pending ──owner deny──▶ denied
+   │                              │ owner approve
+   │                              ▼
+   └───────────────────────▶ guest session (expiresAt = null)
+                                  │
+        guest Disconnect / owner Revoke / Revoke all /
+        sharing off / device revoke / DB deleted
+                                  ▼
+                                ended
+```
+
+| State | Stored as | Ends when |
+| --- | --- | --- |
+| Invite | `invites`, `token_hash` = SHA-256, `expires_at` 0 = never | used up, revoked, TTL reached, sharing off |
+| Pending approval | `approvals.status = 'pending'` | approved, denied, invite expired/revoked, sharing off |
+| Guest session | `sessions.kind='guest'`, `expires_at = NULL` | guest Disconnect, owner revoke one/all, sharing off, device revoke, DB deletion |
+
+- Claim cookies are signed, HttpOnly, SameSite=Lax, Secure on HTTPS, 24 h; a
+  claim is never a session.
+- The guest cookie is `dshrc_guest`, signed with the persisted edge secret, with
+  a 10-year Max-Age and **no server-side expiry**. It survives edge restarts and
+  tunnel reconnects; there is no idle timeout.
+- **Multiple guests may hold sessions at once.** No controller lock, no
+  `GUEST_BUSY`; they share one single-user desktop and can interfere.
+- Admin routes return 403 to a guest; `/d/<other-device>/` is 403. The edge also
+  rejects `/d/<device>/dsh-rc/*` (host plugin RPC) for guests, and guest HTML
+  sets `globalThis.__DSH_RC_GUEST__` so the Remote Control client does not
+  register its sidebar entry in a guest view.
+- Revoking a guest deletes the row and closes its WebSockets (1008); disabling
+  sharing revokes invites and guest sessions for the device.
+- The owner can drive sharing from the edge dashboard (owner session + CSRF) and
+  from the device-scoped API (Bearer device secret). Both call the same service.
+- Approval `ttlSeconds` is accepted for contract compatibility but ignored;
+  guest sessions are permanent by design.
+
+## 11. Supervision and reboot semantics
+
+The edge process is supervised; the DSH plugin supervises the agent separately.
+
+- **macOS:** `com.dshrc.edge` runs `~/.dsh-rc/run-edge.sh`;
+  `com.dshrc.tailscaled` runs `tailscaled --tun=userspace-networking` with
+  state/socket under `~/.dsh-rc/tailscale/`. Both are `RunAtLoad` + `KeepAlive`
+  LaunchAgents in the GUI domain. They start at **user login**, not at boot.
+  A sleeping or powered-off Mac has no remote path; sessions remain valid and
+  resume when the host returns.
+- The macOS edge runs from
+  `~/Library/Application Support/dsh-rc/edge/main.cjs`, not the checkout: TCC
+  blocks a launchd agent from reading a project under `~/Documents`.
+  `scripts/install-macos.sh` builds the standalone CJS bundle, writes the
+  launcher, and loads both agents. The data directory is `~/.dsh-rc/edge`.
+- **Linux:** a systemd unit with `Restart=on-failure` runs the same edge process;
+  Tailscale is supervised separately.
+- Supervision gives restart, not privilege separation: the edge runs as the
+  invoking user. A compromised edge is a user-level compromise.
+- Restarting the edge is safe for durable state: SQLite is reopened, sessions
+  survive, agents reconnect with full-jitter backoff. In-flight requests fail;
+  there is no mutation replay.
+
+## 12. Tailscale Funnel trust boundary
+
+Funnel terminates client TLS at Tailscale's ingress, carries the request over
+WireGuard to the userspace tailscaled on the Mac, and that daemon proxies it to
+`127.0.0.1:8787`. The edge sees plaintext after Tailscale's TLS termination, so
+Tailscale is a second party that can read proxied traffic in addition to the
+edge operator.
+
+`--trust-proxy` is correct because the immediate proxy is local, but it does not
+make Tailscale invisible. The public Funnel hostname is the only ingress; the
+edge still binds loopback and no router port is opened. If Tailscale must not be
+in the trust boundary, use a VPS edge you operate instead.
+

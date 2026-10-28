@@ -28,12 +28,19 @@ residual risk. No control is listed without a file reference or an explicit
 | Edge | Operator-controlled host | TLS plaintext of every proxied request and response: paths, headers, bodies, WebSocket frames; session and device metadata | Device secret (only its SHA-256), DSH launch token, DSH cookie |
 | Agent | The desktop | Device secret, DSH launch token, DSH cookie, all proxied traffic | Owner session cookie |
 | Guest browser | Anywhere | The DSH UI for one shared device, its guest session cookie, and whatever that UI shows | Owner session, device secret, other devices, admin routes |
+| Host supervisor | macOS launchd (`com.dshrc.edge`, `com.dshrc.tailscaled`) or systemd | Process arguments, environment, stdout/stderr, restart state; plist/unit files | Proxied plaintext, device secret, DSH cookie |
 | DSH web server | The desktop, loopback | Its own normal traffic | Edge internals |
 
 The edge terminates TLS. **It therefore sees plaintext HTTP/WS for all proxied
 traffic.** This is the central trust assumption of the design, stated in
 `docs/ARCHITECTURE.md:59-64` and in ADR-0001. Self-hosting the edge is the
 mitigation; there is no end-to-end encryption layer in v1.
+
+On macOS the edge is not launched from the checkout: `scripts/install-macos.sh`
+copies a standalone bundle to `~/Library/Application Support/dsh-rc/edge/main.cjs`
+because TCC blocks a launchd agent from reading `~/Documents`. The process is
+supervised by a GUI-domain LaunchAgent, so it starts at user login, not at boot
+before login.
 
 Sharing adds a third browser principal: the **guest**. A guest is not an owner
 and not a paired owner browser. A guest is an invite holder the owner explicitly
@@ -56,6 +63,8 @@ boundary as owner traffic.
 | Guest session cookie | Guest browser; signed value at the edge | **No expiry**; until explicitly revoked | Confidentiality, integrity, revocability |
 | Invite token | Invite link; SHA-256 at the edge | Single use; 15 min / 1 h / 24 h, or never | Confidentiality, single use, intent |
 | Guest metadata (label, IP, user-agent, audit) | Edge SQLite and logs | Audit retention | Attribution, integrity |
+| Tailscaled node state | `~/.dsh-rc/tailscale/tailscaled.state` (0600) | Until logout/re-auth | Confidentiality, authenticity |
+| LaunchAgent plists and `run-edge.sh` | `~/Library/LaunchAgents/`, `~/.dsh-rc/`; user-owned | Persistent | Integrity |
 
 The last row matters: DSH can read files, run tools and open terminals. A
 compromised browser session is not "read the chat"; it is "act as the user on
@@ -78,6 +87,9 @@ does not add a second permission layer inside DSH.
 | Malicious DSH upstream | Controls response headers and bodies returned to the edge |
 | Supply-chain attacker | Can publish a malicious version of a dependency or the package itself |
 | Internet scanner | Unauthenticated; sends arbitrary paths, headers, frames |
+| Tailscale ingress (Funnel) | Terminates client TLS and forwards plaintext to the userspace tailscaled; can read or alter proxied traffic |
+| Local OS user | Can edit LaunchAgents/plists, read logs, and signal the edge or tailscaled; equivalent to the edge's user |
+| Supervisor supply chain | Node, Tailscale and launchd/systemd binaries are trusted to start the right program |
 
 Explicitly out of scope: a user who deliberately grants a paired browser or a
 guest session to an attacker, and a desktop already running hostile software as
@@ -98,9 +110,17 @@ intent.
 | B7 | Guest browser ↔ edge | TLS + signed guest session cookie | `/i/*` invite/claim/status, `/d/<deviceId>/*` |
 | B8 | Plugin/agent ↔ edge sharing API | `Authorization: Bearer <device secret>` | Sharing toggle, invites, approvals, guest revocation |
 | B9 | Guest ↔ guest | **No isolation**; same DSH single-user desktop | Shared workspace, terminal, tools, conversation state |
+| B10 | Launchd/systemd ↔ edge | Same OS user; plist/unit file permissions; supervisor restart | Process arguments, environment, logs, restart control |
+| B11 | Tailscale ingress ↔ tailscaled ↔ edge | Tailscale TLS at ingress; WireGuard to userspace daemon; loopback HTTP to edge | Public HTTPS; proxied plaintext to `127.0.0.1:8787` |
 
 B2 is the boundary reviewers should focus on. B1 protects the wire; B2 does not
 protect anything from the edge operator.
+
+A guest browser runs the same Harness client bundles as an owner, including the
+Remote Control client. Guest HTML sets `globalThis.__DSH_RC_GUEST__=true` and
+the client returns before registering its sidebar, while the edge rejects
+`/d/<device>/dsh-rc` and its subtree with 403. The host plugin RPC is therefore
+unreachable from a guest even though it shares the device origin (§7.12.6).
 
 ## 5. Authentication and authorization
 
@@ -117,9 +137,9 @@ Design requirements the edge must enforce:
 - The setup code is single-use and expires 24 h after generation; a second
   redemption fails. Before setup completes, a restart generates a new code and
   invalidates the previous one; supply `--setup-code` if you need a stable value
-  across restarts (`apps/edge/src/auth.ts:104-123`).
+  across restarts (`apps/edge/src/auth.ts:119-135`).
 - `Secure` is set whenever the public origin is HTTPS
-  (`apps/edge/src/auth.ts:183-202`). A plain-HTTP loopback demo therefore gets a
+  (`apps/edge/src/auth.ts:207-221`). A plain-HTTP loopback demo therefore gets a
   non-`Secure` cookie — the browser would discard it otherwise. `--insecure`
   only permits a plain-http public URL on a loopback bind; it is not what makes
   the cookie non-`Secure`.
@@ -128,7 +148,7 @@ Design requirements the edge must enforce:
   `csrf` form field or `x-csrf-token` header, constant time). No mutation is
   reachable by `GET`. `SameSite=Lax` blocks cross-site `POST` cookies, but `Lax`
   still sends the cookie on top-level `GET` navigation, so `GET` must never
-  mutate (`apps/edge/src/auth.ts:242-291`).
+  mutate (`apps/edge/src/auth.ts:339-370`).
 
 ### 5.2 Device
 
@@ -193,9 +213,10 @@ artefacts, and only the last one is a session:
 | Claim | Signed claim cookie | Up to 24 h; no DSH access | Wait for the owner's decision; no DSH access |
 | Approval | Guest session cookie `dshrc_guest` | **No expiry**; 10-year `Max-Age`; until revoked | `/d/<deviceId>/*` only |
 
-- The host approves on the machine that owns the Harness. Label, IP and
-  user-agent are shown before **Approve** / **Deny**; a claim never becomes a
-  session on its own (`docs/SHARING.md` §2, §6).
+- The host approves on the machine that owns the Harness: from the edge
+  dashboard (owner session + CSRF) or the plugin panel (device secret API).
+  Label, IP and user-agent are shown before **Approve** / **Deny**; a claim never
+  becomes a session on its own (`docs/SHARING.md` §2, §6).
 - The guest cookie is signed with the persisted edge secret, `HttpOnly`,
   `Secure` on HTTPS, `SameSite=Lax`, and scoped to one device
   (`docs/SHARING.md` §6).
@@ -229,12 +250,13 @@ The edge implementation lives in `apps/edge/src/sharing.ts`,
 | Fake edge (phishing, DNS) | TLS certificate validation by browser and agent; `--insecure` is explicit and loud | Agent flag; `docs/DEPLOY.md` |
 | Fake agent connecting to the edge | Device secret verified against stored SHA-256 in constant time | `packages/shared/src/ids.ts:44-49` |
 | Forged owner cookie | HMAC-SHA256 over the payload with a server secret; expiry checked | `packages/shared/src/ids.ts:54-83` |
-| Replayed setup code | Single use, 24 h TTL, hash at rest; a restart before setup rotates it; setup disabled after first owner | `apps/edge/src/auth.ts:104-160` |
+| Replayed setup code | Single use, 24 h TTL, hash at rest; a restart before setup rotates it; setup disabled after first owner | `apps/edge/src/auth.ts:119-166` |
 | Replayed pair code | Single use, 10-minute TTL, hashed at rest, and redeemable only by an owner session or with the owner password | `ids.ts:86-113`; `apps/edge/src/devices.ts:139-153` |
 | Device id confusion | Strict `dev_[a-z0-9]{16,64}` validation before lookup | `packages/protocol/src/routing.ts:15-20` |
 | Leaked or guessed invite token | 32 random bytes, single-use by default (`maxUses` up to 10), hashed at rest, TTL or explicit Never; claim creates only a pending request, and the owner must approve | `apps/edge/src/sharing.ts:147-240`, `apps/edge/src/server.ts:192-216` |
-| Forged guest cookie | HMAC-signed with the persisted edge secret and backed by a session row; device-scoped; revocation deletes the row | `apps/edge/src/auth.ts:269-295` |
+| Forged guest cookie | HMAC-signed with the persisted edge secret and backed by a session row; device-scoped; revocation deletes the row | `apps/edge/src/auth.ts:271-295` |
 | Guest presents an owner/admin cookie | Separate cookie names and route checks; guest routes only `/d/<deviceId>/*`, admin routes return 403 | `apps/edge/src/server.ts:192-216` |
+| Funnel hostname points at another origin | `DSHRC_PUBLIC_URL` is written into `run-edge.sh` and must equal the Funnel hostname; cookies and invite links are origin-bound | `scripts/install-macos.sh:48-58`, `docs/DEPLOY.md` §6.2 |
 
 ### 6.2 Tampering
 
@@ -249,6 +271,8 @@ The edge implementation lives in `apps/edge/src/sharing.ts`,
 | Oversized control payload | 64 KiB total frame ceiling, 32 KiB JSON ceiling, schema guards | `frames.ts:12-16`, `frames.ts:122-141` |
 | Guest mutates the shared desktop | **Inherent**: a guest has the full DSH UI, tools and terminal. There is no read-only mode and no per-guest scoping | `docs/SHARING.md` §7, §9 |
 | Guest interferes with another guest | **Inherent**: no isolation between guests; they share one workspace, terminal and tools. Owner can revoke one/all | `docs/SHARING.md` §7 |
+| Local user edits a LaunchAgent | Same-user compromise; plists live in `~/Library/LaunchAgents` and run as the user. File permissions and OS account security are the control | `scripts/install-macos.sh:60-98` |
+| Funnel exposes the edge beyond the tailnet | Funnel is an explicit public ingress; disable it when not sharing (`funnel --https=443 off`), and keep the edge bound to loopback | `docs/DEPLOY.md` §6.2 |
 
 The agent's re-validation is the important half: a compromised edge must not be
 able to make the agent fetch `http://169.254.169.254/` or another origin. The
@@ -308,14 +332,16 @@ should ship logs to an append-only sink and lengthen the window.
 | --- | --- | --- |
 | Path traversal to another origin | Fixed upstream host; origin-form path; `..`, `//`, `\`, absolute URLs and control chars rejected on both sides | `routing.ts:45-54` |
 | SSRF via `Host`/absolute URL | `host` header stripped and rebuilt by the agent; absolute URL in path rejected | `routing.ts:57-83`, `routing.ts:45-54` |
-| CSRF on dashboard or pairing | `SameSite=Lax` cookies, `Origin` allow-list, double-submit token, no `GET` mutations | `packages/shared/src/http.ts:40-49`, `apps/edge/src/auth.ts:242-291` |
+| CSRF on dashboard or pairing | `SameSite=Lax` cookies, `Origin` allow-list, double-submit token, no `GET` mutations | `packages/shared/src/http.ts:40-49`, `apps/edge/src/auth.ts:339-370` |
 | XSS on edge-rendered pages | Strict CSP on edge pages, `nosniff`, `frame-ancestors 'none'` | `http.ts:128-137` |
 | Clickjacking | `x-frame-options: DENY` + `frame-ancestors 'none'` | `http.ts:128-137` |
 | `--insecure` widens exposure | Edge: accepted only on a loopback bind, for a plain-http public URL. Agent: permits plain `http`/`ws` to a non-loopback edge and disables TLS verification. Both are explicit, off by default | `apps/edge/src/config.ts:209-225`, `apps/agent/src/main.ts` |
 | Owner session stolen | HttpOnly (no JS access), Secure, SameSite=Lax, 30-day expiry, revocation | `http.ts:40-49` |
 | Guest reaches admin routes | Guests are confined to `/d/<deviceId>/*`; `/`, `/v1/*`, `/setup`, `/pair`, `/login` and device admin return 403 | `apps/edge/src/server.ts:192-216` |
 | Guest uses DSH tools and terminal | **Granted privilege, not escalation**: the guest session is the full DSH UI for that device. Do not share with someone you would not seat at the desktop | `docs/SHARING.md` §7, §9 |
-| Stolen guest cookie | Signed, HttpOnly, device-scoped; **no expiry**, so it is valid until the owner revokes the guest or disables sharing. There is no shorter TTL to wait out | `apps/edge/src/auth.ts:57`, `auth.ts:282-295` |
+| Guest opens the Remote Control plugin RPC/UI through the shared Harness | Edge rejects `/d/<device>/dsh-rc` and `/d/<device>/dsh-rc/*` for guest sessions with 403; guest HTML sets `globalThis.__DSH_RC_GUEST__=true` and the client returns before registering its sidebar entry | `apps/edge/src/server.ts:1168,1248`, `apps/edge/src/proxy-http.ts:71`, `packages/plugin/src/client/index.ts:1211-1214` |
+| Stolen guest cookie | Signed, HttpOnly, device-scoped; **no expiry**, so it is valid until the owner revokes the guest or disables sharing. There is no shorter TTL to wait out | `apps/edge/src/auth.ts:57`, `auth.ts:271-295` |
+| Tailscale or supervisor reads traffic | **Accepted**: Funnel terminates TLS and tailscaled is on the plaintext path; launchd runs the edge as the user. Treat both as part of the trusted host | `docs/DEPLOY.md` §6.5 |
 
 ## 7. Specific analyses
 
@@ -381,7 +407,10 @@ a cross-site top-level `GET` does. Every mutation is therefore a `POST`, and the
 edge enforces two independent checks on it: an `Origin` allow-list (with
 `Sec-Fetch-Site` as a secondary signal) and a double-submit token — the
 `dshrc_csrf` cookie must equal the `csrf` field or `x-csrf-token` header,
-compared in constant time (`apps/edge/src/auth.ts:242-291`). Pair-code
+compared in constant time (`apps/edge/src/auth.ts:339-370`). `Origin: null` is
+accepted **only** with `Sec-Fetch-Site: same-origin`, because
+`Referrer-Policy: no-referrer` makes Chromium send a null origin on real form
+posts; a cross-site null origin is rejected. Pair-code
 redemption is a `POST`; `GET /pair?code=…` only renders a confirmation form, so
 a link cannot pair a browser by itself (`apps/edge/src/pages.ts:194-208`).
 
@@ -572,6 +601,91 @@ the owner sends an invite to the wrong chat, approves without reading the
 request, or approves a request they did not expect, the guest gets the desktop.
 This is a social control, and should be described as one.
 
+#### 7.12.6 The guest UI loads the same Harness client bundle
+
+A guest is served the real DSH page, so the Remote Control client bundle is also
+loaded in the guest browser. Two controls keep the host plugin UI and RPC away
+from the guest:
+
+1. The edge rejects `/d/<device>/dsh-rc` and `/d/<device>/dsh-rc/*` for guest
+   sessions with `403` (`apps/edge/src/server.ts:1168,1248`). The host plugin RPC
+   is unreachable even though it shares the device origin.
+2. Guest HTML is injected with `globalThis.__DSH_RC_GUEST__=true`
+   (`apps/edge/src/proxy-http.ts:71`); the client plugin returns before
+   registering its sidebar entry or control surface
+   (`packages/plugin/src/client/index.ts:1211-1214`).
+
+The regression test `tests/upgrade/browser-regressions.test.ts` ("marks guest
+HTML and blocks the host plugin RPC for guests") asserts both the marker and the
+RPC 403. This is defence in depth: the bundle still executes, but its host RPC is
+blocked and its UI does not register. A future client change that ignores the
+flag would expose UI chrome, not the RPC; keep the test.
+
+### 7.13 Supervision, Funnel and dashboard sharing
+
+#### 7.13.1 launchd/systemd supervision
+
+On macOS the edge is a GUI-domain LaunchAgent (`com.dshrc.edge`) running
+`~/.dsh-rc/run-edge.sh`, which executes a standalone bundle at
+`~/Library/Application Support/dsh-rc/edge/main.cjs`. A second agent
+(`com.dshrc.tailscaled`) runs `tailscaled --tun=userspace-networking`. Both use
+`RunAtLoad` and `KeepAlive`; they start when the user logs in, not at boot before
+login (`scripts/install-macos.sh:60-98`).
+
+Security consequences:
+
+- The supervisor provides **restart**, not **privilege separation**. The edge
+  runs as the logged-in user and has that user's access to `~/.dsh-rc/edge` and
+  the DSH process.
+- Plists and `run-edge.sh` are user-writable. A local attacker who can edit them
+  already has the user's account; file permissions are not a sandbox.
+- The bundle lives outside `~/Documents` because TCC blocks launchd from reading
+  a checkout there (`scripts/build-edge-bundle.mjs:4`). This is a reliability
+  fix, not a security boundary.
+- A sleeping, logged-out or powered-off Mac has no remote path. Durable state
+  survives; in-flight requests do not.
+
+On Linux, systemd `Restart=on-failure` has the same properties: process restart,
+same user, no privilege boundary. There is no built-in Tailscale supervision.
+
+#### 7.13.2 The public Funnel endpoint
+
+Tailscale Funnel terminates client TLS at Tailscale's ingress, carries the
+request over WireGuard to the userspace tailscaled on the Mac, and that daemon
+proxies it to `127.0.0.1:8787` (`docs/DEPLOY.md` §6.2). Therefore:
+
+- **Tailscale sees plaintext** for proxied traffic, exactly as the edge does.
+  Funnel adds a second party to the trust boundary; it does not remove the edge
+  from it.
+- The edge still binds loopback and opens no router port. Funnel is the only
+  public ingress while enabled.
+- `DSHRC_PUBLIC_URL` must equal the Funnel hostname. A mismatch produces invite
+  links and cookies on the wrong origin; the installer writes the value into
+  `run-edge.sh`, and the edge advertises it as `publicUrl`.
+- Funnel can be disabled without stopping the edge:
+  `tailscale --socket="$HOME/.dsh-rc/tailscale/tailscaled.sock" funnel --https=443 off`.
+  Turning it off does not revoke guest sessions; they resume when the path
+  returns, because sessions do not expire.
+- The userspace tailscaled state (`~/.dsh-rc/tailscale/tailscaled.state`)
+  contains the node identity and should be treated as a credential.
+
+#### 7.13.3 Owner dashboard sharing
+
+The edge dashboard is an owner-only admin surface. Sharing controls use the
+owner session plus the same CSRF/Origin checks as the rest of the dashboard;
+the one-time invite URL is rendered after the form POST, never placed in a
+redirect (`docs/SHARING.md` §5, `apps/edge/src/pages.ts`). A guest session
+cannot reach the dashboard (403). Consequences:
+
+- A stolen owner session can create invites, approve guests and revoke devices.
+  It is more powerful than any guest session; the 30-day cookie and password
+  rotation matter.
+- Rotating the owner password with `dsh-rc-edge-passwd` changes the password
+  hash in place and does **not** revoke existing owner sessions. To log everyone
+  out, rotate the session secret or delete sessions (`docs/OPERATIONS.md` §6).
+- Dashboard form posts are ordinary browser requests; the CSRF token and
+  `Origin` allow-list are the controls, not a separate API key.
+
 ## 8. Mitigations mapped to code
 
 | Control | Enforced in | Reference |
@@ -601,9 +715,9 @@ This is a social control, and should be described as one.
 | Priority scheduler | mux | `mux/index.ts:739-755` |
 | Heartbeat / idle timeout | mux | `mux/index.ts:663-679` |
 | Per-stream reset on bad frame | mux | `mux/index.ts:544-556` |
-| Setup-code hash, TTL, single use | edge | `apps/edge/src/auth.ts:104-160` |
-| Session cookie signing + expiry | edge | `apps/edge/src/auth.ts:208-240` |
-| CSRF double-submit + `Origin` | edge | `apps/edge/src/auth.ts:242-291` |
+| Setup-code hash, TTL, single use | edge | `apps/edge/src/auth.ts:119-166` |
+| Session cookie signing + expiry | edge | `apps/edge/src/auth.ts:239-247` |
+| CSRF double-submit + `Origin` | edge | `apps/edge/src/auth.ts:339-370` |
 | Rate limits | edge | `apps/edge/src/config.ts:64-69` |
 | Device secret issue + hash | edge | `apps/edge/src/devices.ts:68-96` |
 | Pair-code redemption | edge | `apps/edge/src/devices.ts:139-153` |
@@ -612,10 +726,18 @@ This is a social control, and should be described as one.
 | Token exchange + re-exchange | agent | `apps/agent/src/dsh-session.ts` |
 | Invite token: 32 B, SHA-256 at rest, single use | edge sharing | `apps/edge/src/sharing.ts:147-190` |
 | Claim creates pending approval, not a session | edge sharing | `apps/edge/src/sharing.ts:192-240` |
-| Guest cookie signed, device-scoped, HttpOnly, 10-year Max-Age | edge sharing | `apps/edge/src/auth.ts:269-295`, `auth.ts:57` |
+| Guest cookie signed, device-scoped, HttpOnly, 10-year Max-Age | edge sharing | `apps/edge/src/auth.ts:271-295`, `auth.ts:57` |
 | Guest admin routes return 403 | edge sharing | `apps/edge/src/server.ts:192-216` |
 | Revoke one/all guests; sharing off revokes all | edge sharing | `apps/edge/src/sharing.ts:327-392` |
 | Guest audit events | edge sharing | `apps/edge/src/guest-connections.ts:29-70` |
+| macOS LaunchAgent supervision | installer | `scripts/install-macos.sh:60-98` |
+| systemd supervision (Linux) | deployment | `docs/DEPLOY.md` §4.3 |
+| Standalone bundle outside TCC-protected Documents | installer | `scripts/install-macos.sh:43-44`, `scripts/build-edge-bundle.mjs:4-7` |
+| Funnel hostname == public URL | installer | `scripts/install-macos.sh:48-58`, `docs/DEPLOY.md` §6.2 |
+| Dashboard sharing: owner session + CSRF + Origin | edge dashboard | `apps/edge/src/server.ts:298-333`, `apps/edge/src/pages.ts:156-315` |
+| Guest blocked from host plugin RPC | edge proxy | `apps/edge/src/server.ts:1168,1248` |
+| Guest client does not register Remote Control UI | plugin client | `apps/edge/src/proxy-http.ts:71`, `packages/plugin/src/client/index.ts:1211-1214` |
+| Password rotation without restart | edge CLI | `apps/edge/src/passwd.ts` |
 
 ## 9. Residual risks (accepted)
 
@@ -654,6 +776,21 @@ This is a social control, and should be described as one.
 12. **An invite link is a bearer capability until claimed or expired.** The
     owner's approval is the gate, and approval proves intent, not identity; IP
     and user-agent can be spoofed.
+13. **Funnel adds Tailscale to the plaintext path.** Tailscale terminates client
+    TLS and forwards plaintext to the local tailscaled. A compromised Tailscale
+    ingress can read or modify proxied traffic, just as a compromised edge can.
+    Do not use Funnel if that trust is unacceptable.
+14. **The supervisor is user-level, not a privilege boundary.** launchd/systemd
+    restart the edge as the logged-in user; a same-user attacker can edit the
+    plist, the bundle or the environment. Reboot recovery starts at user login,
+    not at boot; a sleeping Mac has no remote path.
+15. **Owner password rotation does not revoke sessions.** `dsh-rc-edge-passwd`
+    changes the hash in place; existing owner cookies remain valid until logout
+    or session-secret rotation.
+16. **The guest browser executes the same Remote Control client bundle.** The
+    edge blocks its RPC and sets a guest flag that stops UI registration, but a
+    future client change that ignores the flag could expose plugin chrome. The
+    RPC remains 403; the browser regression test guards both.
 
 ## 10. Out of scope
 
@@ -666,6 +803,12 @@ This is a social control, and should be described as one.
   OAuth; IP and user-agent are display metadata, not identity.
 - Automatic guest expiry. Sessions persist until revoked by design; this is a
   documented product decision, not an oversight.
+- Compromise of the Tailscale account, the Funnel ingress, or the macOS user
+  account that owns the LaunchAgents. Funnel is documented as a trusted relay.
+- Boot-before-login availability on macOS. The LaunchAgents are GUI-domain user
+  agents, not root daemons.
+- Hardening the supervisor against a same-user attacker. launchd/systemd provide
+  restart, not isolation.
 - Denial of service that saturates the edge's uplink; no CDN-level scrubbing.
 - Compromise of the DNS or CA used for the edge certificate.
 - Legal/compliance controls (data retention, subject access). See
@@ -677,5 +820,7 @@ Re-review this document when any of the following changes: the edge gains
 end-to-end encryption, the agent accepts a non-loopback upstream, authentication
 gains a second factor, the edge becomes multi-tenant, the pair-code format
 changes, guest sessions gain an expiry or idle timeout, guest read-only/scoping
-lands, a guest-count cap is added, or the sharing route/cookie names change.
+lands, a guest-count cap is added, the sharing route/cookie names change, the
+edge moves behind a different ingress (Funnel, Cloudflare, VPS), or supervision
+moves from a user LaunchAgent/systemd to a privileged daemon.
 Security reports follow `docs/SECURITY.md`.

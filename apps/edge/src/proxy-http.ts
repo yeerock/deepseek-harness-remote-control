@@ -7,6 +7,7 @@
  * never forwards browser credentials to the agent.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 import {
   DEVICE_MOUNT_PREFIX,
   assertSafeOriginPath,
@@ -67,8 +68,21 @@ function wantsJson(request: IncomingMessage, rest: string): boolean {
 }
 
 /** Fixed, edge-owned control injected into guest HTML only. */
-export const GUEST_PILL_HTML = '<div id="dshrc-guest-pill" style="position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#131a2e;color:#e6ecff;border:1px solid #26314d;border-radius:999px;padding:10px 16px;font:600 13px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;box-shadow:0 6px 24px #0008"><a href="/i/session" style="color:inherit;text-decoration:none">Remote session &middot; Disconnect</a></div>';
+export const GUEST_PILL_HTML = '<script>globalThis.__DSH_RC_GUEST__=true</script><div id="dshrc-guest-pill" style="position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#131a2e;color:#e6ecff;border:1px solid #26314d;border-radius:999px;padding:10px 16px;font:600 13px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;box-shadow:0 6px 24px #0008"><a href="/i/session" style="color:inherit;text-decoration:none">Remote session &middot; Disconnect</a></div>';
 const MAX_INJECT_BYTES = 2 * 1024 * 1024;
+const MAX_INJECT_DECODED_BYTES = 8 * 1024 * 1024;
+
+function decodeHtmlBody(body: Buffer, encoding: string | undefined): Buffer | null {
+  if (encoding === undefined || encoding === '' || encoding === 'identity') return body;
+  try {
+    if (encoding === 'gzip' || encoding === 'x-gzip') return gunzipSync(body);
+    if (encoding === 'deflate') return inflateSync(body);
+    if (encoding === 'br') return brotliDecompressSync(body);
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 function headerValueOf(pairs: HeaderPair[], name: string): string | undefined {
   const lower = name.toLowerCase();
@@ -113,12 +127,19 @@ async function streamGuestHtml(
     }
     if (!committed) {
       const original = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-      const injected = injectGuestPill(original);
+      const encoding = typeof headers['content-encoding'] === 'string'
+        ? headers['content-encoding'].trim().toLowerCase()
+        : undefined;
+      const decoded = decodeHtmlBody(original, encoding);
+      const injected = decoded !== null && decoded.byteLength <= MAX_INJECT_DECODED_BYTES
+        ? injectGuestPill(decoded)
+        : null;
       if (injected === null) {
         response.writeHead(status, headers);
         await writeWithDrain(response, original);
       } else {
         const injectedHeaders = { ...headers };
+        delete injectedHeaders['content-encoding'];
         delete injectedHeaders['content-length'];
         injectedHeaders['content-length'] = String(injected.byteLength);
         response.writeHead(status, injectedHeaders);
@@ -245,12 +266,10 @@ export async function proxyDeviceHttp(input: DeviceHttpRequest): Promise<void> {
     // Guest HTML gets a fixed Disconnect pill. This path buffers at most 2 MiB;
     // larger documents and compressed responses stream through untouched.
     const contentType = headerValueOf(filtered, 'content-type') ?? '';
-    const contentEncoding = headerValueOf(filtered, 'content-encoding');
     const injectGuestPillIntoHtml = input.guest === true
       && head.status >= 200
       && head.status <= 299
-      && contentType.toLowerCase().includes('text/html')
-      && contentEncoding === undefined;
+      && contentType.toLowerCase().includes('text/html');
     if (injectGuestPillIntoHtml) {
       finished = true;
       await streamGuestHtml(stream, response, head.status, headersRecord);

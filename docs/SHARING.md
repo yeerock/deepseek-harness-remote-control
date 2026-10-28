@@ -61,7 +61,7 @@ Sharing is an **authorization** feature; the front door is deployment.
 ## 5. Device-scoped sharing API (Bearer device secret)
 
 The host plugin talks to the edge with the device secret in `<stateDir>/device.json`.
-Owner sessions may use the same routes through the dashboard later.
+The owner dashboard exposes the same operations as server-rendered form routes (`/v1/devices/:id/sharing`, `/invites`, `/approvals/:id`, `/guests/...`) guarded by the owner session and CSRF; the device API remains the plugin path.
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
@@ -147,7 +147,10 @@ stays valid and reconnects when the path returns; it is not destroyed.
   approved/denied, guest connected/disconnected, revoked, sharing toggled.
   Per-request sampled logging is **not** part of v0.2.
 - Guest sessions cannot create invites, approve guests, change sharing, or
-  manage devices.
+  manage devices. The edge also rejects `/d/<device>/dsh-rc/*` (the host
+  plugin RPC) for guest sessions, and guest HTML carries
+  `globalThis.__DSH_RC_GUEST__ = true` so the Remote Control client never
+  registers its sidebar entry in a guest view.
 
 ## 8. UI (plugin panel)
 

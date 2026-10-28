@@ -2,16 +2,19 @@
 
 **Audience:** the person who will run the edge and connect a desktop to it.
 
-Three supported shapes:
+Four supported shapes:
 
 1. **Laptop demo** — edge on `127.0.0.1`, plain HTTP, one desktop.
 2. **Single VPS with Docker + Caddy** — automatic TLS, one region. The default
    production shape.
 3. **Cloudflare in front** — Cloudflare terminates client TLS, origin
    certificate to Caddy. Adds a second party that sees plaintext; read §5.4.
+4. **macOS host + Tailscale Funnel** — launchd user agents and userspace
+   Tailscale; the tested personal-host shape (§6).
 
 Everything below assumes the repository is checked out and Node.js ≥ 22.13 is
-installed (`package.json` `engines`).
+installed (`package.json` `engines`). The v0.2.0 macOS host is verified with
+**Node 24.22.1** and **Tailscale 1.104.4**; use Node 24 LTS.
 
 > **Flag names are authoritative in code, not in this document.** The edge and
 > agent CLIs are new; if `--help` disagrees with a table here, the code wins and
@@ -106,7 +109,7 @@ plugin's optional `stateDir` config overrides the DSH home
 (device revoked, tunnel auth failed, protocol mismatch, state-dir lock
 held, crash), `2` usage or configuration error. A DSH upstream `401` with no usable token is **not** a
 terminal exit: the agent stays alive in `state: error` with an actionable
-`lastError` (`docs/OPERATIONS.md` §8.1).
+`lastError` (`docs/OPERATIONS.md` §9.1).
 
 ## 3. Shape 1 — laptop demo
 
@@ -424,12 +427,171 @@ sees, and adds a second company to the trust boundary. If you self-host because
 you do not want a relay reading traffic, do not put Cloudflare in front — or
 accept that "self-hosted" now means two operators, not one.
 
-## 6. Backup and restore
+## 6. Shape 4 — macOS host with Tailscale Funnel
+
+The tested macOS shape for v0.2.0: the edge runs as a **launchd user agent**,
+Tailscale runs as a **userspace daemon** under a second agent, and **Tailscale
+Funnel** provides the public HTTPS origin. No sudo, no router port forwarding.
+
+Verified with **Node 24.22.1** and **Tailscale 1.104.4** (Homebrew latest at the
+time). The repository engine floor is `node >=22.13.0`; use Node 24 LTS. Funnel
+requires a tailnet with HTTPS certificates and Funnel enabled.
+
+### 6.1 Install
+
+```bash
+brew install node@24 tailscale
+
+node --version          # use 24.22+; verified at v24.22.1
+tailscale version       # verified at 1.104.4
+
+DSHRC_PUBLIC_URL="https://<machine>.<tailnet>.ts.net" \
+  DSHRC_NODE="$(command -v node)" \
+  ./scripts/install-macos.sh
+```
+
+The installer:
+
+- runs `npm run build` and bundles the edge to `build/edge/main.cjs`;
+- copies the bundle to `~/Library/Application Support/dsh-rc/edge/main.cjs`
+  (macOS TCC blocks a launchd agent from reading a checkout under `~/Documents`,
+  which is why the runtime is not run from the repository);
+- writes `~/.dsh-rc/run-edge.sh`, embedding the absolute Node path and the
+  public URL;
+- writes and loads two LaunchAgents:
+  - `com.dshrc.edge` → `~/.dsh-rc/run-edge.sh`
+  - `com.dshrc.tailscaled` → `tailscaled --tun=userspace-networking` with state,
+    socket and port under `~/.dsh-rc/tailscale/`;
+- prints the next Tailscale commands. It does **not** authenticate Tailscale or
+  enable Funnel for you.
+
+Installer variables (all optional except `DSHRC_PUBLIC_URL`):
+
+| Variable | Meaning |
+| --- | --- |
+| `DSHRC_PUBLIC_URL` | Public HTTPS origin; must match the Funnel URL exactly. |
+| `DSHRC_NODE` | Node binary to embed; use a Node 24.22+ build. |
+| `DSHRC_TAILSCALE`, `DSHRC_TAILSCALED` | Tailscale CLI/daemon paths; defaults from `PATH`. |
+| `DSHRC_DATA_DIR` | Edge data directory; default `~/.dsh-rc/edge`. |
+| `DSHRC_TS_DIR` | tailscaled state/socket/log directory; default `~/.dsh-rc/tailscale`. |
+
+### 6.2 Authenticate Tailscale and enable Funnel
+
+```bash
+export SOCK="$HOME/.dsh-rc/tailscale/tailscaled.sock"
+
+# one-time login; open the printed URL if Tailscale asks
+tailscale --socket="$SOCK" up --hostname=<machine>
+
+# public 443 -> local edge 8787
+tailscale --socket="$SOCK" funnel --bg 8787
+
+tailscale --socket="$SOCK" funnel status
+curl -fsS "https://<machine>.<tailnet>.ts.net/healthz"
+```
+
+The Funnel hostname must equal `DSHRC_PUBLIC_URL`; the installer wrote that value
+into `run-edge.sh`, and the edge advertises it as `publicUrl`. If they differ,
+guest invite links and cookies will use the wrong origin.
+
+Funnel is a tailnet feature: HTTPS certificates and the Funnel node attribute
+must be enabled for the tailnet. If `tailscale funnel` refuses, enable them in
+the Tailscale admin console and retry. If you install before the tailnet is
+authenticated, run `scripts/install-macos.sh` again with the final URL; it is
+idempotent.
+
+To turn public access off without stopping the edge:
+
+```bash
+tailscale --socket="$SOCK" funnel --https=443 off
+```
+
+### 6.3 Reboot, sleep and restarts
+
+Both LaunchAgents use `RunAtLoad` and `KeepAlive` in the **GUI domain**. They
+start when the user logs in, not before login and not as root daemons. After a
+reboot:
+
+1. Log in to the Mac.
+2. launchd starts `com.dshrc.tailscaled` and `com.dshrc.edge`.
+3. The edge reconnects to its SQLite database and the agent reconnects its
+   tunnel; the Funnel configuration is persisted in the tailscaled state
+   directory.
+4. Verify `curl -fsS http://127.0.0.1:8787/healthz` and
+   `curl -fsS https://<machine>.<tailnet>.ts.net/healthz`.
+
+A sleeping or powered-off Mac has no remote access. The edge process and the
+guest sessions survive; the network path does not. Guest sessions are permanent
+until revoked, so they resume when the host returns.
+
+Restart the edge without touching launchd state:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+sleep 1
+curl -fsS http://127.0.0.1:8787/healthz
+```
+
+Restart the userspace Tailscale daemon (then the edge, because Funnel routing
+is re-established by tailscaled):
+
+```bash
+SOCK="$HOME/.dsh-rc/tailscale/tailscaled.sock"
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.tailscaled"
+tailscale --socket="$SOCK" funnel status
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+```
+
+Logs: `~/.dsh-rc/edge.log`, `~/.dsh-rc/tailscale/tailscaled.log`, and
+`~/.dsh-rc/tailscale/funnel.log`. Inspect loaded agents with
+`launchctl print "gui/$(id -u)/com.dshrc.edge"`.
+
+### 6.4 Updating Node and Tailscale
+
+The Node path is embedded in `run-edge.sh`, so upgrading the interpreter in
+place is not enough if its absolute path changes (nvm version directories do).
+
+```bash
+# Node: install/select Node 24.22+, then re-run the installer so the new
+# absolute path is embedded in run-edge.sh
+DSHRC_PUBLIC_URL="https://<machine>.<tailnet>.ts.net" \
+  DSHRC_NODE="$(command -v node)" \
+  ./scripts/install-macos.sh
+
+# Tailscale: upgrade the Homebrew package and restart the daemon
+SOCK="$HOME/.dsh-rc/tailscale/tailscaled.sock"
+brew upgrade tailscale
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.tailscaled"
+tailscale version
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+tailscale --socket="$SOCK" funnel status
+```
+
+Re-running the installer is idempotent: it rebuilds/copies the bundle, rewrites
+`run-edge.sh` and both plists, boots the old agents out and bootstraps the new
+ones. It keeps `DSHRC_DATA_DIR` and the SQLite database. Confirm the Node that
+is actually embedded, not just the one on `PATH`:
+
+```bash
+awk '/^exec /{print $2; exit}' "$HOME/.dsh-rc/run-edge.sh"
+```
+
+### 6.5 Trust note
+
+Tailscale Funnel terminates client TLS at Tailscale's ingress, forwards the
+request over WireGuard to the userspace tailscaled on the Mac, and that daemon
+proxies it to `127.0.0.1:8787`. The edge therefore sees plaintext after
+Tailscale's TLS termination, and Tailscale is a second party in the trust
+boundary. `--trust-proxy` is correct because the forwarding proxy is on
+loopback, but it does not make Tailscale invisible. See
+`docs/THREAT-MODEL.md` §7.13.
+
+## 7. Backup and restore
 
 The edge stores everything in one SQLite database, `dshrc.sqlite`, in WAL
 mode. Back up the database, not the directory copy of a running process.
 
-### 6.1 systemd / bare metal
+### 7.1 systemd / bare metal
 
 Online backup (safe while running):
 
@@ -459,7 +621,7 @@ Restoring rolls back devices, sessions, audit and the owner row together. A
 browser session created after the backup will be invalid; devices will need to
 reconnect, but their secrets are in the restored rows.
 
-### 6.2 Docker
+### 8.2 Docker
 
 Cold backup, a few seconds of downtime:
 
@@ -486,9 +648,9 @@ The container's `/data` also holds `dshrc.sqlite-wal` and `-shm` while
 running; `docker compose cp` of the main file after a clean stop is consistent.
 Do not copy the live file without stopping, or use SQLite's `.backup`.
 
-## 7. Upgrade and rollback
+## 8. Upgrade and rollback
 
-### 7.1 Bare metal / systemd
+### 8.1 Bare metal / systemd
 
 ```bash
 cd /opt/dsh-rc
@@ -518,7 +680,7 @@ Pin the image by tag and, for a stricter deploy, by digest
 and rebuilding; keep the previous `data/` backup until the new version has
 served traffic for a day.
 
-### 7.3 What an upgrade does to live sessions
+### 8.3 What an upgrade does to live sessions
 
 - The edge restarts; agents reconnect on their own with full-jitter backoff
   (250 ms → 20 s). In-flight streams are reset as retryable.
@@ -526,7 +688,7 @@ served traffic for a day.
 - No application-level mutation is replayed (`docs/PROTOCOL.md:170-172`).
 - Sessions and device rows survive in SQLite.
 
-## 8. Moving a device to a new edge
+## 9. Moving a device to a new edge
 
 A device identity is bound to the edge it registered with: `device.json` stores
 the `edgeUrl`, device id and secret. There is no migration protocol. The
@@ -562,7 +724,7 @@ If you skip step 1, the old edge keeps a revoked-looking but live device row;
 it cannot connect because the agent no longer has that secret, but the row and
 its audit history remain. Revoke for cleanliness.
 
-## 9. Health checks and readiness
+## 10. Health checks and readiness
 
 | Endpoint | Auth | Use |
 | --- | --- | --- |
@@ -572,7 +734,7 @@ its audit history remain. Revoke for cleanliness.
 Do not expose the dashboard or `/v1/tunnel` through a separate hostname; the
 session cookie and the public URL are origin-bound.
 
-## 10. Troubleshooting index
+## 11. Troubleshooting index
 
 | Symptom | First check |
 | --- | --- |
@@ -584,7 +746,7 @@ session cookie and the public URL are origin-bound.
 
 Full runbook: `docs/OPERATIONS.md`.
 
-## 11. Security checklist before going live
+## 12. Security checklist before going live
 
 - [ ] Edge is reachable only through the TLS proxy; port `8787` is firewalled.
 - [ ] `--public-url` is the exact HTTPS origin and `--trust-proxy` is set.
@@ -601,4 +763,7 @@ Full runbook: `docs/OPERATIONS.md`.
 - [ ] Guest sharing is off unless needed. If on, the edge has a public HTTPS URL
       (`docs/DEPLOY.md` §3.1) and someone reviews **Active guests**; see the
       permanence warning in `docs/OPERATIONS.md` §3.
+- [ ] macOS only: `DSHRC_PUBLIC_URL` equals the Funnel hostname, and
+      `launchctl print "gui/$(id -u)/com.dshrc.edge"` shows a running process
+      (`docs/DEPLOY.md` §6).
 - [ ] The trust boundary in `docs/THREAT-MODEL.md` §7.1 is acceptable to you.

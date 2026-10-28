@@ -143,7 +143,9 @@ workspace, terminal and tools you can use. They do **not** get the dashboard,
 `/v1/*`, setup, pairing, device administration, invites, approvals or sharing
 settings; those return `403`. There is no read-only guest mode and no per-guest
 file or terminal scoping. Treat it as handing over the desktop. The guest client
-is a current desktop browser; mobile browsers are not a supported client.
+is a current desktop browser; mobile browsers are not a supported client. The
+guest does not get the Remote Control sidebar: the edge blocks the host plugin
+RPC and marks guest HTML so the client does not register its UI.
 
 ## Do guests need Tailscale?
 
@@ -181,6 +183,61 @@ Harness** off also revokes every invite and guest session for that device;
 revoking the device does the same. If an unclaimed link leaked, revoke it under
 **Outstanding invites**; if it was claimed but not approved, press **Deny** in
 **Waiting for approval**.
+
+## Can I manage sharing from the edge dashboard?
+
+Yes. Sign in to the edge dashboard as the owner; each device now has sharing
+controls: **Share this Harness** on/off, invite TTL (**15 minutes / 1 hour /
+24 hours / Never**), **Create invite** with the one-time URL shown after the
+form post, pending **Approve** / **Deny**, the active guest list, **Revoke**
+and **Revoke all**. The same actions are available from the plugin's Remote
+Control panel, which talks to the device-scoped API with the device secret.
+
+Guest sessions are permanent until revoked, and multiple guests can control the
+same desktop. The dashboard shows the standing warning; read
+`docs/THREAT-MODEL.md` §7.12 before sharing.
+
+## Does the edge survive a reboot?
+
+On **macOS**, the edge and userspace Tailscale run as launchd **user agents**
+(`com.dshrc.edge`, `com.dshrc.tailscaled`). They start when you log in — not at
+boot before login, and not as root daemons. After login the edge reopens its
+SQLite database, and the agent reconnects its tunnel; Funnel configuration
+persists in the tailscaled state directory. A sleeping or powered-off Mac has no
+remote access, but guest sessions stay valid and resume when it returns.
+
+On **Linux**, a systemd unit with `Restart=on-failure` behaves as you configured
+it; `systemctl enable` makes it start at boot. The edge does not include
+Tailscale supervision on Linux — run `tailscaled` or `tailscale up` separately.
+
+## How do I update Node and Tailscale?
+
+The verified runtime is **Node 24.22.1** and **Tailscale 1.104.4**. The
+repository engine floor is `node >=22.13.0`; do not run older than that.
+
+On macOS, Node's absolute path is embedded in `~/.dsh-rc/run-edge.sh`, so
+re-run the installer after changing Node:
+
+```bash
+brew install node@24
+DSHRC_PUBLIC_URL="https://<machine>.<tailnet>.ts.net" \
+  DSHRC_NODE="$(command -v node)" \
+  ./scripts/install-macos.sh
+```
+
+Tailscale:
+
+```bash
+brew upgrade tailscale
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.tailscaled"
+tailscale version
+launchctl kickstart -k "gui/$(id -u)/com.dshrc.edge"
+```
+
+Then verify `curl -fsS http://127.0.0.1:8787/healthz` and
+`tailscale --socket="$HOME/.dsh-rc/tailscale/tailscaled.sock" funnel status`.
+On Linux, upgrade the packages and restart the edge service; the same version
+floor applies. Do not assume a version you have not run.
 
 ## What happens if the edge goes down?
 

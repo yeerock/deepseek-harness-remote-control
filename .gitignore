@@ -12,3 +12,4 @@ tools/bench/results/*.md
 *.log
 tools/e2e/artifacts/
 
+build/

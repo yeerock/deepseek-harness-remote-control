@@ -4,6 +4,7 @@
  * that receive `applySecurityHeaders()`; proxied DSH responses never do.
  */
 import type { AuditRow, DeviceRow } from './db.js';
+import type { SharingSummary } from './sharing.js';
 
 export function escapeHtml(value: string): string {
   return value
@@ -36,7 +37,8 @@ h2 { font-size: 16px; margin: 32px 0 10px; color: var(--muted); text-transform: 
 p.lede { color: var(--muted); margin: 0 0 24px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
 label { display:block; font-size:13px; color:var(--muted); margin: 14px 0 6px; }
-input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0e1526; color:var(--text); font:inherit; }
+input, select { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0e1526; color:var(--text); font:inherit; }
+select { appearance:auto; }
 input:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }
 button, .button { display:inline-block; margin-top:18px; padding:11px 18px; border-radius:8px; border:0; background:var(--accent); color:#06122b; font:inherit; font-weight:650; cursor:pointer; text-decoration:none; }
 button.secondary, .button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
@@ -61,6 +63,16 @@ tr:last-child td { border-bottom:0; }
 .topbar a { color:var(--muted); text-decoration:none; }
 .topbar a:hover { color:var(--text); }
 code { background:#0e1526; border:1px solid var(--line); padding:1px 6px; border-radius:5px; font-size:13px; }
+h3 { font-size:17px; margin:0 0 4px; }
+h4 { font-size:14px; margin:20px 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.warning { background:#2a1d12; border:1px solid #5c4223; color:#ffd9a3; padding:12px 14px; border-radius:10px; margin:0 0 16px; font-size:14px; }
+.share-panel { margin-top:18px; }
+.formgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; align-items:end; }
+.formgrid label { margin-top:0; }
+.table-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.table-actions button { margin-top:0; padding:7px 12px; font-size:13px; }
+.input-url { width:100%; margin-top:10px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; }
+.small { font-size:13px; }
 </style>
 </head>
 <body>
@@ -119,6 +131,26 @@ export interface DashboardDevice {
   device: DeviceRow;
   online: boolean;
   reconnecting: boolean;
+  sharing: SharingSummary;
+}
+
+function formatAge(ts: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (seconds < 60) return `${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${String(minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${String(hours)}h`;
+  return `${String(Math.floor(hours / 24))}d`;
+}
+
+function isLoopbackUrl(publicUrl: string): boolean {
+  try {
+    const host = new URL(publicUrl).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return host === 'localhost' || host === '::1' || host.startsWith('127.');
+  } catch {
+    return true;
+  }
 }
 
 export function dashboardPage(options: {
@@ -159,6 +191,90 @@ export function dashboardPage(options: {
         })
         .join('\n');
 
+  const approvedDevices = options.devices.filter(({ device }) => device.status === 'approved');
+  const sharingSections = approvedDevices.length === 0
+    ? '<p class="muted">Approve a device before sharing it.</p>'
+    : approvedDevices.map(({ device, sharing }) => {
+        const state = sharing.enabled
+          ? '<span class="badge online">sharing on</span>'
+          : '<span class="badge pending">sharing off</span>';
+        const loopback = isLoopbackUrl(sharing.publicUrl)
+          ? '<p class="warning">Guests need a public edge URL. This edge advertises a loopback address, so only browsers on this machine can open invites.</p>'
+          : '';
+        const toggle = `<form method="post" action="/v1/devices/${escapeHtml(device.id)}/sharing">
+  <input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}">
+  <input type="hidden" name="enabled" value="${sharing.enabled ? '0' : '1'}">
+  <button type="submit"${sharing.enabled ? ' class="danger"' : ''}>${sharing.enabled ? 'Stop sharing' : 'Share this Harness'}</button>
+</form>`;
+
+        if (!sharing.enabled) {
+          return `<section class="panel share-panel" id="share-${escapeHtml(device.id)}">
+  <div class="row"><h3>${escapeHtml(device.name)}</h3>${state}<span class="spacer"></span><span class="mono">${escapeHtml(device.id)}</span></div>
+  <p class="muted small">Off — nobody else can connect.</p>
+  ${loopback}
+  ${toggle}
+</section>`;
+        }
+
+        const inviteRows = sharing.invites.length === 0
+          ? '<tr><td colspan="4" class="muted">No outstanding invites.</td></tr>'
+          : sharing.invites.map((invite) => `<tr>
+  <td>${escapeHtml(invite.label)}</td>
+  <td class="muted">${invite.expiresAt === 0 ? 'Never' : escapeHtml(formatTime(invite.expiresAt))}</td>
+  <td class="muted">${String(invite.uses)} / ${String(invite.maxUses)}</td>
+  <td><form class="inline" method="post" action="/v1/devices/${escapeHtml(device.id)}/invites/${escapeHtml(invite.id)}/revoke"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><button class="danger" type="submit">Revoke</button></form></td>
+</tr>`).join('\n');
+
+        const approvalRows = sharing.pendingApprovals.length === 0
+          ? '<tr><td colspan="4" class="muted">No guests waiting.</td></tr>'
+          : sharing.pendingApprovals.map((approval) => `<tr>
+  <td>${escapeHtml(approval.label)}</td>
+  <td class="mono">${escapeHtml(approval.ip ?? '—')}</td>
+  <td class="muted">${escapeHtml(formatAge(approval.createdAt))} ago</td>
+  <td><div class="table-actions">
+    <form class="inline" method="post" action="/v1/devices/${escapeHtml(device.id)}/approvals/${escapeHtml(approval.id)}"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><input type="hidden" name="decision" value="approve"><button type="submit">Approve</button></form>
+    <form class="inline" method="post" action="/v1/devices/${escapeHtml(device.id)}/approvals/${escapeHtml(approval.id)}"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><input type="hidden" name="decision" value="deny"><button class="danger" type="submit">Deny</button></form>
+  </div></td>
+</tr>`).join('\n');
+
+        const guestRows = sharing.activeGuests.length === 0
+          ? '<tr><td colspan="4" class="muted">No active guests.</td></tr>'
+          : sharing.activeGuests.map((guest) => `<tr>
+  <td>${escapeHtml(guest.label)}</td>
+  <td class="mono">${escapeHtml(guest.ip ?? '—')}</td>
+  <td class="muted">${escapeHtml(formatTime(guest.since))}</td>
+  <td><form class="inline" method="post" action="/v1/devices/${escapeHtml(device.id)}/guests/${escapeHtml(guest.sessionId)}/revoke"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><button class="danger" type="submit">Revoke</button></form></td>
+</tr>`).join('\n');
+
+        const revokeAll = sharing.activeGuests.length > 0
+          ? `<form method="post" action="/v1/devices/${escapeHtml(device.id)}/guests/revoke-all"><input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}"><button class="danger" type="submit">Revoke all guests</button></form>`
+          : '';
+
+        return `<section class="panel share-panel" id="share-${escapeHtml(device.id)}">
+  <div class="row"><h3>${escapeHtml(device.name)}</h3>${state}<span class="spacer"></span><span class="mono">${escapeHtml(device.id)}</span></div>
+  <p class="muted small">Public URL: <code>${escapeHtml(sharing.publicUrl)}</code></p>
+  ${loopback}
+  ${toggle}
+  <h4>Create invite</h4>
+  <form method="post" action="/v1/devices/${escapeHtml(device.id)}/invites">
+    <input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}">
+    <div class="formgrid">
+      <div><label for="label-${escapeHtml(device.id)}">Label</label><input id="label-${escapeHtml(device.id)}" name="label" maxlength="64" placeholder="Support"></div>
+      <div><label for="ttl-${escapeHtml(device.id)}">Expires</label><select id="ttl-${escapeHtml(device.id)}" name="ttlSeconds"><option value="900">15 minutes</option><option value="3600" selected>1 hour</option><option value="86400">24 hours</option><option value="0">Never</option></select></div>
+      <div><label for="uses-${escapeHtml(device.id)}">Max uses</label><input id="uses-${escapeHtml(device.id)}" name="maxUses" type="number" min="1" max="10" value="1"></div>
+      <div><button type="submit">Create invite</button></div>
+    </div>
+  </form>
+  <h4>Outstanding invites</h4>
+  <table><thead><tr><th>Label</th><th>Expires</th><th>Uses</th><th></th></tr></thead><tbody>${inviteRows}</tbody></table>
+  <h4>Waiting for approval</h4>
+  <table><thead><tr><th>Label</th><th>IP</th><th>Age</th><th></th></tr></thead><tbody>${approvalRows}</tbody></table>
+  <h4>Active guests</h4>
+  <table><thead><tr><th>Label</th><th>IP</th><th>Since</th><th></th></tr></thead><tbody>${guestRows}</tbody></table>
+  ${revokeAll}
+</section>`;
+      }).join('\n');
+
   const auditRows = options.audit.length === 0
     ? '<tr><td colspan="5" class="muted">No audit rows yet.</td></tr>'
     : options.audit
@@ -184,6 +300,9 @@ export function dashboardPage(options: {
 <thead><tr><th>Device</th><th>State</th><th>Last seen</th><th>Added</th><th></th></tr></thead>
 <tbody>${rows}</tbody>
 </table></div>
+<h2>Sharing</h2>
+<div class="warning"><strong>Guest sessions never expire.</strong> Revoke each guest when they are done. Multiple guests can control this desktop at the same time and can interfere with each other.</div>
+${sharingSections}
 <h2>Audit tail</h2>
 <div class="panel"><table>
 <thead><tr><th>When</th><th>Event</th><th>Device</th><th>Actor</th><th>Detail</th></tr></thead>
@@ -314,6 +433,27 @@ export function guestSessionPage(options: {
     <input type="hidden" name="csrf" value="${escapeHtml(options.csrf)}">
     <button class="danger" type="submit">Disconnect</button>
   </form>
+</div>`,
+  );
+}
+
+export function inviteCreatedPage(options: {
+  deviceName: string;
+  label: string;
+  url: string;
+  expiresAt: number;
+}): string {
+  const expiry = options.expiresAt === 0 ? 'Never expires' : `Expires ${formatTime(options.expiresAt)}`;
+  return layout(
+    'Invite created',
+    `${topbar('<a href="/">Dashboard</a>')}
+<h1>Invite created</h1>
+<p class="lede">Send this one-time link to the guest. It is shown only on this page and is not available again from the dashboard.</p>
+<div class="panel">
+  <p><strong>${escapeHtml(options.deviceName)}</strong> · ${escapeHtml(options.label)} · ${escapeHtml(expiry)}</p>
+  <input class="input-url" readonly value="${escapeHtml(options.url)}" onclick="this.select()" aria-label="Invite URL">
+  <p class="muted small">The guest opens the link, requests access, and waits for you to approve them below.</p>
+  <p><a class="button secondary" href="/">Back to dashboard</a></p>
 </div>`,
   );
 }

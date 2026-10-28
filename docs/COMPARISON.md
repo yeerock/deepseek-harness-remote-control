@@ -93,7 +93,8 @@ negotiation subsystem and its failure modes (`docs/adr/0001-no-webrtc.md:103-111
 | VS Code | Client under `ref:apps/vscode/` | None |
 | Browser extension | Chrome entry point (`ref:README.md:86`) | Not needed |
 | dsh-TUI host | Supported (`ref:README.md:87`) | Not supported in v1; the agent targets the desktop web server |
-| Guest sharing | Account membership only: every client signs in to the same account (`ref:README.md:162`, `ref:README.md:248`); no link-based guest invite/approval flow in the cited tree | Per-device invite link, single-use by default, owner **Approve/Deny** with label/IP/UA; guest session is device-scoped and permanent until revoked (`docs/SHARING.md`) |
+| Guest sharing | Account membership only: every client signs in to the same account (`ref:README.md:162`, `ref:README.md:248`); no link-based guest invite/approval flow in the cited tree | Per-device invite link, single-use by default, owner **Approve/Deny** with label/IP/UA from the plugin panel or edge dashboard; guest is device-scoped (`docs/SHARING.md`) |
+| Guest session lifetime | Account session; no permanent guest seat is part of the cited model | **No expiry** until revoked: `expiresAt = null`, 10-year cookie, survives edge restarts and tunnel reconnects; Revoke one/all or sharing off (`docs/SHARING.md` §6.1) |
 | Separate client code | `ref:packages/client-core` (12 files, 5,133 lines at the cited commit) projects Harness RPC into each shell | No client code: the UI already exists |
 
 This is the largest real difference. The reference implementation supports
@@ -178,10 +179,10 @@ stated source. Nothing is extrapolated.
 | Reference package version | 0.5.22 | `ref:package.json:3` |
 | Reference DSH baseline | `dsh-v0.2.1-rc.1` | `ref:README.md:299` |
 | Reference TypeScript size | 447 files, 107,273 lines (75,161 non-test) | measured with `git ls-files` at the cited commit |
-| DSH RC protocol + mux + shared | 1,870 lines across 10 files | measured with `find`/`wc -l`, `src/` only, at the time of writing |
-| DSH RC edge + agent | 7,874 lines across 30 files | same measurement, after guest sharing landed |
-| DSH RC plugin | 3,818 lines across 8 files | same measurement |
-| DSH RC total, all `src/` | 13,562 lines across 48 files | same measurement, rounded down |
+| DSH RC protocol + mux + shared | 1,873 lines across 10 files | measured with `find`/`wc -l`, `src/` only, at the time of writing |
+| DSH RC edge + agent | 8,318 lines across 31 files | same measurement, after dashboard sharing landed |
+| DSH RC plugin | 3,833 lines across 8 files | same measurement |
+| DSH RC total, all `src/` | 14,024 lines across 49 files | same measurement, rounded down |
 | DSH RC first paint through edge | 2.1 ms TTFB median (loopback edge, M4 Pro, 2026-10-28) | `tools/bench/results` |
 | DSH RC reconnect after forced tunnel replacement | 49 ms (loopback; packet-loss blip still unmeasured) | `tools/bench/results` |
 | DSH RC memory per tunnel | TBD; target < 24 MiB excluding payload buffers | `docs/ARCHITECTURE.md:163` |

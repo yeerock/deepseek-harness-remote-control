@@ -344,10 +344,10 @@ export class AuthService {
       // omits Origin but declares a cross-site fetch is still rejected.
       return site === undefined || site === 'same-origin' || site === 'none' || site === 'same-site';
     }
-    // Chromium sends `Origin: null` when the document policy suppresses the
-    // referrer. Accept it only for a same-origin navigation; Fetch Metadata is
-    // browser-set and cannot be forged by a cross-site form.
-    if (originHeader === 'null') return site === 'same-origin' || site === 'none';
+    // Chromium sends `Origin: null` for opaque origins (sandboxed frames or a
+    // referrer policy that suppresses the origin). Only Fetch Metadata can
+    // prove the request is same-origin; anything else is rejected.
+    if (originHeader === 'null') return site === 'same-origin';
     const expected = requestOrigin(request, this.config.publicUrl, this.config.trustProxy);
     try {
       return new URL(originHeader).origin === new URL(expected).origin;
