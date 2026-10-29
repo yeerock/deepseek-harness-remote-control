@@ -1387,9 +1387,9 @@ function createComponent(React: any): (props: AnyProps) => any {
     const openHarness = (peer: HarnessPeerView, newSession = false): void => {
       void (async () => {
         try {
-          const result = (await call('remote.embed', { deviceId: peer.id })) as { url?: string };
+          const result = (await call('remote.embed', { deviceId: peer.id, newSession })) as { url?: string; opened?: boolean };
           if (typeof result.url === 'string' && result.url !== '') {
-            setEmbedUrl(`${result.url}${newSession ? '?dsh-rc-new=1' : ''}`);
+            if (result.opened !== true) window.open(result.url, '_blank', 'noopener,noreferrer');
             setOpen(false);
           }
         } catch (reason) {
@@ -1571,24 +1571,6 @@ function createComponent(React: any): (props: AnyProps) => any {
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,
               harnessSection,
             ),
-          )
-        : null,
-      embedUrl !== undefined
-        ? h(
-            'div',
-            { style: { position: 'fixed', inset: 0, zIndex: 2147483646, background: '#0b0f1a', display: 'flex', flexDirection: 'column' } },
-            h(
-              'div',
-              { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', color: '#e6ecff', font: '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' } },
-              h('span', null, t('remoteEmbedTitle')),
-              h('button', { type: 'button', style: { border: 0, background: 'transparent', color: '#e6ecff', fontSize: '18px', cursor: 'pointer' }, onClick: () => setEmbedUrl(undefined), 'aria-label': t('close') }, '×'),
-            ),
-            h('webview', {
-              src: embedUrl,
-              title: t('remoteEmbedTitle'),
-              style: { flex: '1 1 auto', width: '100%', border: 0, background: '#fff' },
-              allowpopups: false,
-            }),
           )
         : null,
     );

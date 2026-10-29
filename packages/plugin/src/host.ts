@@ -151,8 +151,26 @@ class DshRcService {
     return this.remoteView.embedUrl(deviceId);
   }
 
-  mountRemoteView(webServer: WebServerLike): void {
-    this.remoteView.mount(webServer as Parameters<RemoteViewServer['mount']>[0]);
+  async openRemoteWindow(deviceId: string, newSession: boolean): Promise<{ url: string; opened: boolean }> {
+    const url = await this.remoteView.embedUrl(deviceId);
+    const target = `${url}${newSession ? '?dsh-rc-new=1' : ''}`;
+    try {
+      // @ts-expect-error electron is provided by the DSH runtime, not npm
+      const electron = await import('electron');
+      const parent = electron.BrowserWindow.getFocusedWindow() ?? undefined;
+      const child = new electron.BrowserWindow({
+        width: 1280,
+        height: 860,
+        ...(parent === undefined ? {} : { parent }),
+        title: 'Remote Harness',
+        backgroundColor: '#111214',
+        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+      });
+      await child.loadURL(target);
+      return { url: target, opened: true };
+    } catch {
+      return { url: target, opened: false };
+    }
   }
 
   async harnessList(): Promise<PeerList> {
@@ -442,6 +460,7 @@ export interface SharingRpcTarget {
   publicUrl(): Promise<string>;
   harnessList(): Promise<PeerList>;
   embedTicket(deviceId: string): Promise<string>;
+  openRemoteWindow(deviceId: string, newSession: boolean): Promise<{ url: string; opened: boolean }>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
   sharingRevokeInvite(id: string): Promise<{ ok: true }>;
@@ -473,8 +492,7 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'remote.embed': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
-        const url = await target.embedTicket(deviceId);
-        return url === '' ? rpcFail('embed-failed', 'no embed URL') : rpcOk({ url });
+        return rpcOk(await target.openRemoteWindow(deviceId, input['newSession'] === true));
       }
       case 'sharing.get':
         return rpcOk(await target.sharingGet());

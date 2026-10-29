@@ -24,7 +24,7 @@ await build({
   platform: 'node',
   format: 'esm',
   target: ['node22'],
-  external: ['node:*', 'ws'],
+  external: ['node:*', 'ws', 'electron'],
   sourcemap: false,
 });
 
