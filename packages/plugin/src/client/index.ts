@@ -299,6 +299,19 @@ const EN: Record<string, string> = {
   since: 'Up time',
   version: 'Version',
   update: 'Update',
+  updates: 'Updates',
+  updateUpToDate: 'Up to date',
+  updateChecking: 'Checking',
+  updateAvailable: '{v} found, installs when idle',
+  updateInstalling: 'Installing {v}',
+  updateReady: '{v} ready, restarts when idle',
+  updateRestarting: 'Restarting for {v}',
+  updateDevelopment: 'Development copy, updated with git',
+  updateFailed: 'Update failed',
+  updateNotChecked: 'Not checked yet',
+  updateCheckedAgo: 'checked {age}',
+  updateCheck: 'Check for Updates',
+  updateRestart: 'Restart to Update',
   lastError: 'Last error',
   none: 'None',
   agentEntry: 'Agent',
@@ -443,6 +456,19 @@ const ZH: Record<string, string> = {
   since: '运行时长',
   version: '版本',
   update: '更新',
+  updates: '自动更新',
+  updateUpToDate: '已是最新',
+  updateChecking: '正在检查',
+  updateAvailable: '发现 {v}，空闲时安装',
+  updateInstalling: '正在安装 {v}',
+  updateReady: '{v} 已就绪，空闲时自动重启',
+  updateRestarting: '正在重启以加载 {v}',
+  updateDevelopment: '开发副本，通过 git 更新',
+  updateFailed: '更新失败',
+  updateNotChecked: '尚未检查',
+  updateCheckedAgo: '{age}前检查',
+  updateCheck: '检查更新',
+  updateRestart: '重启以更新',
   lastError: '最近错误',
   none: '无',
   agentEntry: '代理入口',
@@ -1371,7 +1397,23 @@ function createComponent(React: any): (props: AnyProps) => any {
       }
     };
 
-    const run = async (endpoint: 'start' | 'restart' | 'stop'): Promise<void> => {
+    const updateSummary = (value: any): string => {
+      const v = String(value?.latestVersion ?? '');
+      const fill = (key: string): string => t(key).replace('{v}', v);
+      const checked = typeof value?.updateCheckedAt === 'number' ? ` · ${t('updateCheckedAgo').replace('{age}', relativeAge(value.updateCheckedAt))}` : '';
+      switch (value?.updateState) {
+        case 'checking': return t('updateChecking');
+        case 'available': return fill('updateAvailable');
+        case 'installing': return fill('updateInstalling');
+        case 'ready': return fill('updateReady');
+        case 'restarting': return fill('updateRestarting');
+        case 'development': return t('updateDevelopment');
+        case 'error': return `${t('updateFailed')}${checked}`;
+        default: return value?.updateCheckedAt === undefined ? t('updateNotChecked') : `${t('updateUpToDate')}${checked}`;
+      }
+    };
+
+    const run = async (endpoint: 'start' | 'restart' | 'stop' | 'update.check' | 'update.restart'): Promise<void> => {
       setBusy(true);
       setError(undefined);
       try {
@@ -1598,9 +1640,7 @@ function createComponent(React: any): (props: AnyProps) => any {
     rows.push([t('restarts'), status?.restarts ?? 0]);
     rows.push([t('since'), formatSince(status?.since)]);
     if (status?.agentEntry !== undefined) rows.push([t('agentEntry'), shortAgentPath(status.agentEntry), true]);
-    if (status?.latestVersion !== undefined && status.latestVersion !== status.version) {
-      rows.push([t('update'), `${status.latestVersion} · ${status.updateState ?? ''}`]);
-    }
+    rows.push([t('updates'), updateSummary(status)]);
     if (status?.pid !== undefined) rows.push([t('pid'), String(status.pid), true]);
     if (status?.lastError !== undefined) rows.push([t('lastError'), redact(status.lastError)]);
 
@@ -2241,7 +2281,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               ),
               unavailable ? h('div', { style: styles.banner('#ef4444') }, t('hostUnavailable')) : null,
               error !== undefined && !unavailable ? h('div', { style: styles.banner('#f59e0b') }, redact(error)) : null,
-              (status?.updateState === 'installing' || status?.updateState === 'installed') && status.updateMessage !== undefined
+              (status?.updateState === 'available' || status?.updateState === 'installing' || status?.updateState === 'ready' || status?.updateState === 'restarting' || status?.updateState === 'error') && status.updateMessage !== undefined
                 ? h('div', { style: styles.banner('#38bdf8') }, redact(status.updateMessage))
                 : null,
               h(
@@ -2330,6 +2370,8 @@ function createComponent(React: any): (props: AnyProps) => any {
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('start') }, t('start')),
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('restart') }, t('restart')),
                 h('button', { type: 'button', style: styles.button(false), disabled, onClick: () => void run('stop') }, t('stop')),
+                status?.updateState === 'development' ? null : h('button', { type: 'button', style: styles.button(false), disabled: disabled || status?.updateState === 'installing' || status?.updateState === 'checking', onClick: () => void run('update.check') }, t('updateCheck')),
+                status?.updateState === 'ready' ? h('button', { type: 'button', style: styles.button(true), disabled, onClick: () => void run('update.restart') }, t('updateRestart')) : null,
               ),
               status?.state === 'stopped' && !unavailable ? h('div', { style: styles.footerHint }, t('stoppedHint')) : null,
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,

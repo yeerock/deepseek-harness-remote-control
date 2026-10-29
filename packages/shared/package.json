@@ -1,6 +1,6 @@
 {
   "name": "@dsh-rc/shared",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "dependencies": {
-    "@dsh-rc/protocol": "0.3.6",
-    "@dsh-rc/mux": "0.3.6",
+    "@dsh-rc/protocol": "0.3.7",
+    "@dsh-rc/mux": "0.3.7",
     "ws": "^8.21.3"
   },
   "scripts": {

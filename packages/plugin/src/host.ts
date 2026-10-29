@@ -170,6 +170,8 @@ class DshRcService {
     this.updates = new UpdateManager({
       repoRoot: dirname(dirname(options.pluginRoot)),
       currentVersion: PLUGIN_VERSION,
+      // Restart only while nothing on this Harness is working.
+      isIdle: async () => !(await this.listSessions()).some((row) => isRecord(row) && row['running'] === true),
       logger: options.logger,
     });
     this.updates.start();
@@ -354,6 +356,16 @@ class DshRcService {
     return { ok: true };
   }
 
+  async updateCheck(): Promise<DshRcStatus> {
+    await this.updates.check(true);
+    return this.status();
+  }
+
+  updateRestart(): DshRcStatus {
+    this.updates.restartNow();
+    return this.status();
+  }
+
   sharingRevokeAll(): Promise<{ revoked: number }> {
     return this.sharingClient.revokeAllGuests();
   }
@@ -367,6 +379,7 @@ class DshRcService {
     status.updateState = update.state;
     if (update.latest !== undefined) status.latestVersion = update.latest;
     if (update.message !== undefined) status.updateMessage = update.message;
+    if (update.checkedAt !== undefined) status.updateCheckedAt = update.checkedAt;
     if (this.setupError !== undefined) status.lastError ??= this.setupError;
     return status;
   }
@@ -708,6 +721,8 @@ export interface SharingRpcTarget {
   sharingDecide(id: string, decision: 'approve' | 'deny', ttlSeconds?: number): Promise<{ ok: true }>;
   sharingRevokeGuest(sessionId: string): Promise<{ ok: true }>;
   sharingRevokeAll(): Promise<{ revoked: number }>;
+  updateCheck(): Promise<DshRcStatus>;
+  updateRestart(): DshRcStatus;
 }
 
 /**
@@ -728,6 +743,11 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         return rpcOk(await target.stop());
       case 'pair-url':
         return rpcOk({ pairUrl: target.pairUrl() ?? null });
+      // Local only: neither is in PEER_ENDPOINTS, so no other computer can trigger them.
+      case 'update.check':
+        return rpcOk(await target.updateCheck());
+      case 'update.restart':
+        return rpcOk(target.updateRestart());
       case 'harness.list':
         return rpcOk(await target.harnessList());
       case 'remote.embed': {

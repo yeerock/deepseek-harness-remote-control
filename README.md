@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.6.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 300 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.3.7.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 311 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -181,13 +181,32 @@ flags and systemd: [DEPLOY.md](docs/DEPLOY.md).
 
 ### Version and auto-update
 
-The Remote Control modal shows the plugin **version** and the update state. On
-start and every six hours the host checks the latest GitHub release. When a
-newer tag exists it runs `scripts/self-update.sh` detached: checks out the tag,
-runs `npm ci`, rebuilds the plugin and the standalone edge bundle, refreshes
-`~/Library/Application Support/dsh-rc/edge/main.cjs` and restarts the launchd
-edge. The modal reports `installing` / `installed`; **restart DeepSeek
-Harness** once to load the new host code. Set `DSHRC_AUTO_UPDATE=0` to opt out.
+Every computer keeps itself on the latest release, macOS and Windows alike,
+with no clicks:
+
+1. **Check.** Two minutes after DeepSeek Harness starts, and then every hour,
+   the host reads the latest GitHub release.
+2. **Install.** When a newer `vX.Y.Z` exists it runs the cross-platform
+   `scripts/self-update.mjs` in the background: checks out the tag, runs
+   `npm ci` and the build, verifies the version, and (on the macOS owner
+   machine) refreshes the launchd edge.
+3. **Restart.** As soon as no session on that computer is running, DeepSeek
+   Harness quits and reopens itself to load the new version.
+
+Safety rails: one update at a time; only plain release tags are accepted; a
+development copy on a git branch is never touched; local edits are stashed,
+never discarded; a failed build rolls back to the version you had; automatic
+restarts stop after two tries per release; and the update endpoints are local
+only, so no other computer can trigger them. Progress is logged to
+`~/.dsh-rc/update.log`.
+
+The Remote Control panel shows an **Updates** row (up to date, installing,
+ready, restarting, or why it failed, and when it last checked) with **Check for
+Updates** and, when an update is waiting, **Restart to Update**.
+`DSHRC_AUTO_RESTART=0` keeps installs automatic but leaves the restart to you;
+`DSHRC_AUTO_UPDATE=0` turns updating off.
+
+<p align="center"><img src="docs/images/06-auto-update.webp" alt="Remote Control panel with the Updates row, Check for Updates and Restart to Update" width="520"></p>
 
 ### Auto-approval
 
@@ -369,7 +388,7 @@ SHA-256-equal through the tunnel, `remote.mux` OPEN.
 | [`apps/edge`](apps/edge) | Public HTTPS/WSS relay, auth, pairing, SQLite, dashboard |
 | [`apps/agent`](apps/agent) | Desktop tunnel client and loopback proxy |
 | [`packages/plugin`](packages/plugin) | DeepSeek Harness plugin (host + sidebar UI) |
-| [`scripts`](scripts) | `join-edge.sh` (pair a host), `self-update.sh`, `install-macos.sh`, edge bundle build |
+| [`scripts`](scripts) | `join-edge.sh` (pair a host), `self-update.mjs` (automatic updates), `install-macos.sh`, edge bundle build |
 | [`tests`](tests), [`tools/bench`](tools/bench) | Integration, fault injection, benchmarks |
 | [`docs`](docs) | Architecture, protocol, ADRs, threat model, deployment, runbook |
 

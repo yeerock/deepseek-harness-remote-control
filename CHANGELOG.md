@@ -3,6 +3,14 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.7 - 2026-10-30
+
+- Automatic updates now work on every computer, Windows included. The host checks the latest GitHub release two minutes after DeepSeek Harness starts and then every hour, installs a newer release in the background with the new cross-platform `scripts/self-update.mjs` (it replaces `self-update.sh`, which could not run on Windows), and then restarts DeepSeek Harness by itself as soon as no session is running.
+- Safe by design: one update at a time (lock file), only plain `vX.Y.Z` release tags, a development copy on a git branch is never touched, local edits are stashed rather than discarded, a failed build rolls back to the previous version, and automatic restarts stop after two tries per release so they can never loop. The update endpoints are local only; another computer cannot trigger them.
+- The Remote Control panel shows an Updates row (up to date, installing, ready, restarting, or why it failed, with when it last checked) and **Check for Updates** and **Restart to Update** buttons.
+- `DSHRC_AUTO_RESTART=0` keeps installs automatic but leaves the restart to you; `DSHRC_AUTO_UPDATE=0` turns updating off.
+- Computers on v0.3.6 or older still need one manual update (paste the setup prompt, or quit and reopen DeepSeek Harness after `git checkout v0.3.7` and a build); from then on they stay current by themselves.
+
 ## v0.3.6 - 2026-10-29
 
 - Remote Workspaces now uses the same design as DeepSeek Harness's own Workspaces list: identical row heights, spacing, type, colours and corner radius (from DSH's design tokens), the same folder, chevron and new-session icons, the folder-to-chevron swap on hover, a pin mark on pinned sessions, and the same time format (now, 34min, 5h, 1d).

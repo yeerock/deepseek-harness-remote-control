@@ -1,6 +1,6 @@
 {
   "name": "@dsh-rc/mux",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,7 @@
     }
   },
   "dependencies": {
-    "@dsh-rc/protocol": "0.3.6"
+    "@dsh-rc/protocol": "0.3.7"
   },
   "scripts": {
     "build": "tsc -b"

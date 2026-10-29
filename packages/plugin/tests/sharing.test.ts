@@ -229,6 +229,8 @@ describe('sharing RPC dispatch', () => {
       sharingDecide: async () => ({ ok: true }),
       sharingRevokeGuest: async () => ({ ok: true }),
       sharingRevokeAll: async () => ({ revoked: 0 }),
+      updateCheck: async () => ({ state: 'online' } as never),
+      updateRestart: () => ({ state: 'online' } as never),
     };
     return { ...base, ...overrides };
   }
