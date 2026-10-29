@@ -1,6 +1,6 @@
 {
   "name": "@dsh-rc/agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "DSH RC agent: tunnel client, DSH cookie bootstrap, HTTP/WebSocket proxy, reconnect.",
   "license": "MIT",
@@ -26,9 +26,9 @@
     "test": "vitest run apps/agent"
   },
   "dependencies": {
-    "@dsh-rc/mux": "0.3.0",
-    "@dsh-rc/protocol": "0.3.0",
-    "@dsh-rc/shared": "0.3.0",
+    "@dsh-rc/mux": "0.3.1",
+    "@dsh-rc/protocol": "0.3.1",
+    "@dsh-rc/shared": "0.3.1",
     "ws": "^8.21.3"
   }
 }

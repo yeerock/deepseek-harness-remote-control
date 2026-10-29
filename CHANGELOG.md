@@ -3,6 +3,17 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.1 — 2026-10-29
+
+### Changed
+
+- Remote Workspaces lists only computers you can open remotely: online, not
+  this computer, and answering with their sessions (plugin v0.3.0 or later).
+  Offline computers, this computer, and computers on older plugins are hidden.
+- The selected computer's name is no longer repeated under the picker; **New
+  Session** (+) and **Rename Computer** sit beside it. A single available
+  computer is selected automatically.
+
 ## v0.3.0 — 2026-10-29
 
 Remote sessions open like local ones.

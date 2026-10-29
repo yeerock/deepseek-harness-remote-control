@@ -197,7 +197,8 @@ const EN: Record<string, string> = {
   shareStateOff: 'Not Shared',
   remotePick: 'Select a Computer',
   remotePickHint: 'Choose a computer to see its sessions.',
-  remoteNoneOnline: 'None of your other computers is online right now.',
+  remoteNoneOnline: 'None of your other computers can be opened right now. They must be online, sharing, and on plugin v0.3.0 or later.',
+  remoteRenameComputer: 'Rename Computer',
   remoteOffline: 'offline',
   remoteOpenComputer: 'Open Computer',
   qrHint: 'Scan to open the pairing link in a browser.',
@@ -332,7 +333,8 @@ const ZH: Record<string, string> = {
   shareStateOff: '未共享',
   remotePick: '选择一台电脑',
   remotePickHint: '选择一台电脑以查看其会话。',
-  remoteNoneOnline: '你的其他电脑目前都不在线。',
+  remoteNoneOnline: '目前没有可远程打开的电脑。对方需在线、已开启共享并使用 v0.3.0 或更高版本的插件。',
+  remoteRenameComputer: '重命名电脑',
   remoteOffline: '离线',
   remoteOpenComputer: '打开这台电脑',
   qrHint: '扫码在浏览器中打开配对链接。',
@@ -745,8 +747,9 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-open > svg { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
 .dsh-rc-remote-ws-open:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
 .dsh-rc-remote-ws-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; margin-left: auto; }
+.dsh-rc-remote-ws-bar { display: flex; align-items: center; gap: 2px; margin: 2px 4px 6px 8px; }
 .dsh-rc-remote-ws-picker {
-  display: block; width: calc(100% - 16px); height: 30px; margin: 2px 8px 6px; padding: 0 8px;
+  display: block; flex: 1 1 auto; min-width: 0; height: 30px; margin: 0; padding: 0 8px;
   border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.28)); border-radius: 8px;
   background: transparent; color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; cursor: pointer;
 }
@@ -1640,8 +1643,12 @@ function createComponent(React: any): (props: AnyProps) => any {
 
     // Sessions of every online Harness, refreshed while the sidebar is shown, so
     // remote sessions can be listed and opened like local ones.
-    const selectedPeer = harnessPeers.find((peer: HarnessPeerView) => peer.id === selectedHost && peer.id !== status?.deviceId);
-    const onlineKey = selectedPeer !== undefined && selectedPeer.online === true ? selectedPeer.id : '';
+    // Ask every online computer (other than this one) for its sessions: that both
+    // fills the list and tells us which ones can actually be opened remotely.
+    const onlineKey = harnessPeers
+      .filter((peer: HarnessPeerView) => peer.online === true && peer.id !== status?.deviceId)
+      .map((peer: HarnessPeerView) => peer.id)
+      .join(',');
     ReactUse.useEffect(() => {
       if (onlineKey === '' || props.wide === false) return undefined;
       let cancelled = false;
@@ -1742,95 +1749,80 @@ function createComponent(React: any): (props: AnyProps) => any {
           setHarnessPeers((previous: HarnessPeerView[]) => [...previous]);
           setRemoteSessions((previous: any) => ({ ...previous }));
         };
-        // Only computers that can be opened right now: online, and not this one.
-        const others = harnessPeers.filter((peer: HarnessPeerView) => peer.id !== status?.deviceId && peer.online === true);
+        // Only computers you can remote to: online, not this one, and answering
+        // with their sessions (a computer on an older plugin cannot be opened).
+        const others = harnessPeers.filter((peer: HarnessPeerView) =>
+          peer.id !== status?.deviceId && peer.online === true && remoteSessions[peer.id]?.sessions !== undefined);
+        const peer = others.find((candidate: HarnessPeerView) => candidate.id === selectedHost) ?? (others.length === 1 ? others[0] : undefined);
+        if (others.length === 0) {
+          const hint = document.createElement('div');
+          hint.className = 'dsh-rc-remote-ws-note';
+          hint.style.marginLeft = '8px';
+          hint.textContent = t('remoteNoneOnline');
+          container.append(hint);
+          return;
+        }
+        const bar = document.createElement('div');
+        bar.className = 'dsh-rc-remote-ws-bar';
         const picker = document.createElement('select');
         picker.className = 'dsh-rc-remote-ws-picker';
         picker.setAttribute('aria-label', t('remotePick'));
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = t('remotePick');
-        picker.append(placeholder);
-        for (const peer of others) {
+        if (peer === undefined) {
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = t('remotePick');
+          picker.append(placeholder);
+        }
+        for (const candidate of others) {
           const option = document.createElement('option');
-          option.value = peer.id;
-          option.textContent = peer.name;
+          option.value = candidate.id;
+          option.textContent = candidate.name;
           picker.append(option);
         }
-        picker.value = others.some((peer: HarnessPeerView) => peer.id === selectedHost) ? selectedHost : '';
+        picker.value = peer?.id ?? '';
         picker.addEventListener('change', () => {
           try { globalThis.localStorage?.setItem('dsh-rc.remoteHost', picker.value); } catch { /* optional */ }
           setSelectedHost(picker.value);
         });
-        container.append(picker);
-        const shown = others.filter((peer: HarnessPeerView) => peer.id === selectedHost);
-        if (shown.length === 0) {
+        bar.append(picker);
+        if (peer === undefined) {
+          container.append(bar);
           const hint = document.createElement('div');
           hint.className = 'dsh-rc-remote-ws-note';
           hint.style.marginLeft = '8px';
-          hint.textContent = others.length === 0 ? t('remoteNoneOnline') : t('remotePickHint');
+          hint.textContent = t('remotePickHint');
           container.append(hint);
           return;
         }
-        for (const peer of shown) {
-          const row = document.createElement('div');
-          row.className = 'dsh-rc-remote-ws-row';
-          const open = document.createElement('div');
-          open.setAttribute('role', 'button');
-          open.tabIndex = 0;
-          open.className = 'dsh-rc-remote-ws-open';
-          open.title = peer.name;
-          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          icon.setAttribute('viewBox', '0 0 24 24');
-          icon.setAttribute('width', '16');
-          icon.setAttribute('height', '16');
-          icon.setAttribute('fill', 'none');
-          icon.setAttribute('stroke', 'currentColor');
-          icon.setAttribute('stroke-width', '1.6');
-          icon.setAttribute('stroke-linecap', 'round');
-          icon.setAttribute('stroke-linejoin', 'round');
-          icon.setAttribute('aria-hidden', 'true');
-          const screen = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          screen.setAttribute('x', '3'); screen.setAttribute('y', '4');
-          screen.setAttribute('width', '18'); screen.setAttribute('height', '13');
-          screen.setAttribute('rx', '2');
-          const stand = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          stand.setAttribute('d', 'M8 21h8M12 17v4');
-          icon.append(screen, stand);
-          const dot = document.createElement('span');
-          dot.className = 'dsh-rc-remote-ws-dot';
-          dot.style.background = peer.online === true ? '#22c55e' : '#71717a';
-          const name = document.createElement('span');
-          name.className = 'dsh-rc-remote-ws-name';
-          name.textContent = peer.name;
-          open.append(icon, name, dot);
-          open.title = `${peer.name} - ${t('renameHint')}`;
-          clickOrDouble(
-            open,
-            () => {
-              const latest = remoteSessions[peer.id]?.sessions?.[0];
-              if (peer.online !== true) setRenameError(t('remoteOfflineNote').replace('{name}', peer.name));
-              else if (latest !== undefined) props.openRemoteSession({ deviceId: peer.id, deviceName: peer.name, sessionId: latest.id, title: latest.title });
-            },
-            () => editInline(name, peer.name, 64, async (value) => { await call('computer.rename', { deviceId: peer.id, name: value }); }, afterRename),
-          );
-          const add = document.createElement('button');
-          add.type = 'button';
-          add.className = 'dsh-rc-remote-ws-new';
-          add.textContent = '+';
-          add.title = t('remoteNewSession');
-          add.setAttribute('aria-label', `${t('remoteNewSession')}: ${peer.name}`);
-          add.addEventListener('click', () => {
-            const workspaceId = remoteSessions[peer.id]?.sessions?.[0]?.workspaceId;
-            if (peer.online !== true || workspaceId === undefined) {
-              setRenameError(t('remoteNoWorkspace'));
-              return;
-            }
-            void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
-          });
-          row.append(open, add);
-          container.append(row);
-          if (peer.online === true) {
+        const iconButton = (label: string, glyph: string, onClick: () => void): HTMLButtonElement => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'dsh-rc-remote-ws-new';
+          button.textContent = glyph;
+          button.title = label;
+          button.setAttribute('aria-label', label);
+          button.addEventListener('click', onClick);
+          return button;
+        };
+        const rename = iconButton(t('remoteRenameComputer'), '✎', () => {
+          const slot = document.createElement('span');
+          slot.style.flex = '1 1 auto';
+          slot.style.minWidth = '0';
+          bar.replaceChild(slot, picker);
+          editInline(slot, peer.name, 64, async (value) => { await call('computer.rename', { deviceId: peer.id, name: value }); }, afterRename);
+        });
+        const add = iconButton(t('remoteNewSession'), '+', () => {
+          const workspaceId = remoteSessions[peer.id]?.sessions?.[0]?.workspaceId;
+          if (workspaceId === undefined) {
+            setRenameError(t('remoteNoWorkspace'));
+            return;
+          }
+          void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
+        });
+        bar.append(rename, add);
+        container.append(bar);
+        {
+          {
             const entry = remoteSessions[peer.id];
             if (entry === undefined) {
               const note = document.createElement('div');
