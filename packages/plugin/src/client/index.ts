@@ -18,6 +18,22 @@ import { encodeQr, qrToSvg } from './qr.js';
 import { createRemoteChat, REMOTE_CHAT_CSS, REMOTE_PANEL_ID, remoteChatStore } from './remote-chat.js';
 import type { RemoteTarget } from './remote-chat.js';
 
+// Which remote workspace groups are folded, kept across reloads (per viewer only).
+const COLLAPSED_KEY = 'dsh-rc.remote.collapsed';
+const collapsedRemoteGroups: Set<string> = (() => {
+  try {
+    const raw = globalThis.localStorage?.getItem(COLLAPSED_KEY);
+    const list: unknown = raw === null || raw === undefined ? [] : JSON.parse(raw);
+    return new Set(Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string').slice(0, 500) : []);
+  } catch {
+    return new Set<string>();
+  }
+})();
+const saveCollapsedRemoteGroups = (): void => {
+  try { globalThis.localStorage?.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedRemoteGroups].slice(-500))); } catch { /* storage unavailable */ }
+};
+
+
 interface RpcResult<T> {
   ok?: boolean;
   value?: T;
@@ -760,14 +776,18 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 }
 .dsh-rc-remote-ws-error { margin: 2px 8px 4px; font-size: 12px; color: #ef4444; }
 .dsh-rc-remote-ws-group-add {
-  float: right; width: 18px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: transparent;
+  flex: 0 0 auto; width: 18px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: transparent;
   color: var(--dsw-alias-label-tertiary, #81858c); font: inherit; font-size: 13px; line-height: 14px; cursor: pointer;
 }
 .dsh-rc-remote-ws-group-add:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
 .dsh-rc-remote-ws-group {
-  margin: 4px 0 0 22px; padding: 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
-  color: var(--dsw-alias-label-tertiary, #81858c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 6px; height: 32px; margin: 2px 0 0; padding: 0 6px 0 8px; border-radius: 8px;
+  font-size: 14px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; user-select: none;
 }
+.dsh-rc-remote-ws-group:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+.dsh-rc-remote-ws-group:focus-visible { outline: 2px solid var(--dsw-alias-border-focus, #4c8dff); outline-offset: -2px; }
+.dsh-rc-remote-ws-folder { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
+.dsh-rc-remote-ws-group .dsh-rc-remote-ws-name { flex: 1 1 auto; }
 .dsh-rc-remote-ws-session {
   display: flex; align-items: center; gap: 6px; width: calc(100% - 22px); margin-left: 22px; height: 28px;
   padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary, inherit);
@@ -1892,24 +1912,58 @@ function createComponent(React: any): (props: AnyProps) => any {
                 groups.set(session.workspaceId, bucket);
               }
               for (const bucket of groups.values()) {
+                const groupKey = `${peer.id}|${bucket[0]?.workspaceId ?? ''}`;
+                const collapsed = collapsedRemoteGroups.has(groupKey);
                 const group = document.createElement('div');
                 group.className = 'dsh-rc-remote-ws-group';
+                group.setAttribute('role', 'button');
+                group.tabIndex = 0;
+                group.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                const folder = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                folder.setAttribute('viewBox', '0 0 24 24');
+                folder.setAttribute('width', '15');
+                folder.setAttribute('height', '15');
+                folder.setAttribute('fill', 'none');
+                folder.setAttribute('stroke', 'currentColor');
+                folder.setAttribute('stroke-width', '1.6');
+                folder.setAttribute('stroke-linejoin', 'round');
+                folder.setAttribute('aria-hidden', 'true');
+                folder.classList.add('dsh-rc-remote-ws-folder');
+                const folderPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                // Closed folder when collapsed, open folder when expanded, like local workspaces.
+                folderPath.setAttribute('d', collapsed
+                  ? 'M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z'
+                  : 'M3 17.5v-11A1.5 1.5 0 0 1 4.5 5h4.6l2 2h7.4A1.5 1.5 0 0 1 20 8.5V10M3 17.5 5.6 11h16l-2.6 8H4.5A1.5 1.5 0 0 1 3 17.5Z');
+                folder.append(folderPath);
                 const groupName = document.createElement('span');
+                groupName.className = 'dsh-rc-remote-ws-name';
                 groupName.textContent = bucket[0]?.workspaceName ?? '';
+                const toggle = (): void => {
+                  if (collapsedRemoteGroups.has(groupKey)) collapsedRemoteGroups.delete(groupKey);
+                  else collapsedRemoteGroups.add(groupKey);
+                  saveCollapsedRemoteGroups();
+                  render();
+                };
+                group.addEventListener('click', toggle);
+                group.addEventListener('keydown', (event: KeyboardEvent) => {
+                  if (event.target !== group) return;
+                  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+                });
                 const groupAdd = document.createElement('button');
                 groupAdd.type = 'button';
                 groupAdd.className = 'dsh-rc-remote-ws-group-add';
                 groupAdd.textContent = '+';
                 groupAdd.title = t('remoteNewSessionIn').replace('{name}', bucket[0]?.workspaceName ?? '');
                 groupAdd.setAttribute('aria-label', groupAdd.title);
-                groupAdd.addEventListener('click', () => {
+                groupAdd.addEventListener('click', (event: MouseEvent) => {
+                  event.stopPropagation();
                   const workspaceId = bucket[0]?.workspaceId;
                   if (workspaceId === undefined) return;
                   void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
                 });
-                group.append(groupName, groupAdd);
+                group.append(folder, groupName, groupAdd);
                 container.append(group);
-                for (const session of bucket) renderSession(session);
+                if (!collapsed) for (const session of bucket) renderSession(session);
               }
               if (all.length > 8) {
                 const more = document.createElement('button');

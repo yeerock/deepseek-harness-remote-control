@@ -3,6 +3,10 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.4 - 2026-10-29
+
+- Remote workspaces fold and unfold like local ones: click a workspace (folder icon) to hide or show its sessions. The choice is remembered on that computer.
+
 ## v0.3.3 - 2026-10-29
 
 - Remote Workspaces is no longer a fixed card under the sidebar. It is a plain section at the end of the Workspaces list and scrolls with it, like the local workspaces.

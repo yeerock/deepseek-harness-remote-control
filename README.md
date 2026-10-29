@@ -19,7 +19,7 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.3.** Protocol, mux, edge, agent, plugin, tests and docs are
+> **Status: v0.3.4.** Protocol, mux, edge, agent, plugin, tests and docs are
 > implemented. 299 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
@@ -211,7 +211,8 @@ Under **Remote Workspaces** in the sidebar:
    computer you are on is not listed; its sessions are already in the normal
    Workspaces section. Remote Workspaces itself is a plain section at the end
    of the Workspaces list and scrolls with it, like the local workspaces.
-2. Its sessions appear grouped by workspace. **Click a session** and the
+2. Its sessions appear grouped by workspace. Click a workspace to fold or
+   unfold it, like local workspaces; the choice is remembered. **Click a session** and the
    conversation opens in the main area, exactly where local conversations
    open, with a composer to keep chatting and a **Stop** button while it works.
    The session keeps running on that computer; its files, tools and
