@@ -3,7 +3,34 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.5 — 2026-10-29
+## v0.2.6 — 2026-10-29
+
+Click-to-use remote sessions, zero-touch pairing.
+
+### Added
+
+- **In-app remote session**: clicking a host in Remote Workspaces opens a
+  full-window iframe inside Harness. No new browser tab and no edge login page.
+- **Same-site loopback proxy**: the host plugin mints a one-time edge embed
+  ticket, creates a 24 h owner session, and forwards HTTP **and WebSocket** to
+  `/d/<deviceId>/` through `127.0.0.1:<random>`. The iframe is same-site with
+  the DSH renderer, so the complete Harness UI, files, uploads, terminal and
+  chat boot normally.
+- **Remote separation**: Remote Workspaces is a distinct card below the local
+  Workspaces section with a “via edge” badge; opening a remote host shows a
+  persistent “Remote Harness” banner.
+- **Zero-touch installer**: `scripts/join-edge.mjs` is cross-platform. The
+  prompt now finds/installs Node 24, handles a missing git (tag archive),
+  idempotently rewrites the profile/patch, links the plugin, and schedules the
+  Harness restart itself. No human approval or restart step.
+
+### Verification
+
+- 290 automated tests, CI green.
+- Same-site iframe boot verified against a real second Harness: full UI,
+  Remote Control online, no login page.
+- Installer exercised in a temp profile: patch, link and bundle are valid.
+
 
 Remote Workspaces styling and host-side new session.
 

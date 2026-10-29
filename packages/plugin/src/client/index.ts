@@ -181,6 +181,10 @@ const EN: Record<string, string> = {
   sharingInvites: 'Outstanding invites',
   harnessTitle: 'Harnesses',
   remoteWorkspaces: 'Remote Workspaces',
+  remoteBadge: 'via edge',
+  remoteBannerTitle: 'Remote Harness',
+  remoteEmbedTitle: 'Remote session',
+  remoteBannerHint: 'You are controlling another computer through DSH RC.',
   remoteWorkspacesEmpty: 'No other Harnesses paired yet.',
   remoteNewSession: 'New session at this Harness',
   harnessManage: 'Manage / approve',
@@ -277,6 +281,10 @@ const ZH: Record<string, string> = {
   sharingInvites: '未使用的邀请',
   harnessTitle: 'Harness 主机',
   remoteWorkspaces: '远程工作区',
+  remoteBadge: '经 edge',
+  remoteBannerTitle: '远程 Harness',
+  remoteEmbedTitle: '远程会话',
+  remoteBannerHint: '你正在通过 DSH RC 控制另一台电脑。',
   remoteWorkspacesEmpty: '尚未配对其他 Harness。',
   remoteNewSession: '在此 Harness 新建会话',
   harnessManage: '管理 / 批准',
@@ -490,16 +498,48 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 }
 .dsh-rc-sidebar-host-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; }
 .dsh-rc-sidebar-host-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dsh-rc-remote-banner {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  padding: 7px 14px;
+  border: 1px solid var(--dsw-alias-border-subtle, #2b3344);
+  border-radius: 999px;
+  background: #131a2e;
+  color: #e6ecff;
+  font: 500 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 6px 24px #0008;
+  text-align: center;
+  pointer-events: none;
+}
+.dsh-rc-remote-banner-title { font-weight: 600; }
+.dsh-rc-remote-banner-hint { margin-top: 1px; font-size: 10.5px; color: #a5b4d4; }
 #dsh-rc-remote-workspaces {
-  margin: 2px 0 2px;
-  padding: 0;
+  margin: 8px 4px 4px;
+  padding: 5px;
+  border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.18));
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-subtle, rgba(127,127,127,0.04));
 }
 .dsh-rc-remote-ws-header {
   display: flex;
   align-items: center;
-  height: 32px;
-  padding: 0 0 0 4px;
-  margin: 2px 0 2px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px;
+  margin: 0 0 2px;
+}
+.dsh-rc-remote-ws-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12));
+  color: var(--dsw-alias-label-tertiary, #71717a);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 .dsh-rc-remote-ws-title {
   font-size: 14px;
@@ -803,6 +843,7 @@ function createComponent(React: any): (props: AnyProps) => any {
     const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
     const [harnessPeers, setHarnessPeers] = ReactUse.useState([] as HarnessPeerView[]);
     const [harnessPublicUrl, setHarnessPublicUrl] = ReactUse.useState('');
+    const [embedUrl, setEmbedUrl] = ReactUse.useState(undefined as string | undefined);
     const [open, setOpen] = ReactUse.useState(false);
     const [unavailable, setUnavailable] = ReactUse.useState(false);
     const [error, setError] = ReactUse.useState(undefined as string | undefined);
@@ -1307,11 +1348,39 @@ function createComponent(React: any): (props: AnyProps) => any {
         : null,
     );
 
+    const remoteMatch = typeof window !== 'undefined' ? /^\/d\/([^/]+)\//.exec(window.location.pathname) : null;
+    const remoteDeviceId = remoteMatch?.[1];
+    ReactUse.useEffect(() => {
+      if (remoteDeviceId === undefined || typeof document === 'undefined') return undefined;
+      let banner = document.getElementById('dsh-rc-remote-banner');
+      if (banner === null) {
+        banner = document.createElement('div');
+        banner.id = 'dsh-rc-remote-banner';
+        banner.className = 'dsh-rc-remote-banner';
+        const title = document.createElement('div');
+        title.className = 'dsh-rc-remote-banner-title';
+        title.textContent = `${t('remoteBannerTitle')} · ${status?.deviceName ?? remoteDeviceId}`;
+        const hint = document.createElement('div');
+        hint.className = 'dsh-rc-remote-banner-hint';
+        hint.textContent = t('remoteBannerHint');
+        banner.append(title, hint);
+        document.body.append(banner);
+      }
+      return () => banner?.remove();
+    }, [remoteDeviceId, status?.deviceName, t]);
+
     const openHarness = (peer: HarnessPeerView, newSession = false): void => {
-      const base = (harnessPublicUrl !== '' ? harnessPublicUrl : (status?.edgeUrl ?? '')).replace(/\/+$/, '');
-      if (base === '') return;
-      const suffix = newSession ? '?dsh-rc-new=1' : '';
-      window.open(`${base}/d/${encodeURIComponent(peer.id)}/${suffix}`, '_blank', 'noopener,noreferrer');
+      void (async () => {
+        try {
+          const result = (await call('remote.embed', { deviceId: peer.id })) as { url?: string };
+          if (typeof result.url === 'string' && result.url !== '') {
+            setEmbedUrl(`${result.url}${newSession ? '?dsh-rc-new=1' : ''}`);
+            setOpen(false);
+          }
+        } catch (reason) {
+          setError(messageOf(reason));
+        }
+      })();
     };
 
     // DSH's sidebar exposes `sidebar.workspaces` as a single slot occupied by
@@ -1321,18 +1390,18 @@ function createComponent(React: any): (props: AnyProps) => any {
     ReactUse.useEffect(() => {
       if (typeof document === 'undefined') return undefined;
       const slot = document.querySelector('[data-slot="sidebar.workspaces"]');
-      const root = slot?.firstElementChild;
-      const header = root?.querySelector('[class*="sectionHeader"]');
-      if (root === null || root === undefined || header === null || header === undefined) return undefined;
+      const region = slot?.parentElement;
+      if (slot === null || slot === undefined || region === null || region === undefined) return undefined;
       let container = document.getElementById('dsh-rc-remote-workspaces');
       if (container === null) {
         container = document.createElement('div');
         container.id = 'dsh-rc-remote-workspaces';
         container.className = 'dsh-rc-remote-ws';
       }
-      // Directly below the native Workspaces header, before the local list.
-      if (container.parentElement !== root || container.previousElementSibling !== header) {
-        root.insertBefore(container, header.nextSibling);
+      // Separate card below the entire local Workspaces section, never mixed
+      // into the local workspace list.
+      if (container.parentElement !== region || container.previousElementSibling !== slot) {
+        region.insertBefore(container, slot.nextSibling);
       }
       const render = (): void => {
         if (container === null) return;
@@ -1344,7 +1413,10 @@ function createComponent(React: any): (props: AnyProps) => any {
         const title = document.createElement('span');
         title.className = 'dsh-rc-remote-ws-title';
         title.textContent = t('remoteWorkspaces');
-        header.append(title);
+        const badge = document.createElement('span');
+        badge.className = 'dsh-rc-remote-ws-badge';
+        badge.textContent = t('remoteBadge');
+        header.append(title, badge);
         container.append(header);
         if (harnessPeers.length === 0) {
           const empty = document.createElement('div');
@@ -1398,12 +1470,12 @@ function createComponent(React: any): (props: AnyProps) => any {
       };
       render();
       const observer = new MutationObserver(() => {
-        if (container !== null && container.parentElement !== root) {
-          root.insertBefore(container, header.nextSibling);
+        if (container !== null && container.parentElement !== region) {
+          region.insertBefore(container, slot.nextSibling);
           render();
         }
       });
-      observer.observe(root, { childList: true });
+      observer.observe(region, { childList: true });
       return () => {
         observer.disconnect();
         container?.remove();
@@ -1488,6 +1560,24 @@ function createComponent(React: any): (props: AnyProps) => any {
               status?.enabled === false && !unavailable ? h('div', { style: styles.footerHint }, t('disabledHint')) : null,
               harnessSection,
             ),
+          )
+        : null,
+      embedUrl !== undefined
+        ? h(
+            'div',
+            { style: { position: 'fixed', inset: 0, zIndex: 2147483646, background: '#0b0f1a', display: 'flex', flexDirection: 'column' } },
+            h(
+              'div',
+              { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', color: '#e6ecff', font: '500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' } },
+              h('span', null, t('remoteEmbedTitle')),
+              h('button', { type: 'button', style: { border: 0, background: 'transparent', color: '#e6ecff', fontSize: '18px', cursor: 'pointer' }, onClick: () => setEmbedUrl(undefined), 'aria-label': t('close') }, '×'),
+            ),
+            h('iframe', {
+              src: embedUrl,
+              title: t('remoteEmbedTitle'),
+              style: { flex: '1 1 auto', width: '100%', border: 0, background: '#fff' },
+              allow: 'clipboard-read; clipboard-write',
+            }),
           )
         : null,
     );

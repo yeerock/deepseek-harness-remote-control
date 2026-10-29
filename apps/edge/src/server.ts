@@ -22,6 +22,7 @@ import {
   readJsonBody,
   requestHeader,
   requestOrigin,
+  randomToken,
   sendJson,
   sha256Hex,
   type Logger,
@@ -139,6 +140,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
   const db = new EdgeDatabase(config.dataDir);
   const auth = new AuthService(config, db, logger);
   const devices = new DeviceService(config, db, logger);
+  const embedTickets = new Map<string, { deviceId: string; expiresAt: number }>();
   if (config.autoApproveDevices) devices.approveAllPending({ ip: null, actor: 'auto-approve' });
   const sharing = new SharingService(db, logger);
   const guestConnections = new GuestConnections(db, logger);
@@ -260,6 +262,16 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       if (method !== 'GET') return methodNotAllowed(response, ['GET']);
       handleDeviceMe(request, response);
       return;
+    }
+
+    if (pathname === '/v1/devices/me/embed-ticket') {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleEmbedTicket(request, response);
+    }
+
+    if (pathname.startsWith('/embed/')) {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      return handleEmbedOpen(request, response, pathname.slice('/embed/'.length));
     }
 
     if (pathname === '/v1/devices/me/peers') {
@@ -462,6 +474,42 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       pairUrl,
       status: registered.device.status,
     });
+  }
+
+  async function handleEmbedTicket(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const token = bearerToken(request);
+    if (token === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'missing bearer device secret');
+    const caller = devices.findBySecret(token);
+    if (caller === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'unknown device secret');
+    if (caller.status !== 'approved') return sendJsonError(response, 403, 'DEVICE_NOT_APPROVED', 'this device is not approved');
+    const body = await readJsonBody(request, 4 * 1024);
+    const targetId = typeof body === 'object' && body !== null && !Array.isArray(body) && typeof (body as Record<string, unknown>)['deviceId'] === 'string' ? String((body as Record<string, unknown>)['deviceId']) : '';
+    if (targetId === '') return sendJsonError(response, 400, 'BAD_REQUEST', 'deviceId is required');
+    const target = devices.findById(targetId);
+    if (target === undefined || target.status !== 'approved') return sendJsonError(response, 404, 'NOT_FOUND', 'approved Harness not found');
+    const ticket = randomToken(24);
+    embedTickets.set(ticket, { deviceId: targetId, expiresAt: Date.now() + 60_000 });
+    sendJson(response, 200, { url: `${publicOrigin(request)}/embed/${encodeURIComponent(ticket)}` });
+  }
+
+  function handleEmbedOpen(request: IncomingMessage, response: ServerResponse, ticket: string): Promise<void> | void {
+    const entry = embedTickets.get(ticket);
+    embedTickets.delete(ticket);
+    if (entry === undefined || entry.expiresAt <= Date.now()) return sendErrorPage(response, 401, 'Embed link expired', 'Open the Harness again from Remote Workspaces.');
+    const now = Date.now();
+    const session = db.createSession({
+      kind: 'owner',
+      deviceId: null,
+      csrfToken: randomToken(24),
+      createdAt: now,
+      expiresAt: now + 24 * 60 * 60 * 1000,
+      ip: clientAddress(request, config.trustProxy),
+      userAgent: request.headers['user-agent'] ?? null,
+    });
+    auth.setEmbedDeviceCookie(request, response, session);
+    const query = new URL(request.url ?? '/', 'http://dsh.internal').search;
+    response.writeHead(303, { location: `/d/${encodeURIComponent(entry.deviceId)}/${query}`, 'cache-control': 'no-store', 'content-length': '0' });
+    response.end();
   }
 
   function handleDevicePeers(request: IncomingMessage, response: ServerResponse): void {

@@ -8,8 +8,8 @@
  */
 
 export const REPO_URL = 'https://github.com/yeerock/deepseek-harness-remote-control';
-export const REPO_TAG = 'v0.2.5';
-export const PLUGIN_VERSION = '0.2.5';
+export const REPO_TAG = 'v0.2.6';
+export const PLUGIN_VERSION = '0.2.6';
 
 export interface JoinPromptOptions {
   /** Public edge origin; loopback URLs are rejected by the caller. */
@@ -42,10 +42,10 @@ export function buildJoinPrompt(options: JoinPromptOptions): string {
   const version = options.version ?? PLUGIN_VERSION;
   const edge = options.publicUrl.replace(/\/+$/, '');
   return [
-    `You are on a DeepSeek Harness desktop. Pair this Harness as a DSH RC ${version} host on the existing edge at ${edge}, using this computer's hostname as its device name, end to end, without asking for the owner password or any secret.`,
-    `(1) If ~/dsh-rc does not exist, run: git clone --branch ${tag} ${repo} ~/dsh-rc ; otherwise run: cd ~/dsh-rc && git fetch --tags && git checkout ${tag}.`,
-    `(2) Run: ~/dsh-rc/scripts/join-edge.sh "${edge}" "$(hostname)" . That script installs DSH RC into the profile this Harness instance uses, points its agent at the edge, and prints the restart step.`,
-    `(3) Ask me to restart DeepSeek Harness; after the restart confirm that ~/.dsh/rc/status.json reaches state "online" and report its deviceId. The edge auto-approves paired Harnesses, so no dashboard approval is needed.`,
-    `(4) Do not enable sharing, do not request or share the owner password, do not use a guest invite link, and do not modify other profile entries. Report every command you ran and any error.`,
+    `You are on a DeepSeek Harness desktop. Install or update DSH RC ${version} and join the edge at ${edge} as this Harness, fully autonomously with zero human action.`,
+    `(1) Ensure a Node 24 runtime: use \`node\` if its major is at least 24; otherwise use the Node runtime bundled with DeepSeek Harness; if neither exists, download the official Node 24 LTS portable build for this OS into ~/.dsh-rc/node and use it.`,
+    `(2) Get the source: if ~/dsh-rc is a git checkout, run \`cd ~/dsh-rc && git fetch --tags --force && git checkout -f ${tag}\`; if ~/dsh-rc exists but is not a git checkout, move it to ~/dsh-rc.bak-<timestamp>; then run \`git clone --branch ${tag} ${repo} ~/dsh-rc\`; if git is unavailable, download and extract ${repo}/archive/refs/tags/${tag}.tar.gz to ~/dsh-rc.`,
+    `(3) Run \`node ~/dsh-rc/scripts/join-edge.mjs "${edge}"\` (the installer uses this computer's hostname; add \`--profile <name>\` only if auto-detection is wrong). It updates and builds, installs the plugin into the running profile, writes the patch, links the package, and schedules the DeepSeek Harness restart itself.`,
+    `(4) Do not ask me to restart, approve, log in, or confirm; the installer exits after scheduling the restart and the edge auto-approves this Harness. Do not enable sharing, request or share the owner password or any secret, and do not modify other profile entries. If a step fails, retry once using the fallback path above, then report the exact error and stop.`,
   ].join(' ');
 }

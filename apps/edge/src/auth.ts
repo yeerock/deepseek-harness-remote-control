@@ -288,6 +288,32 @@ export class AuthService {
     this.appendSetCookie(response, this.guestSessionCookie(request, session));
   }
 
+  /** Device-scoped session usable from a cross-site iframe (no login). */
+  setEmbedDeviceCookie(request: IncomingMessage, response: ServerResponse, session: SessionRow): void {
+    const value = signPayload(this.sessionSecret, { sid: session.id, v: 1 } satisfies SessionCookiePayload);
+    const cookie = serializeCookie(SESSION_COOKIE, value, {
+      maxAgeSeconds: 30 * 24 * 60 * 60,
+      path: '/',
+      httpOnly: true,
+      secure: this.isSecure(request),
+      sameSite: 'None',
+    });
+    this.appendSetCookie(response, cookie);
+  }
+
+  /** Same signed guest session, but usable in a cross-site iframe. */
+  setEmbedSessionCookie(request: IncomingMessage, response: ServerResponse, session: SessionRow): void {
+    const value = signPayload(this.sessionSecret, { sid: session.id, v: 1 } satisfies SessionCookiePayload);
+    const cookie = serializeCookie(GUEST_COOKIE, value, {
+      maxAgeSeconds: GUEST_COOKIE_MAX_AGE_SECONDS,
+      path: '/',
+      httpOnly: true,
+      secure: this.isSecure(request),
+      sameSite: 'None',
+    });
+    this.appendSetCookie(response, cookie);
+  }
+
   clearGuestSessionCookie(request: IncomingMessage, response: ServerResponse): void {
     this.appendSetCookie(
       response,

@@ -4,7 +4,7 @@ import { buildJoinPrompt, isLoopbackOrigin, REPO_TAG, REPO_URL } from '../src/on
 describe('join prompt', () => {
   const base = {
     publicUrl: 'https://dsh-rc.example.ts.net',
-    version: '0.2.5',
+    version: '0.2.6',
   };
 
   it('carries the public edge, pinned tag, repository and device name', () => {
@@ -12,12 +12,12 @@ describe('join prompt', () => {
     expect(prompt).toContain('https://dsh-rc.example.ts.net');
     expect(prompt).toContain(REPO_URL);
     expect(prompt).toContain(REPO_TAG);
-    expect(prompt).toContain('$(hostname)');
-    expect(prompt).not.toContain('workshop-mac');
-    expect(prompt).toContain('DSH RC 0.2.5');
+    expect(prompt).toContain('this computer\'s hostname');
+    expect(prompt).toContain('DSH RC 0.2.6');
     expect(prompt).toContain('git clone --branch');
-    expect(prompt).toContain('scripts/join-edge.sh');
-    expect(prompt).toContain('~/.dsh/rc/status.json');
+    expect(prompt).toContain('scripts/join-edge.mjs');
+    expect(prompt).toContain('zero human action');
+    expect(prompt).toContain('join-edge.mjs');
   });
 
   it('is one paragraph with no newlines or secrets', () => {

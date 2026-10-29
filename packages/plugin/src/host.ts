@@ -31,6 +31,7 @@ import type { PluginConfig } from './config.js';
 import { SharingClient, sharingErrorCode } from './sharing.js';
 import { buildJoinPrompt, isLoopbackOrigin, PLUGIN_VERSION } from './onboard.js';
 import { UpdateManager } from './update.js';
+import { RemoteViewServer } from './remote-view.js';
 import type { CreatedInvite, PeerList, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
@@ -96,6 +97,7 @@ class DshRcService {
   private readonly stateDir: string;
   private readonly edgeUrl: string;
   private readonly updates: UpdateManager;
+  private readonly remoteView: RemoteViewServer;
   private setupError: string | undefined;
 
   constructor(options: ServiceOptions) {
@@ -112,6 +114,11 @@ class DshRcService {
     this.sharingClient = new SharingClient({
       stateDir: options.stateDir,
       edgeUrl: options.config.edgeUrl,
+      logger: options.logger,
+    });
+    this.remoteView = new RemoteViewServer({
+      edgeUrl: options.config.edgeUrl,
+      mintTicket: (deviceId) => this.sharingClient.embedTicket(deviceId),
       logger: options.logger,
     });
     this.supervisor = new AgentSupervisor({
@@ -137,6 +144,10 @@ class DshRcService {
     if (!response.ok) throw new Error(`edge returned HTTP ${String(response.status)}`);
     const body = await response.json() as { publicUrl?: unknown };
     return typeof body.publicUrl === 'string' ? body.publicUrl : '';
+  }
+
+  embedTicket(deviceId: string): Promise<string> {
+    return this.remoteView.embedUrl(deviceId);
   }
 
   async harnessList(): Promise<PeerList> {
@@ -210,6 +221,7 @@ class DshRcService {
   }
 
   dispose(): Promise<void> {
+    this.remoteView.close();
     return this.supervisor.dispose();
   }
 
@@ -423,6 +435,7 @@ export interface SharingRpcTarget {
   sharingGet(): Promise<SharingState>;
   publicUrl(): Promise<string>;
   harnessList(): Promise<PeerList>;
+  embedTicket(deviceId: string): Promise<string>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
   sharingRevokeInvite(id: string): Promise<{ ok: true }>;
@@ -451,6 +464,12 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         return rpcOk({ pairUrl: target.pairUrl() ?? null });
       case 'harness.list':
         return rpcOk(await target.harnessList());
+      case 'remote.embed': {
+        const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
+        if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
+        const url = await target.embedTicket(deviceId);
+        return url === '' ? rpcFail('embed-failed', 'no embed URL') : rpcOk({ url });
+      }
       case 'sharing.get':
         return rpcOk(await target.sharingGet());
       case 'sharing.set': {

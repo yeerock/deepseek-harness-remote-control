@@ -239,6 +239,12 @@ export class SharingClient {
     return normalizeSharing(body);
   }
 
+  /** One-time iframe embed URL for an approved peer Harness. */
+  async embedTicket(deviceId: string): Promise<string> {
+    const body = await this.request('POST', '/v1/devices/me/embed-ticket', { deviceId });
+    return isRecord(body) && typeof body['url'] === 'string' ? body['url'] : '';
+  }
+
   /** `GET /v1/devices/me/peers` — approved Harnesses, metadata only. */
   async listPeers(): Promise<PeerList> {
     const body = await this.request('GET', '/v1/devices/me/peers');
