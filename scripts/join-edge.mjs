@@ -2,7 +2,7 @@
 /**
  * Cross-platform DSH RC host join/update.
  *
- *   node scripts/join-edge.mjs <edge-url> [device-name] [--profile <name>] [--no-restart]
+ *   node scripts/join-edge.mjs <edge-url> [device-name] [--profile <name>] [--tag vX.Y.Z] [--no-restart]
  *
  * Does everything the copy-paste prompt needs: updates the checkout, builds,
  * installs the plugin into the running profile, writes the cordis patch, links
@@ -18,11 +18,15 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
 const argv = process.argv.slice(2);
-const positional = argv.filter((arg) => !arg.startsWith('--'));
+// Positional args, skipping the value that follows each --flag that takes one.
+const positional = argv.filter((arg, i) => !arg.startsWith('--') && !['--profile', '--tag'].includes(argv[i - 1] ?? ''));
+// A pinned release (from the setup prompt); without one, the newest release tag.
+const pinnedTag = valueOf('--tag') ?? process.env.DSHRC_TAG ?? '';
+if (pinnedTag !== '' && !/^v\d+\.\d+\.\d+$/.test(pinnedTag)) fail(`not a release tag: ${pinnedTag}`);
 const edge = (positional[0] ?? process.env.DSHRC_EDGE_URL ?? '').replace(/\/+$/, '');
 const deviceName = positional[1] ?? process.env.DSHRC_DEVICE_NAME ?? hostname();
 const profileArg = valueOf('--profile') ?? process.env.DSHRC_PROFILE ?? '';
-const restart = !argv.includes('--no-restart');
+const restart = !argv.includes('--no-restart') && process.env.DSHRC_NO_RESTART !== '1';
 
 if (!/^https?:\/\//.test(edge)) fail(`usage: node scripts/join-edge.mjs <edge-url> [device-name] [--profile name] [--no-restart]`);
 if (Number(process.versions.node.split('.')[0]) < 24) fail(`Node 24+ is required (found ${process.versions.node})`);
@@ -80,8 +84,8 @@ function gitUpdate() {
     run('git', ['fetch', '--tags', '--force', 'origin']);
     const tags = execFileSync('git', ['tag', '--list', 'v*', '--sort=-v:refname'], { cwd: repo, encoding: 'utf8' })
       .split('\n').map((line) => line.trim()).filter(Boolean);
-    const tag = tags[0];
-    if (tag !== undefined && tag !== '') run('git', ['checkout', '-f', tag]);
+    const tag = pinnedTag !== '' ? pinnedTag : tags[0];
+    if (tag !== undefined && tag !== '') run('git', ['checkout', '-f', `refs/tags/${tag}`]);
   } catch (error) {
     log(`git update failed (${String(error.message)}); building the current checkout`);
   }
@@ -113,7 +117,7 @@ function resolveProfile() {
 function installProfile(profile) {
   const profileDir = join(homedir(), '.dsh', 'profiles', profile);
   const manifestPath = join(profileDir, 'package.json');
-  if (!existsSync(manifestPath)) fail(`profile ${profile} not found at ${profileDir}`);
+  if (!existsSync(manifestPath)) fail(`ACTION NEEDED: DeepSeek Harness profile "${profile}" not found at ${profileDir}. Open DeepSeek Harness once on this computer, then run the setup command again.`);
 
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   manifest.dependencies = manifest.dependencies ?? {};

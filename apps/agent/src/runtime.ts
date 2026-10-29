@@ -18,15 +18,23 @@ import {
   HelloRejectedError,
   TerminalAgentError,
   messageOf,
+  recoveryFor,
   sleep,
 } from './errors.js';
-import { loadIdentity, saveIdentity, type DeviceIdentity } from './identity.js';
+import { clearIdentity, loadIdentity, saveIdentity, type DeviceIdentity } from './identity.js';
 import { acquireInstanceLock, type InstanceLock } from './lock.js';
 import { DEFAULT_MAX_BODY_BYTES, handleHttpStream, type UpstreamReporter } from './proxy-http.js';
 import { handleWsStream } from './proxy-ws.js';
 import { StatusTracker } from './status.js';
 import { classifyTunnelClose, openTunnel, type TunnelConnection } from './tunnel.js';
 import type { AgentHandle, AgentOptions, AgentState, AgentStatus } from './types.js';
+
+/** Wait between tries while the edge speaks another protocol version (the auto-updater closes the gap). */
+const SLOW_RETRY_MS = 60_000;
+const RE_REGISTER_INTERVAL_MS = 10 * 60_000;
+const REJECT_CONFIRM_MS = 60_000;
+const WAKE_TICK_MS = 5_000;
+const WAKE_GAP_MS = 20_000;
 
 export const DEFAULT_PAIR_POLL_MS = 2_000;
 export const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
@@ -43,6 +51,8 @@ export interface RuntimeInternals {
   connectTimeoutMs?: number;
   backoff?: BackoffOptions;
   maxBodyBytes?: number;
+  /** Tests shorten the wait that confirms a rejected secret before re-registering. */
+  rejectConfirmMs?: number;
 }
 
 /**
@@ -83,6 +93,9 @@ export class AgentRuntime implements AgentHandle {
   private waitingForApproval = false;
   private reconnects = 0;
   private attempt = 0;
+  private lastReRegisterAt = 0;
+  private firstRejectAt = 0;
+  private wakeTimer: ReturnType<typeof setInterval> | undefined;
   private tunnelAttempted = false;
   private authProblem = false;
   private readonly reporter: UpstreamReporter;
@@ -225,23 +238,93 @@ export class AgentRuntime implements AgentHandle {
       try {
         await this.register();
       } catch (error) {
-        if (this.isTerminalError(error)) {
-          this.failTerminal(error);
-          return;
-        }
+        // The loop registers again with backoff; a first failure never stops the agent.
         this.publish({ state: 'reconnecting', lastError: messageOf(error) });
         this.logger.warn('device registration failed; retrying', { error });
       }
     }
 
-    void this.runLoop().catch((error: unknown) => {
-      if (this.stopping) return;
-      if (this.isTerminalError(error)) this.failTerminal(error);
-      else {
-        this.logger.error('agent loop crashed', { error });
-        this.failTerminal(new TerminalAgentError('AGENT_CRASH', `agent loop crashed: ${messageOf(error)}`));
+    this.startWakeWatch();
+    this.superviseLoop();
+  }
+
+  /**
+   * Sleep/wake and network changes leave a socket that looks open but is dead,
+   * and the heartbeat needs up to its idle timeout to notice. A timer that
+   * fires far later than scheduled means the computer slept: drop the tunnel
+   * at once and reconnect without backoff.
+   */
+  private startWakeWatch(): void {
+    let last = Date.now();
+    this.wakeTimer = setInterval(() => {
+      const now = Date.now();
+      const gap = now - last;
+      last = now;
+      if (gap < WAKE_GAP_MS || this.stopping || this.terminal) return;
+      this.logger.info('computer woke or the clock jumped; reconnecting now', { gapMs: gap });
+      this.attempt = 0;
+      const connection = this.connection;
+      if (connection !== undefined) {
+        try {
+          connection.terminate();
+        } catch { /* already closed */ }
       }
+    }, WAKE_TICK_MS);
+    this.wakeTimer.unref?.();
+  }
+
+  /** Keep the loop alive: an unexpected crash restarts it instead of stopping the agent. */
+  private superviseLoop(): void {
+    void this.runLoop().catch(async (error: unknown) => {
+      if (this.stopping || this.terminal) return;
+      this.logger.error('agent loop crashed; restarting it', { error });
+      if (this.stopping) return;
+      this.noteRetry(`agent loop crashed: ${messageOf(error)}`);
+      await this.backoffSleep();
+      if (!this.stopping && !this.terminal) this.superviseLoop();
     });
+  }
+
+  /**
+   * Apply recoveryFor(): true when the loop should continue, false when the
+   * agent has stopped (owner revocation only).
+   */
+  private async recover(code: string | number, message: string): Promise<boolean> {
+    const plan = recoveryFor(code, message);
+    if (plan === 'stop') {
+      this.failTerminal(new TerminalAgentError(`TUNNEL_${String(code)}`, message));
+      return false;
+    }
+    if (this.stopping) return false;
+    this.noteRetry(message);
+    if (plan === 're-register') {
+      const now = Date.now();
+      // A single rejection can be transient (an edge restored from backup, a
+      // brief misroute). Re-register only after rejections at least a minute
+      // apart, never for a device still awaiting approval, and at most once
+      // per 10 minutes. The old identity is kept on disk, renamed.
+      const confirmed = this.firstRejectAt !== 0 && now - this.firstRejectAt >= (this.internals.rejectConfirmMs ?? REJECT_CONFIRM_MS);
+      if (this.firstRejectAt === 0) this.firstRejectAt = now;
+      const approved = this.identity?.approvedAt !== undefined;
+      if (confirmed && approved && now - this.lastReRegisterAt >= RE_REGISTER_INTERVAL_MS) {
+        this.lastReRegisterAt = now;
+        this.firstRejectAt = 0;
+        this.logger.warn('edge keeps rejecting this device secret; registering a fresh identity', { code });
+        clearIdentity(this.options.stateDir);
+        this.identity = undefined;
+        this.waitingForApproval = false;
+      }
+    } else {
+      this.firstRejectAt = 0;
+    }
+    if (plan === 'slow-retry') {
+      try {
+        await sleep(SLOW_RETRY_MS, this.abort.signal);
+      } catch { /* stopping */ }
+      return !this.stopping;
+    }
+    await this.backoffSleep();
+    return !this.stopping;
   }
 
   private async runLoop(): Promise<void> {
@@ -283,6 +366,7 @@ export class AgentRuntime implements AgentHandle {
 
         this.connection = connection;
         this.attempt = 0;
+        this.firstRejectAt = 0;
         this.publish({
           state: 'online',
           deviceId: identity.deviceId,
@@ -303,17 +387,12 @@ export class AgentRuntime implements AgentHandle {
         if (this.stopping) break;
 
         const classification = classifyTunnelClose(close);
-        if (!classification.retryable) {
-          this.failTerminal(new TerminalAgentError(`TUNNEL_${String(close.code)}`, classification.message));
-          break;
-        }
-        this.noteRetry(classification.message);
         this.logger.warn('tunnel closed; reconnecting', {
           code: close.code,
           reason: close.reason,
           reconnects: this.reconnects,
         });
-        await this.backoffSleep();
+        if (!(await this.recover(close.code, classification.retryable ? classification.message : `${classification.message} ${close.reason}`))) break;
       } catch (error) {
         this.connection = undefined;
         this.stopLatencyTimer();
@@ -325,13 +404,9 @@ export class AgentRuntime implements AgentHandle {
           this.logger.info('device is pending approval; polling', { deviceId: this.identity?.deviceId });
           continue;
         }
-        if (this.isTerminalError(error)) {
-          this.failTerminal(error);
-          break;
-        }
-        this.noteRetry(messageOf(error));
         this.logger.warn('agent retry scheduled', { error, reconnects: this.reconnects });
-        await this.backoffSleep();
+        const code = error instanceof AgentError ? error.code : 'AGENT_ERROR';
+        if (!(await this.recover(code, messageOf(error)))) break;
       }
     }
   }
@@ -454,6 +529,7 @@ export class AgentRuntime implements AgentHandle {
     const failure = error instanceof Error ? error : new Error(messageOf(error));
     this.terminal = true;
     this.stopLatencyTimer();
+    this.stopWakeWatch();
     this.logger.error('agent stopped permanently', {
       code: failure instanceof AgentError ? failure.code : 'AGENT_ERROR',
       error: failure,
@@ -503,6 +579,11 @@ export class AgentRuntime implements AgentHandle {
     this.latencyTimer.unref?.();
   }
 
+  private stopWakeWatch(): void {
+    if (this.wakeTimer !== undefined) clearInterval(this.wakeTimer);
+    this.wakeTimer = undefined;
+  }
+
   private stopLatencyTimer(): void {
     if (this.latencyTimer !== undefined) {
       clearInterval(this.latencyTimer);
@@ -536,6 +617,7 @@ export class AgentRuntime implements AgentHandle {
       return;
     }
     this.stopping = true;
+    this.stopWakeWatch();
     this.abort.abort(new Error('agent stopping'));
     this.stopLatencyTimer();
     const connection = this.connection;

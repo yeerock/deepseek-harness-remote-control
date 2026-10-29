@@ -75,6 +75,17 @@ const STATUS_POLL_MS = 1_000;
 const STOP_GRACE_MS = 5_000;
 /** Uptime after which a crash no longer counts toward the backoff exponent. */
 const HEALTHY_UPTIME_MS = 60_000;
+/**
+ * Self-heal: after a stop that used to be final (terminal error, repeated spawn
+ * failures) try again on this slow cadence, so a fixed cause (an update, a
+ * reset edge, a returned network) reconnects with nobody pressing Restart.
+ * Only a revoked device stays stopped: that is the owner's decision.
+ */
+const HEAL_RETRY_MS = 5 * 60_000;
+
+export function isOwnerRevocation(reason: string): boolean {
+  return /revoked/i.test(reason);
+}
 
 export class AgentSupervisor {
   readonly statusFile: string;
@@ -371,7 +382,8 @@ export class AgentSupervisor {
       this.localError = `Agent failed to start (${failure.message}).`;
       this.logger.error('agent spawn failed', { message: failure.message, attempt: this.spawnFailures });
       if (this.spawnFailures >= MAX_SPAWN_FAILURES) {
-        this.localError = `Agent failed to start ${String(this.spawnFailures)} times (${failure.message}). Fix agentEntry and press Restart.`;
+        this.localError = `Agent failed to start ${String(this.spawnFailures)} times (${failure.message}). Trying again in 5 minutes.`;
+        this.scheduleHeal(this.localError);
         return;
       }
     } else {
@@ -389,8 +401,9 @@ export class AgentSupervisor {
       const reason = this.lastAgentState?.lastError ?? `Agent exited (${code === null ? String(signal) : `code ${String(code)}`}).`;
       if (terminal) {
         this.localState = 'error';
-        this.localError = reason;
-        this.logger.error('agent stopped with a terminal error; restart suppressed', { code, reason });
+        this.localError = isOwnerRevocation(reason) ? reason : `${reason} Trying again in 5 minutes.`;
+        this.logger.error('agent stopped with a terminal error', { code, reason });
+        this.scheduleHeal(reason);
         return;
       }
       this.localState = 'reconnecting';
@@ -414,6 +427,20 @@ export class AgentSupervisor {
       });
     }, delay);
     // Do not keep the Harness process alive just for a pending restart.
+    this.restartTimer.unref?.();
+  }
+
+  private scheduleHeal(reason: string): void {
+    if (this.restartTimer !== undefined || this.stopping || this.disposed || isOwnerRevocation(reason)) return;
+    this.logger.info('agent self-heal retry scheduled', { delayMs: HEAL_RETRY_MS });
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
+      this.attempt = 0;
+      this.spawnFailures = 0;
+      void this.launch().catch((error: unknown) => {
+        this.logger.error('agent self-heal relaunch failed', { message: error instanceof Error ? error.message : String(error) });
+      });
+    }, HEAL_RETRY_MS);
     this.restartTimer.unref?.();
   }
 

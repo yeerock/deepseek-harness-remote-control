@@ -1,12 +1,12 @@
 /**
- * Full-jitter exponential backoff (PROTOCOL.md §4.6): base 250 ms, cap 20 s,
+ * Full-jitter exponential backoff (PROTOCOL.md §4.6): base 250 ms, cap 10 s,
  * multiplier 2. Full jitter means the delay is drawn uniformly from
  * `[0, min(cap, base * 2^attempt))`, which de-synchronises a fleet of agents
  * after an edge restart.
  */
 
 export const BACKOFF_BASE_MS = 250;
-export const BACKOFF_CAP_MS = 20_000;
+export const BACKOFF_CAP_MS = 10_000;
 
 export interface BackoffOptions {
   baseMs?: number;

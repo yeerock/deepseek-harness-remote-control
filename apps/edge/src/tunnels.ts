@@ -173,7 +173,8 @@ export class TunnelManager {
     };
 
     const timer = setTimeout(() => {
-      finish({ ok: false, code: 'AUTH_FAILED', message: 'HELLO timeout' }, 4002, 'HELLO timeout');
+      // A slow network is not a bad secret: answer with a retryable code so the agent tries again.
+      finish({ ok: false, code: 'HELLO_TIMEOUT', message: 'HELLO timeout' }, 4000, 'HELLO timeout');
     }, HELLO_TIMEOUT_MS);
     timer.unref?.();
 

@@ -87,6 +87,24 @@ export function describeCloseCode(code: number, reason: string): string {
   }
 }
 
+export type Recovery = 'retry' | 'slow-retry' | 're-register' | 'stop';
+
+/**
+ * What to do about a rejection so the agent never stays offline on its own:
+ * only an owner's revocation stops it. A rejected secret (edge database reset,
+ * device deleted) registers a fresh identity, which the edge auto-approves; a
+ * protocol mismatch waits for the auto-updater; a HELLO timeout is the network.
+ */
+export function recoveryFor(code: string | number, reason: string): Recovery {
+  if (code === 'DEVICE_REVOKED' || code === CloseCode.DeviceRevoked) return 'stop';
+  // The device API answers a revoked device with HTTP 403 DEVICE_REVOKED.
+  if (code === 'EDGE_HTTP_403' && /revoked/i.test(reason)) return 'stop';
+  if (/timeout|pending/i.test(reason)) return 'retry';
+  if (code === 'AUTH_FAILED' || code === CloseCode.AuthFailed || code === 'EDGE_HTTP_401') return 're-register';
+  if (code === 'PROTOCOL_MISMATCH' || code === CloseCode.ProtocolMismatch) return 'slow-retry';
+  return 'retry';
+}
+
 /** HELLO_ACK failure codes that are terminal per PROTOCOL.md §4.6 / §5. */
 export function isTerminalHelloCode(code: string): boolean {
   return code === 'PROTOCOL_MISMATCH' || code === 'AUTH_FAILED' || code === 'DEVICE_REVOKED';

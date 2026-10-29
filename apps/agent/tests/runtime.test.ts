@@ -219,25 +219,34 @@ describe('reconnection', () => {
     expect(edge.tunnelConnectCount).toBe(connectionsBefore);
   });
 
-  it('stops immediately on a terminal HELLO_ACK failure (AUTH_FAILED)', async () => {
+  it('registers a fresh identity when the edge rejects the secret (AUTH_FAILED), and keeps trying', async () => {
     const dsh = new MockDsh({ token: 'launch-secret' });
     await dsh.start();
     const edge = new MockEdge({ autoApprove: true, helloFailure: { code: 'AUTH_FAILED', message: 'secret mismatch' } });
     await edge.start();
-    const testAgent = await startTestAgent({ edgeUrl: edge.url, dshUrl: dsh.authenticatedUrl });
+    const testAgent = await startTestAgent({ edgeUrl: edge.url, dshUrl: dsh.authenticatedUrl, internals: { rejectConfirmMs: 50 } });
     try {
-      await waitForDone(testAgent.agent);
-      const status = testAgent.agent.status();
-      expect(status.state).toBe('error');
-      expect(status.lastError).toContain('AUTH_FAILED');
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(edge.tunnelConnectCount).toBe(1);
-      expect(edge.helloRejections).toBe(1);
+      await waitUntil(() => edge.registerCount >= 2, 10_000, 're-register after confirmed rejections');
+      // Not stopped: it registered a fresh identity and keeps retrying.
+      expect(testAgent.agent.status().state).not.toBe('error');
+      expect(edge.helloRejections).toBeGreaterThanOrEqual(2);
+      const { readdirSync } = await import('node:fs');
+      expect(readdirSync(testAgent.stateDir).some((name) => name.includes('.rejected-'))).toBe(true);
     } finally {
       await testAgent.cleanup();
       await edge.stop();
       await dsh.stop();
     }
+  });
+
+  it('stops on a revocation, and only then', async () => {
+    const { recoveryFor } = await import('../src/errors.js');
+    expect(recoveryFor('DEVICE_REVOKED', '')).toBe('stop');
+    expect(recoveryFor(4003, '')).toBe('stop');
+    expect(recoveryFor(4002, 'HELLO timeout')).toBe('retry');
+    expect(recoveryFor('AUTH_FAILED', 'secret mismatch')).toBe('re-register');
+    expect(recoveryFor('PROTOCOL_MISMATCH', '')).toBe('slow-retry');
+    expect(recoveryFor('AGENT_ERROR', 'ECONNREFUSED')).toBe('retry');
   });
 
   it('rejects waitForOnline when the device is revoked while pairing', async () => {

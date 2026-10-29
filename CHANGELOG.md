@@ -3,6 +3,18 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.8 - 2026-10-30
+
+- **Stays connected.** The agent no longer stops for good on anything except an owner's revocation:
+  - a slow handshake is retried (the edge used to answer it with the "bad key" code, which agents treated as fatal);
+  - a rejected key (edge reset, device deleted) registers a fresh, auto-approved identity, at most once per 10 minutes;
+  - a protocol mismatch retries every minute while automatic updates catch up;
+  - a crashed loop restarts itself;
+  - the plugin retries every 5 minutes after any stop that used to be final.
+- **Fast reconnect.** Sleep/wake and clock jumps are detected and the tunnel reconnects at once; the retry wait never exceeds 10 s (was 20 s).
+- Panel copy: Add Another DeepSeek Harness, Setup Prompt (Paste into the Other Harness), and the hint no longer mentions an approval step.
+- **One-command setup.** The setup prompt is now one line per OS. `scripts/install.sh` (macOS, Linux) and `scripts/install.ps1` (Windows) install Node 24 if needed (checksum verified), git if needed (winget on Windows) or fall back to the release download, then build, install, connect and restart DeepSeek Harness. Safe to re-run after any failure; pinned to the release tag; the edge URL is reduced to its origin so it cannot inject commands.
+
 ## v0.3.7 - 2026-10-30
 
 - Automatic updates now work on every computer, Windows included. The host checks the latest GitHub release two minutes after DeepSeek Harness starts and then every hour, installs a newer release in the background with the new cross-platform `scripts/self-update.mjs` (it replaces `self-update.sh`, which could not run on Windows), and then restarts DeepSeek Harness by itself as soon as no session is running.

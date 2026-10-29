@@ -108,6 +108,23 @@ export function loadIdentity(stateDir: string, logger?: Logger): DeviceIdentity 
   return identity;
 }
 
+/**
+ * Set this device's identity aside so the next loop registers a fresh one.
+ * It is renamed, not deleted, so a wrongly rejected secret can be restored.
+ */
+export function clearIdentity(stateDir: string): void {
+  const path = identityPath(stateDir);
+  try {
+    renameSync(path, `${path}.rejected-${String(Date.now())}`);
+  } catch {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 export function saveIdentity(stateDir: string, identity: DeviceIdentity): void {
   ensureStateDir(stateDir);
   const path = identityPath(stateDir);

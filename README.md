@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.7.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 311 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.3.8.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 313 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -57,7 +57,7 @@ and an edge you place near yourself.**
 | UDP-dependent paths | TCP/TLS only; works through corporate proxies, TLS inspection, CGNAT and IPv6-only networks | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | China-hosted relay by default | Self-hosted edge; for China ↔ abroad put it in Hong Kong, Singapore, Tokyo or Seoul — it is the only hop | [`docs/DEPLOY.md` §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first) |
 | Second client drifts | The browser loads the unmodified DSH web app under `/d/<device>/`; feature parity is automatic | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 |
-| Slow, state-losing reconnect | 15 s heartbeat, 45 s idle, full-jitter 250 ms–20 s, 30 s presence grace, measured 49 ms forced replacement, no mutation replay | `packages/mux`, `apps/agent` |
+| Slow, state-losing reconnect | 15 s heartbeat, 45 s idle, instant reconnect after sleep/wake, full-jitter 250 ms–10 s, self-heal (never stays offline except when you revoke a computer), 30 s presence grace, measured 49 ms forced replacement, no mutation replay | `packages/mux`, `apps/agent` |
 | Bulk transfer starves the UI | 256 KiB/stream and 8 MiB/tunnel credit returned on consumption; high/normal/low scheduler; p95 3.1 ms under 4 × 16 MiB | `packages/mux` |
 | Native `wrtc` fragility | No native addon; Node built-ins plus `ws` | `package.json` |
 | A crash leaves two agents | Per-state-dir `agent.lock` refuses a second instance; 4004 replacement is retryable, not a fight | [`apps/agent/src/lock.ts`](apps/agent/src/lock.ts) |
@@ -303,11 +303,42 @@ reach the host plugin at all.
 
 A Harness is a host computer running DSH. To bring another one onto the same
 edge, open **Remote Control → Harnesses → Build Setup Prompt** on this host,
-copy the one-paragraph prompt, and paste it into the other Harness's agent.
-The prompt clones the pinned release, installs the plugin into that machine's
-profile, points its agent at this edge, and **schedules the Harness restart
-itself**. The edge auto-approves the Harness, so it is ready immediately after
-the restart; no dashboard login, approval click or manual restart is needed.
+copy the short prompt, and paste it into the other Harness's agent. It is one
+command per operating system:
+
+```powershell
+$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.8/scripts/install.ps1 | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.8/scripts/install.sh | sh -s -- https://your-edge
+```
+
+The script (pinned to the release tag) does everything and is safe to run
+again after any failure: it finds Node 24 or downloads the official build
+(checksum verified), finds git (on Windows installs it with winget) or falls
+back to the release download, builds, installs the plugin into that machine's
+profile, points its agent at this edge, and **restarts the Harness itself**.
+The edge auto-approves the Harness, so it is connected right after the
+restart; no dashboard login, approval click or manual restart is needed.
+
+<p align="center"><img src="docs/images/07-setup-prompt.webp" alt="Remote Control panel showing the short one-command setup prompt" width="560"></p>
+
+### Staying connected
+
+Once joined, a computer stays connected by itself:
+
+- **Sleep, wake and network changes:** the agent notices that the computer
+  slept and reconnects at once, instead of waiting for a dead socket to time
+  out. Retries start at 250 ms and never wait more than 10 s.
+- **Slow networks:** a slow handshake is retried, never treated as a bad key.
+- **Edge reset or lost key:** the agent registers itself again automatically
+  (auto-approved).
+- **Version mismatch with the edge:** it retries every minute while automatic
+  updates bring both sides level.
+- **Crashes:** the agent restarts its own loop; the plugin restarts the agent;
+  and even after a stop that used to be final it tries again every 5 minutes.
+- **Only one thing disconnects a computer for good:** you revoking it.
 
 The prompt contains no password, device secret or invite token. A Harness is a
 host you own and can open directly; the optional guest-browser backend is not
@@ -388,7 +419,7 @@ SHA-256-equal through the tunnel, `remote.mux` OPEN.
 | [`apps/edge`](apps/edge) | Public HTTPS/WSS relay, auth, pairing, SQLite, dashboard |
 | [`apps/agent`](apps/agent) | Desktop tunnel client and loopback proxy |
 | [`packages/plugin`](packages/plugin) | DeepSeek Harness plugin (host + sidebar UI) |
-| [`scripts`](scripts) | `join-edge.sh` (pair a host), `self-update.mjs` (automatic updates), `install-macos.sh`, edge bundle build |
+| [`scripts`](scripts) | `join-edge.sh` (pair a host), `install.sh` / `install.ps1` (one-command setup), `self-update.mjs` (automatic updates), `install-macos.sh`, edge bundle build |
 | [`tests`](tests), [`tools/bench`](tools/bench) | Integration, fault injection, benchmarks |
 | [`docs`](docs) | Architecture, protocol, ADRs, threat model, deployment, runbook |
 

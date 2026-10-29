@@ -8,8 +8,8 @@
  */
 
 export const REPO_URL = 'https://github.com/yeerock/deepseek-harness-remote-control';
-export const REPO_TAG = 'v0.3.7';
-export const PLUGIN_VERSION = '0.3.7';
+export const REPO_TAG = 'v0.3.8';
+export const PLUGIN_VERSION = '0.3.8';
 
 export interface JoinPromptOptions {
   /** Public edge origin; loopback URLs are rejected by the caller. */
@@ -32,20 +32,30 @@ export function isLoopbackOrigin(value: string): boolean {
   }
 }
 
+/** Raw GitHub URL of a setup script, pinned to a release tag. */
+export function installScriptUrl(file: 'install.sh' | 'install.ps1', tag: string, repoUrl = REPO_URL): string {
+  const path = new URL(repoUrl).pathname.replace(/^\/+|\/+$/g, '');
+  return `https://raw.githubusercontent.com/${path}/${tag}/scripts/${file}`;
+}
+
 /**
- * Build the copy-paste prompt. One paragraph by design: agents receive it as a
- * single instruction and can still parse the numbered steps.
+ * Build the copy-paste prompt: one command per OS. The scripts do every step
+ * (Node 24, git or download, build, install, connect, restart) and are safe to
+ * re-run, so the agent's only job is to run one line and retry on failure.
  */
 export function buildJoinPrompt(options: JoinPromptOptions): string {
-  const repo = (options.repoUrl ?? REPO_URL).replace(/\/+$/, '');
   const tag = options.tag ?? REPO_TAG;
   const version = options.version ?? PLUGIN_VERSION;
-  const edge = options.publicUrl.replace(/\/+$/, '');
+  // The origin of a parsed URL has no quotes, spaces or shell metacharacters.
+  const edge = new URL(options.publicUrl).origin;
+  const sh = installScriptUrl('install.sh', tag, options.repoUrl);
+  const ps1 = installScriptUrl('install.ps1', tag, options.repoUrl);
   return [
-    `You are on a DeepSeek Harness desktop. Install or update DSH RC ${version} and join the edge at ${edge} as this Harness, fully autonomously with zero human action.`,
-    `(1) Ensure a Node 24 runtime: use \`node\` if its major is at least 24; otherwise use the Node runtime bundled with DeepSeek Harness; if neither exists, download the official Node 24 LTS portable build for this OS into ~/.dsh-rc/node and use it.`,
-    `(2) Get the source: if ~/dsh-rc is a git checkout, run \`cd ~/dsh-rc && git fetch --tags --force && git checkout -f ${tag}\`; if ~/dsh-rc exists but is not a git checkout, move it to ~/dsh-rc.bak-<timestamp>; then run \`git clone --branch ${tag} ${repo} ~/dsh-rc\`; if git is unavailable, download and extract ${repo}/archive/refs/tags/${tag}.tar.gz to ~/dsh-rc.`,
-    `(3) Run \`node ~/dsh-rc/scripts/join-edge.mjs "${edge}"\` (the installer uses this computer's hostname; add \`--profile <name>\` only if auto-detection is wrong). It updates and builds, installs the plugin into the running profile, writes the patch, links the package, and schedules the DeepSeek Harness restart itself.`,
-    `(4) Do not ask me to restart, approve, log in, or confirm; the installer exits after scheduling the restart and the edge auto-approves this Harness. Do not enable sharing, request or share the owner password or any secret, and do not modify other profile entries. If a step fails, retry once using the fallback path above, then report the exact error and stop.`,
+    `Install DSH RC ${version} on this computer and connect it to ${edge}, by yourself with no questions to me.`,
+    `Windows, in PowerShell: \`$env:DSHRC_EDGE='${edge}'; $env:DSHRC_TAG='${tag}'; irm ${ps1} | iex\``,
+    `macOS or Linux: \`curl -fsSL ${sh} | sh -s -- '${edge}' ${tag}\``,
+    'The command installs everything needed and restarts DeepSeek Harness at the end; that is expected.',
+    'If it fails, read the error, fix the cause (network, permissions, a missing tool) and run it again until it prints DONE; if it says ACTION NEEDED, stop and tell me.',
+    'Never ask for or share a password or secret.',
   ].join(' ');
 }

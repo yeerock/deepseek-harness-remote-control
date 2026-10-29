@@ -13,8 +13,8 @@ describe('full-jitter backoff', () => {
     expect(fullJitterDelay(0, { random: () => 0 })).toBe(0);
   });
 
-  it('never exceeds the 20 s cap', () => {
-    expect(BACKOFF_CAP_MS).toBe(20_000);
+  it('never exceeds the 10 s cap', () => {
+    expect(BACKOFF_CAP_MS).toBe(10_000);
     for (const attempt of [0, 1, 2, 5, 10, 50]) {
       const delay = fullJitterDelay(attempt, { random: () => 0.999_999 });
       expect(delay).toBeLessThanOrEqual(BACKOFF_CAP_MS);

@@ -4,20 +4,26 @@ import { buildJoinPrompt, isLoopbackOrigin, REPO_TAG, REPO_URL } from '../src/on
 describe('join prompt', () => {
   const base = {
     publicUrl: 'https://dsh-rc.example.ts.net',
-    version: '0.3.7',
+    version: '0.3.8',
   };
 
-  it('carries the public edge, pinned tag, repository and device name', () => {
+  it('is one short command per OS, pinned to the release tag', () => {
     const prompt = buildJoinPrompt(base);
     expect(prompt).toContain('https://dsh-rc.example.ts.net');
-    expect(prompt).toContain(REPO_URL);
-    expect(prompt).toContain(REPO_TAG);
-    expect(prompt).toContain('this computer\'s hostname');
-    expect(prompt).toContain('DSH RC 0.3.7');
-    expect(prompt).toContain('git clone --branch');
-    expect(prompt).toContain('scripts/join-edge.mjs');
-    expect(prompt).toContain('zero human action');
-    expect(prompt).toContain('join-edge.mjs');
+    expect(prompt).toContain(`raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/${REPO_TAG}/scripts/install.ps1`);
+    expect(prompt).toContain(`/${REPO_TAG}/scripts/install.sh | sh -s -- 'https://dsh-rc.example.ts.net' ${REPO_TAG}`);
+    expect(prompt).toContain(`$env:DSHRC_TAG='${REPO_TAG}'`);
+    expect(prompt).toContain("$env:DSHRC_EDGE='https://dsh-rc.example.ts.net'");
+    expect(prompt).toContain('DSH RC 0.3.8');
+    expect(prompt).toContain('DONE');
+    expect(prompt.length).toBeLessThan(900);
+    expect(REPO_URL).toContain('github.com');
+  });
+
+  it('cannot carry shell metacharacters from the edge URL', () => {
+    const prompt = buildJoinPrompt({ ...base, publicUrl: "https://edge.example/x';rm -rf ~;'" });
+    expect(prompt).toContain("$env:DSHRC_EDGE='https://edge.example'");
+    expect(prompt).not.toContain('rm -rf');
   });
 
   it('is one paragraph with no newlines or secrets', () => {
@@ -27,7 +33,7 @@ describe('join prompt', () => {
     expect(prompt).not.toContain('dshrc_session');
     expect(prompt).not.toContain('deviceSecret');
     expect(prompt).not.toContain('Bearer ');
-    expect(prompt.includes('owner password')).toBe(true); // only as "do not ask for"
+    expect(prompt).toContain('Never ask for or share a password');
   });
 
   it('sanitizes the device name and trailing slashes', () => {
