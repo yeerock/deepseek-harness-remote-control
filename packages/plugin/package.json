@@ -1,6 +1,6 @@
 {
   "name": "@dsh-rc/plugin",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "description": "Remote Control (DSH RC) host plugin: starts and supervises the tunnel agent and adds a sidebar status panel to DeepSeek Harness.",
   "license": "MIT",

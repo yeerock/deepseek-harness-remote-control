@@ -19,7 +19,7 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.5.** Protocol, mux, edge, agent, plugin, tests and docs are
+> **Status: v0.3.6.** Protocol, mux, edge, agent, plugin, tests and docs are
 > implemented. 300 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
@@ -211,7 +211,8 @@ there, or the **Rename** link, to rename it.
 > Harness.
 
 **1. Pick the computer.** Remote Workspaces is a plain section at the end of
-the Workspaces list and scrolls with it. Choose a computer in the drop-down.
+the Workspaces list, scrolls with it, and looks exactly like it: same rows,
+icons, spacing and hover actions. Choose a computer in the drop-down.
 Only computers you can open right now are listed (online, sharing, plugin
 v0.3.0 or later); the computer you are on is never listed, because its
 sessions are already in the normal Workspaces section. **✎** renames the

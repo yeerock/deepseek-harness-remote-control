@@ -35,20 +35,20 @@ const saveCollapsedRemoteGroups = (): void => {
 
 /* Remote session row actions, shaped like the local sidebar's hover strip. */
 const ROW_ICONS: Record<string, string[]> = {
+  folder: ['M3 6.5A1.5 1.5 0 0 1 4.5 5h4.1l2 2h8.9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z'],
+  folderOpen: ['M3 17.5v-11A1.5 1.5 0 0 1 4.5 5h4.1l2 2h7.9A1.5 1.5 0 0 1 20 8.5V10', 'M3 17.5 5.6 11H21.5l-2.4 7a1.5 1.5 0 0 1-1.4 1H4.5A1.5 1.5 0 0 1 3 17.5Z'],
+  chevron: ['m7 10 5 5 5-5'],
+  plus: ['M12 6v12', 'M6 12h12'],
+  pencil: ['M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z'],
   more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
   archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
   pin: ['M12 17v5', 'M9 10.8V5h6v5.8l2.4 3.2H6.6Z', 'M8 2h8'],
   unpin: ['M12 17v5', 'M9 10.8V5h6v5.8l2.4 3.2H6.6Z', 'M8 2h8', 'M3 3l18 18'],
 };
 
-function rowIconButton(icon: string, label: string): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'dsh-rc-remote-ws-icon';
-  button.title = label;
-  button.setAttribute('aria-label', label);
+function rowIcon(icon: string, size: number): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  for (const [key, value] of [['viewBox', '0 0 24 24'], ['width', '14'], ['height', '14'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', icon === 'more' ? '3' : '1.6'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) {
+  for (const [key, value] of [['viewBox', '0 0 24 24'], ['width', String(size)], ['height', String(size)], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', icon === 'more' ? '3' : '1.5'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) {
     svg.setAttribute(key as string, value as string);
   }
   for (const d of ROW_ICONS[icon] ?? []) {
@@ -56,7 +56,52 @@ function rowIconButton(icon: string, label: string): HTMLButtonElement {
     path.setAttribute('d', d);
     svg.append(path);
   }
-  button.append(svg);
+  return svg;
+}
+
+/**
+ * A copy of the icon DSH draws on its own local workspace rows, so remote rows
+ * look identical; `undefined` when none is on screen (the caller falls back).
+ * Only a static SVG is cloned, never markup with handlers.
+ */
+function nativeRowIcon(root: Element, icon: 'folder' | 'folderOpen' | 'chevron' | 'newSession', expanded: boolean): SVGSVGElement | undefined {
+  const rows = Array.from(root.querySelectorAll('[data-row-key^="workspace:"]'));
+  const row = icon === 'chevron' ? rows[0] : rows.find((candidate) => candidate.getAttribute('aria-expanded') === (expanded ? 'true' : 'false'));
+  const seat = icon === 'newSession'
+    ? rows[0]?.querySelector('button[aria-keyshortcuts]')
+    : row?.children[icon === 'chevron' ? 1 : 0];
+  const svg = seat?.querySelector(':scope > svg');
+  if (!(svg instanceof SVGSVGElement)) return undefined;
+  // Rebuild from shapes only, so nothing but geometry crosses over.
+  const copy = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const name of ['viewBox', 'width', 'height', 'fill', 'stroke', 'stroke-width']) {
+    const value = svg.getAttribute(name);
+    if (value !== null) copy.setAttribute(name, value);
+  }
+  copy.setAttribute('aria-hidden', 'true');
+  copy.setAttribute('data-native', '');
+  const SHAPES = new Set(['path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse']);
+  const KEEP = ['d', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule', 'fill-opacity', 'stroke-opacity', 'opacity', 'transform', 'stroke-miterlimit'];
+  for (const shape of Array.from(svg.querySelectorAll('*'))) {
+    const tag = shape.localName;
+    if (!SHAPES.has(tag)) continue;
+    const clean = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const name of KEEP) {
+      const value = shape.getAttribute(name);
+      if (value !== null && !/url\(/i.test(value)) clean.setAttribute(name, value);
+    }
+    copy.append(clean);
+  }
+  return copy.childElementCount > 0 ? copy : undefined;
+}
+
+function rowIconButton(icon: string, label: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'dsh-rc-remote-ws-icon';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.append(rowIcon(icon, 16));
   return button;
 }
 
@@ -65,7 +110,7 @@ interface RowMenuItem { label: string; run: () => void; separator?: boolean }
 /** A small menu under the "..." button; closes on choice, outside click, scroll or Escape. */
 let closeRowMenu: (() => void) | undefined;
 
-function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[]): void {
+function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[], onClose?: () => void): void {
   // A second press on the same "..." closes the menu it opened.
   const reopen = anchor.getAttribute('aria-expanded') !== 'true';
   closeRowMenu?.();
@@ -76,6 +121,7 @@ function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[]): void {
   const close = (): void => {
     menu.remove();
     anchor.setAttribute('aria-expanded', 'false');
+    onClose?.();
     if (closeRowMenu === close) closeRowMenu = undefined;
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', onKey, true);
@@ -346,7 +392,7 @@ const EN: Record<string, string> = {
   remoteEmbedTitle: 'Remote session',
   remoteBannerHint: 'You are controlling another computer through DSH RC.',
   remoteWorkspacesEmpty: 'No other Harnesses paired yet.',
-  remoteNewSession: 'New session at this Harness',
+  remoteNewSession: 'New Session on This Computer',
   remoteSessionsLoading: 'Loading sessions…',
   remoteSessionsUnavailable: 'Sessions unavailable (update the plugin on that computer)',
   remoteSessionsEmpty: 'No sessions yet',
@@ -623,9 +669,10 @@ function relativeAge(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (seconds < 60) return 'now';
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${String(minutes)}m`;
+  // Same units as DSH's local session list: now, 34min, 5h, 1d.
+  if (minutes < 60) return `${String(minutes)}min`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${String(hours)}h`;
+  if (hours < 24) return `${String(hours)}h`;
   return `${String(Math.floor(hours / 24))}d`;
 }
 
@@ -806,10 +853,11 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 4px;
-  margin: 0 0 2px;
+  gap: 4px;
+  height: 36px;
+  padding: 0 0 0 4px;
+  margin: 2px -4px 4px 0;
+  border-radius: var(--dsw-radius-md, 12px);
 }
 .dsh-rc-remote-ws-gear {
   position: relative;
@@ -840,7 +888,7 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   line-height: 20px;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--dsw-alias-label-secondary, #81858c);
+  color: var(--dsw-alias-label-tertiary, #81858c);
 }
 .dsh-rc-remote-ws-empty {
   padding: 2px 8px 6px;
@@ -858,11 +906,11 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-open > svg { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
 .dsh-rc-remote-ws-open:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
 .dsh-rc-remote-ws-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; margin-left: auto; }
-.dsh-rc-remote-ws-bar { display: flex; align-items: center; gap: 2px; margin: 2px 4px 6px 8px; }
+.dsh-rc-remote-ws-bar { display: flex; align-items: center; gap: 8px; margin: 0 8px 4px 0; }
 .dsh-rc-remote-ws-picker {
-  display: block; flex: 1 1 auto; min-width: 0; height: 30px; margin: 0; padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.28)); border-radius: 8px;
-  background: transparent; color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; cursor: pointer;
+  display: block; flex: 1 1 auto; min-width: 0; height: 32px; margin: 0; padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.28)); border-radius: var(--dsw-radius-md, 12px);
+  background: transparent; color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 14px; line-height: 20px; cursor: pointer;
 }
 .dsh-rc-remote-ws-picker:focus-visible { outline: 2px solid var(--dsw-alias-focus-ring, #5b8def); outline-offset: 1px; }
 .dsh-rc-inline-input {
@@ -871,36 +919,53 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   border: 1px solid var(--dsw-alias-focus-ring, #5b8def); border-radius: 6px; outline: none;
 }
 .dsh-rc-remote-ws-error { margin: 2px 8px 4px; font-size: 12px; color: #ef4444; }
+/* Rows below copy DSH's own Workspaces list: same heights, spacing, type and tokens. */
 .dsh-rc-remote-ws-group-add {
-  flex: 0 0 auto; width: 18px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: transparent;
-  color: var(--dsw-alias-label-tertiary, #81858c); font: inherit; font-size: 13px; line-height: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 16px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--dsw-radius-xs, 4px); background: transparent; color: var(--dsw-alias-label-tertiary, #81858c); cursor: pointer;
 }
-.dsh-rc-remote-ws-group-add:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-remote-ws-group-add:hover { color: var(--dsw-alias-label-primary, inherit); }
 .dsh-rc-remote-ws-group {
-  display: flex; align-items: center; gap: 6px; height: 32px; margin: 2px 0 0; padding: 0 6px 0 8px; border-radius: 8px;
-  font-size: 14px; color: var(--dsw-alias-label-primary, inherit); cursor: pointer; user-select: none;
+  box-sizing: border-box; display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; border-radius: var(--dsw-radius-md, 12px);
+  color: var(--dsw-alias-label-primary, inherit); cursor: pointer; user-select: none;
 }
-.dsh-rc-remote-ws-group:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
-.dsh-rc-remote-ws-group:focus-visible { outline: 2px solid var(--dsw-alias-border-focus, #4c8dff); outline-offset: -2px; }
-.dsh-rc-remote-ws-folder { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
-.dsh-rc-remote-ws-group .dsh-rc-remote-ws-name { flex: 1 1 auto; }
+.dsh-rc-remote-ws-group:hover, .dsh-rc-remote-ws-session:hover, .dsh-rc-remote-ws-session.dsh-rc-menu-open {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12));
+}
+.dsh-rc-remote-ws-group:focus-visible, .dsh-rc-remote-ws-session:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, #4c8dff); outline-offset: -2px; }
+.dsh-rc-remote-ws-slot {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 16px; height: 20px;
+  color: var(--dsw-alias-label-tertiary, #81858c);
+}
+.dsh-rc-remote-ws-chevron { display: none; }
+.dsh-rc-remote-ws-group:hover .dsh-rc-remote-ws-chevron { display: inline-flex; }
+.dsh-rc-remote-ws-group:hover .dsh-rc-remote-ws-folder { display: none; }
+.dsh-rc-remote-ws-group[aria-expanded="false"] .dsh-rc-remote-ws-chevron svg:not([data-native]) { transform: rotate(-90deg); }
+/* DSH's own chevron points right at rest; it points down on an open workspace. */
+.dsh-rc-remote-ws-group[aria-expanded="true"] .dsh-rc-remote-ws-chevron svg[data-native] { transform: rotate(90deg); }
+.dsh-rc-remote-ws-group .dsh-rc-remote-ws-name { flex: 1 1 auto; font-size: 14px; line-height: 20px; }
+.dsh-rc-remote-ws-group .dsh-rc-remote-ws-group-add { display: none; }
+.dsh-rc-remote-ws-group:hover .dsh-rc-remote-ws-group-add, .dsh-rc-remote-ws-group:focus-within .dsh-rc-remote-ws-group-add { display: inline-flex; }
 .dsh-rc-remote-ws-session {
-  display: flex; align-items: center; gap: 6px; width: calc(100% - 22px); margin-left: 22px; height: 28px;
-  padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary, inherit);
-  font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer;
+  box-sizing: border-box; display: flex; align-items: center; gap: 0; width: 100%; height: 32px; padding: 0 8px; border: 0;
+  border-radius: var(--dsw-radius-md, 12px); background: transparent; color: var(--dsw-alias-label-primary, inherit);
+  font: inherit; text-align: left; cursor: pointer; user-select: none;
 }
-.dsh-rc-remote-ws-session:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
-.dsh-rc-remote-ws-session > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dsh-rc-remote-ws-actions { display: none; flex: 0 0 auto; align-items: center; gap: 1px; }
-.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-actions,
+.dsh-rc-remote-ws-label {
+  flex: 1 1 0%; min-width: 0; margin: 0 6px 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px;
+}
+.dsh-rc-remote-ws-pin { display: inline-flex; flex: 0 0 auto; margin-right: 4px; color: var(--dsw-alias-label-tertiary, #81858c); }
+.dsh-rc-remote-ws-actions { display: none; flex: 0 0 auto; align-items: center; gap: 15px; }
+.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-actions, .dsh-rc-remote-ws-session.dsh-rc-menu-open .dsh-rc-remote-ws-actions,
 .dsh-rc-remote-ws-session:focus-within .dsh-rc-remote-ws-actions { display: inline-flex; }
-.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-age,
-.dsh-rc-remote-ws-session:focus-within .dsh-rc-remote-ws-age { display: none; }
+.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-age, .dsh-rc-remote-ws-session.dsh-rc-menu-open .dsh-rc-remote-ws-age,
+.dsh-rc-remote-ws-session:focus-within .dsh-rc-remote-ws-age,
+.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-pin, .dsh-rc-remote-ws-session.dsh-rc-menu-open .dsh-rc-remote-ws-pin { display: none; }
 .dsh-rc-remote-ws-icon {
-  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
-  background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 16px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--dsw-radius-xs, 4px); background: transparent; color: var(--dsw-alias-label-tertiary, #81858c); cursor: pointer;
 }
-.dsh-rc-remote-ws-icon:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.16)); color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-remote-ws-icon:hover { color: var(--dsw-alias-label-primary, inherit); }
 #dsh-rc-row-menu {
   position: absolute; z-index: 1000; min-width: 180px; padding: 4px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.22));
   border-radius: 10px; background: var(--dsw-alias-bg-elevated, #fff); box-shadow: 0 8px 24px rgba(0,0,0,0.16);
@@ -913,19 +978,18 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-row-menu-sep { margin-top: 4px; position: relative; }
 .dsh-rc-row-menu-sep::before { content: ''; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.2)); }
 @media (prefers-color-scheme: dark) { #dsh-rc-row-menu { background: var(--dsw-alias-bg-elevated, #1f2023); } .dsh-rc-row-menu-item { color: var(--dsw-alias-label-primary, #eee); } }
-.dsh-rc-remote-ws-age { flex: 0 0 auto; font-size: 11px; color: var(--dsw-alias-label-tertiary, #81858c); }
+.dsh-rc-remote-ws-age { flex: 0 0 auto; font-size: 10px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #81858c); }
 .dsh-rc-remote-ws-more {
-  margin: 0 0 0 22px; padding: 2px 8px 2px 8px; border: 0; background: transparent; cursor: pointer;
-  font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary, #81858c);
+  height: 28px; margin: 0; padding: 0 8px 0 36px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c);
 }
-.dsh-rc-remote-ws-note { margin: 0 0 0 22px; padding: 2px 8px; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c); }
+.dsh-rc-remote-ws-note { margin: 0; padding: 2px 8px 2px 4px; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c); }
 .dsh-rc-remote-ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rc-remote-ws-new {
-  flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 7px;
-  background: transparent; color: var(--dsw-alias-label-secondary, #a1a1aa);
-  font: 600 16px/1 inherit; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 16px; height: 16px; padding: 0; border: 0;
+  border-radius: var(--dsw-radius-xs, 4px); background: transparent; color: var(--dsw-alias-label-tertiary, #81858c); cursor: pointer;
 }
-.dsh-rc-remote-ws-new:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, #fff); }
+.dsh-rc-remote-ws-new:hover { color: var(--dsw-alias-label-primary, inherit); }
 `;
   document.head.append(style);
 }
@@ -1959,24 +2023,24 @@ function createComponent(React: any): (props: AnyProps) => any {
           container.append(hint);
           return;
         }
-        const iconButton = (label: string, glyph: string, onClick: () => void): HTMLButtonElement => {
+        const iconButton = (label: string, glyph: SVGSVGElement, onClick: () => void): HTMLButtonElement => {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'dsh-rc-remote-ws-new';
-          button.textContent = glyph;
+          button.append(glyph);
           button.title = label;
           button.setAttribute('aria-label', label);
           button.addEventListener('click', onClick);
           return button;
         };
-        const rename = iconButton(t('remoteRenameComputer'), '✎', () => {
+        const rename = iconButton(t('remoteRenameComputer'), rowIcon('pencil', 16), () => {
           const slot = document.createElement('span');
           slot.style.flex = '1 1 auto';
           slot.style.minWidth = '0';
           bar.replaceChild(slot, picker);
           editInline(slot, peer.name, 64, async (value) => { await call('computer.rename', { deviceId: peer.id, name: value }); }, afterRename);
         });
-        const add = iconButton(t('remoteNewSession'), '+', () => {
+        const add = iconButton(t('remoteNewSession'), nativeRowIcon(slot, 'newSession', true) ?? rowIcon('plus', 16), () => {
           const workspaceId = remoteSessions[peer.id]?.sessions?.[0]?.workspaceId;
           if (workspaceId === undefined) {
             setRenameError(t('remoteNoWorkspace'));
@@ -2014,7 +2078,10 @@ function createComponent(React: any): (props: AnyProps) => any {
                 item.tabIndex = 0;
                 item.className = 'dsh-rc-remote-ws-session';
                 item.title = `${session.title} · ${peer.name}`;
+                const lead = document.createElement('span');
+                lead.className = 'dsh-rc-remote-ws-slot';
                 const label = document.createElement('span');
+                label.className = 'dsh-rc-remote-ws-label';
                 label.textContent = session.title;
                 const age = document.createElement('span');
                 age.className = 'dsh-rc-remote-ws-age';
@@ -2030,12 +2097,13 @@ function createComponent(React: any): (props: AnyProps) => any {
                 const more = rowIconButton('more', t('rowActionsFor').replace('{name}', session.title));
                 more.addEventListener('click', (event: MouseEvent) => {
                   event.stopPropagation();
+                  item.classList.add('dsh-rc-menu-open');
                   openRowMenu(more, [
                     { label: session.pinned === true ? t('rowUnpin') : t('rowPin'), run: () => organize(pinIcon) },
                     { label: t('rowRename'), run: rename },
                     { label: t('rowArchive'), run: () => organize('archive'), separator: true },
                     { label: t('rowCopyId'), run: () => { void navigator.clipboard?.writeText(session.id); } },
-                  ]);
+                  ], () => item.classList.remove('dsh-rc-menu-open'));
                 });
                 const archive = rowIconButton('archive', t('rowArchive'));
                 archive.addEventListener('click', (event: MouseEvent) => { event.stopPropagation(); organize('archive'); });
@@ -2045,7 +2113,13 @@ function createComponent(React: any): (props: AnyProps) => any {
                 // Strip clicks must not open or rename the row.
                 actions.addEventListener('dblclick', (event: MouseEvent) => event.stopPropagation());
                 if (session.pinned === true) item.classList.add('dsh-rc-remote-ws-pinned');
-                item.append(label, age, actions);
+                const tail: Node[] = [];
+                if (session.pinned === true) {
+                  const mark = rowIcon('pin', 12);
+                  mark.classList.add('dsh-rc-remote-ws-pin');
+                  tail.push(mark);
+                }
+                item.append(lead, label, ...tail, age, actions);
                 item.title = `${session.title} - ${t('renameHint')}`;
                 clickOrDouble(
                   item,
@@ -2069,22 +2143,13 @@ function createComponent(React: any): (props: AnyProps) => any {
                 group.setAttribute('role', 'button');
                 group.tabIndex = 0;
                 group.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-                const folder = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                folder.setAttribute('viewBox', '0 0 24 24');
-                folder.setAttribute('width', '15');
-                folder.setAttribute('height', '15');
-                folder.setAttribute('fill', 'none');
-                folder.setAttribute('stroke', 'currentColor');
-                folder.setAttribute('stroke-width', '1.6');
-                folder.setAttribute('stroke-linejoin', 'round');
-                folder.setAttribute('aria-hidden', 'true');
-                folder.classList.add('dsh-rc-remote-ws-folder');
-                const folderPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                // Closed folder when collapsed, open folder when expanded, like local workspaces.
-                folderPath.setAttribute('d', collapsed
-                  ? 'M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z'
-                  : 'M3 17.5v-11A1.5 1.5 0 0 1 4.5 5h4.6l2 2h7.4A1.5 1.5 0 0 1 20 8.5V10M3 17.5 5.6 11h16l-2.6 8H4.5A1.5 1.5 0 0 1 3 17.5Z');
-                folder.append(folderPath);
+                // Same leading seat as a local workspace: folder at rest, chevron on hover.
+                const folder = document.createElement('span');
+                folder.className = 'dsh-rc-remote-ws-slot dsh-rc-remote-ws-folder';
+                folder.append(nativeRowIcon(slot, collapsed ? 'folder' : 'folderOpen', !collapsed) ?? rowIcon(collapsed ? 'folder' : 'folderOpen', 16));
+                const chevron = document.createElement('span');
+                chevron.className = 'dsh-rc-remote-ws-slot dsh-rc-remote-ws-chevron';
+                chevron.append(nativeRowIcon(slot, 'chevron', !collapsed) ?? rowIcon('chevron', 16));
                 const groupName = document.createElement('span');
                 groupName.className = 'dsh-rc-remote-ws-name';
                 groupName.textContent = bucket[0]?.workspaceName ?? '';
@@ -2102,7 +2167,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                 const groupAdd = document.createElement('button');
                 groupAdd.type = 'button';
                 groupAdd.className = 'dsh-rc-remote-ws-group-add';
-                groupAdd.textContent = '+';
+                groupAdd.append(nativeRowIcon(slot, 'newSession', true) ?? rowIcon('plus', 16));
                 groupAdd.title = t('remoteNewSessionIn').replace('{name}', bucket[0]?.workspaceName ?? '');
                 groupAdd.setAttribute('aria-label', groupAdd.title);
                 groupAdd.addEventListener('click', (event: MouseEvent) => {
@@ -2111,7 +2176,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                   if (workspaceId === undefined) return;
                   void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
                 });
-                group.append(folder, groupName, groupAdd);
+                group.append(folder, chevron, groupName, groupAdd);
                 container.append(group);
                 if (!collapsed) for (const session of bucket) renderSession(session);
               }
