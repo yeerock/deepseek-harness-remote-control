@@ -197,16 +197,35 @@ prompt is approved immediately, so there is no dashboard login, no pending
 device and no approval click. A shared edge can omit the flag and approve
 devices manually.
 
+## Remote sessions (v0.2.10)
+
+Clicking a Harness under **Remote Workspaces** opens its UI in a **native
+Electron child window** parented to DSH:
+
+- full remote Harness: sessions, chat, files, uploads, terminal and WebSocket;
+- the host plugin mints a one-time embed ticket and injects a short-lived edge
+  session through a loopback proxy, so there is **no edge login page**;
+- no Safari/browser tab.
+
+Why not inside the page: DSH stops iframe boot at “Loading plugins…”, and its
+main process blocks arbitrary `<webview>` tags. The native child window is the
+working v0.2.10 path.
+
+True **in-sidebar remote sessions** — remote workspaces and sessions appearing
+as first-class DSH objects — is specified in
+[ADR-0002](docs/adr/0002-native-remote-sessions.md): a host RPC projection with
+virtual workspace/session IDs, streaming prompts, approvals and file/terminal
+routing. That is the next build, not another embedding hack.
+
 ## Pair another DeepSeek Harness
 
 A Harness is a host computer running DSH. To bring another one onto the same
 edge, open **Remote Control → Harnesses → Build setup prompt** on this host,
 copy the one-paragraph prompt, and paste it into the other Harness's agent.
 The prompt clones the pinned release, installs the plugin into that machine's
-profile, points its agent at this edge, and asks you to restart. The edge
-auto-approves the Harness, so its UI is available at
-`https://<edge>/d/<deviceId>/` immediately after the restart; no dashboard
-login or approval click is needed.
+profile, points its agent at this edge, and **schedules the Harness restart
+itself**. The edge auto-approves the Harness, so it is ready immediately after
+the restart; no dashboard login, approval click or manual restart is needed.
 
 The prompt contains no password, device secret or invite token. A Harness is a
 host you own and can open directly; the optional guest-browser backend is not
@@ -214,8 +233,8 @@ exposed in the panel.
 
 ## Guest browsers are not part of this flow
 
-The Remote Control panel is **prompt-only**: pair another DeepSeek Harness, then
-open it from the edge dashboard. There are no pair URLs, invite links or QR
+The Remote Control panel is **prompt-only**: pair another DeepSeek Harness and
+open it from Remote Workspaces. There are no pair URLs, invite links or QR
 codes in the panel.
 
 The v0.2 edge still contains an optional guest-session backend, kept for
@@ -225,8 +244,8 @@ panel. To remote-control a second computer, pair it as a Harness above.
 ## Security in one paragraph
 
 TLS to the edge; **device secrets are 32 random bytes stored only as SHA-256**;
-**pair codes are 8 characters, single-use, 10-minute TTL**, and cannot be
-redeemed without an owner session or the owner password. The **DSH launch token
+the embed ticket used by the native remote window is one-time, device-targeted
+and expires in 60 seconds; the resulting edge session is short-lived. The **DSH launch token
 never leaves the desktop**: the agent exchanges it once for a loopback-bound
 cookie held in memory. The browser never receives a Harness credential, and the
 agent refuses non-loopback upstreams, absolute URLs, `..` segments and encoded

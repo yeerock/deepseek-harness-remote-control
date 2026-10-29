@@ -3,253 +3,120 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.2.10 — 2026-10-29
+
+Native remote window; embedding experiments removed.
+
+### Fixed
+
+- DSH blocks arbitrary iframes (client stalls at “Loading plugins…”) and
+  arbitrary `<webview>` tags (main-process lease policy). Both remote-view
+  embedding paths were removed.
+- A remote host now opens in a **native Electron child `BrowserWindow`**
+  parented to DSH, loading the authenticated loopback proxy. The full Harness
+  UI boots: sessions, chat, files, uploads, terminal and WebSocket. No edge
+  login page, no Safari/browser tab.
+- The child window falls back to a normal window only when Electron itself is
+  unavailable.
+
+### Added
+
+- [ADR-0002](docs/adr/0002-native-remote-sessions.md): the design for true
+  in-sidebar remote sessions via a host RPC projection, with virtual workspace
+  and session IDs, streaming prompts, approvals and file/terminal routing.
+
+### Verification
+
+- 290 automated tests; CI green.
+- The proxy URL boots the complete remote UI top-level; the native window is
+  the supported v0.2.10 path.
+
+## v0.2.9 — 2026-10-29
+
+Attempted Electron webview remote view (superseded by v0.2.10).
+
+## v0.2.8 — 2026-10-29
+
+Remote Workspaces header control and modal redesign.
+
+- Replaced the `via edge` badge with a borderless DSH-style **gear** button that
+  opens Remote Control and carries the agent status as a dot.
+- Removed the footer “Remote Control · Online” row.
+- Remote Control modal widened to 600 px with a two-column status grid; error
+  spans both columns.
+- Installer now stashes a dirty checkout instead of discarding it.
+
 ## v0.2.7 — 2026-10-29
 
 Plugin-load regression fix.
 
-### Fixed
-
-- The host bundle bundled `ws` into ESM, which crashed at import with
-  `Dynamic require of "events" is not supported`. The whole plugin failed to
-  activate: no sidebar entry, no agent, stale upstream. `ws` is now external and
-  resolved from the installed dependency; `import('dist/index.js')` succeeds.
+- The host bundle had `ws` bundled into ESM, crashing at import with
+  `Dynamic require of "events" is not supported`. `ws` is external now and
+  resolved from the installed dependency.
 - Removed the leftover old `ds-harness-remote` plugin from the reference
-  profile (bundle, dependency, patch and package) so only `dsh-rc` loads.
+  profile so it cannot conflict with `dsh-rc`.
 
-### Verification
+## v0.2.6 — 2026-10-29
 
-- 290 automated tests; host bundle import check `IMPORT_OK`; `ws` resolution
-  verified from the plugin dist path.
+Click-to-use remote view attempt; zero-touch pairing.
 
+- Added a loopback HTTP/WebSocket proxy with one-time edge embed tickets.
+- Added `scripts/join-edge.mjs`, a cross-platform zero-touch installer that
+  finds/installs Node 24, handles missing Git, rewrites the profile/patch
+  idempotently, links the plugin and schedules a Harness restart.
+- Iframe embedding was introduced here; it is superseded by v0.2.10.
 
-Click-to-use remote sessions, zero-touch pairing.
+## v0.2.5 — 2026-10-29
 
-### Added
+Remote Workspaces design and host-side new session.
 
-- **In-app remote session**: clicking a host in Remote Workspaces opens a
-  full-window iframe inside Harness. No new browser tab and no edge login page.
-- **Same-site loopback proxy**: the host plugin mints a one-time edge embed
-  ticket, creates a 24 h owner session, and forwards HTTP **and WebSocket** to
-  `/d/<deviceId>/` through `127.0.0.1:<random>`. The iframe is same-site with
-  the DSH renderer, so the complete Harness UI, files, uploads, terminal and
-  chat boot normally.
-- **Remote separation**: Remote Workspaces is a distinct card below the local
-  Workspaces section with a “via edge” badge; opening a remote host shows a
-  persistent “Remote Harness” banner.
-- **Zero-touch installer**: `scripts/join-edge.mjs` is cross-platform. The
-  prompt now finds/installs Node 24, handles a missing git (tag archive),
-  idempotently rewrites the profile/patch, links the plugin, and schedules the
-  Harness restart itself. No human approval or restart step.
+- Remote Workspaces aligned with native Workspaces typography and row metrics.
+- `+` opens `/d/<deviceId>/?dsh-rc-new=1`; the host plugin creates a session.
 
-### Verification
+## v0.2.4 — 2026-10-29
 
-- 290 automated tests, CI green.
-- Same-site iframe boot verified against a real second Harness: full UI,
-  Remote Control online, no login page.
-- Installer exercised in a temp profile: patch, link and bundle are valid.
+Sidebar host switcher.
 
+- Remote Control section lists approved Harnesses with online/offline state.
+- Edge `GET /v1/devices/me/peers` returns metadata only; no secrets.
 
-Remote Workspaces styling and host-side new session.
-
-### Changed
-
-- **Remote Workspaces** now uses the native Workspaces typography and row
-  metrics: 14px muted section label, 28px rows, 13px/500 names, 16px monitor
-  icon, 8px padding, 8px radius. It sits directly below the native Workspaces
-  header, above the local workspace list.
-- Each host row has a **+** action that opens the host UI with
-  `?dsh-rc-new=1`; the host-side plugin consumes the flag and calls
-  `uiWorkspace.startSession()`, creating the session on that host.
-
-### Verification
-
-- 290 automated tests; the new-session deep link was exercised through the
-  edge against a second Harness, and the query flag is removed after use.
-
-
-Remote Control sidebar host switcher.
-
-### Added
-
-- **Remote Control section in the left sidebar** once the agent is online. It
-  lists approved paired Harnesses with an online/offline dot; clicking one opens
-  that host's real DSH UI at `/d/<deviceId>/`.
-- **`GET /v1/devices/me/peers`** — approved Harnesses can read the metadata
-  (id, name, platform, online, lastSeenAt) of other approved Harnesses. No
-  device secrets or session data cross the boundary.
-
-### Verification
-
-- 290 automated tests, including peers listing (caller excluded, no secret in
-  the response) and the existing auto-approval/pairing suites.
-
+## v0.2.3 — 2026-10-29
 
 Auto-approval cleanup.
 
-### Fixed
+- Removed the Manage/approve button and pending hint from the panel.
+- Edge startup auto-approves pending Harnesses when
+  `--auto-approve-devices` is enabled.
 
-- Removed the **Manage / approve** button and pending-approval hint from the
-  Remote Control panel. Pairing shows only the setup prompt; no dashboard
-  action is implied.
-- On startup with `--auto-approve-devices`, the edge now approves any Harness
-  that was left `pending` before the flag was enabled (audited as
-  `device-approved`, actor `auto-approve`). New registrations were already
-  approved immediately.
+## v0.2.2 — 2026-10-29
 
-### Verification
+Auto-approve, version display, auto-update.
 
-- 289 automated tests, including a restart test that registers a pending
-  Harness, restarts the edge with auto-approval, and asserts it becomes
-  approved.
+- Harness registrations can be approved immediately
+  (`--auto-approve-devices`).
+- Plugin version shown in the modal; update state reported.
+- Host checks GitHub releases on start and every six hours; `self-update.sh`
+  updates the checkout, plugin and edge bundle.
 
-
-Auto-approval, version display and auto-update.
-
-### Added
-
-- **Version in the Remote Control modal** — the plugin version is a status row.
-- **Automatic update check and install** — the host checks the latest GitHub
-  release on start and every six hours, then runs `scripts/self-update.sh`
-  detached (checkout tag, `npm ci`, build, edge bundle, launchd restart). The
-  modal shows the update state and asks for the Harness restart needed to load
-  the new host code. `DSHRC_AUTO_UPDATE=0` opts out.
-- **Auto-approve paired Harnesses** — `--auto-approve-devices` /
-  `DSHRC_AUTO_APPROVE_DEVICES=1` makes `POST /v1/devices/register` return
-  `approved` immediately, so pairing needs no dashboard login/approval. The
-  reference launchd host enables it.
-
-### Changed
-
-- The join prompt and panel no longer mention a pending approval step.
-- README/handoff use the new `dsh-rc` origin and prompt-only flow.
-
-### Verification
-
-- 288 automated tests; the reference edge auto-approved a test Harness without
-  an approval route call.
-
+## v0.2.1 — 2026-10-29
 
 Prompt-only pairing and identifier cleanup.
 
-### Changed
-
-- **Remote Control is prompt-only.** The panel now has a single pairing action:
-  **Harnesses → Build setup prompt → Copy prompt**. Removed the device pair
-  URL, **Copy**/**Open** pair buttons, QR code, guest-sharing panel, invite
-  link/QR and the automatic `sharing.get` poll that surfaced
-  “connection: invalid server-response failure”.
-- **Public edge renamed** to `https://dsh-rc.tail2c6c40.ts.net`; the Tailscale
-  node and the device label no longer contain a personal name. Device label is
-  now **DSH Desktop**.
-- The join prompt resolves the public edge origin from the unauthenticated
-  `/v1/edge` endpoint, independent of guest-sharing auth.
-
-### Fixed
-
-- The Remote Control panel no longer displays `/Users/<name>` or hostnames from
-  agent errors; agent paths are shown relative to `dsh-rc`, and absolute home
-  paths/hostnames are redacted.
-
-### Removed from the UI
-
-- Guest-browser sharing is off and is no longer reachable from the Remote
-  Control panel. The v0.2 edge keeps the optional backend for compatibility.
-
-### Verified
-
-- 280 automated tests; prompt-only panel generates the join prompt against the
-  new public edge; a second Harness joined, was approved and opened at
-  `/d/<deviceId>/` before this release.
+- Removed pair URL, Copy/Open pair buttons, QR code, guest-sharing panel,
+  invite link/QR and the failing sharing poll.
+- Public edge renamed to `dsh-rc`; device label `DSH Desktop`.
+- Join prompt uses `/v1/edge`, independent of sharing auth.
 
 ## v0.2.0 — 2026-10-28
 
-Guest sharing and the operations completion pass.
+Guest sharing and operations completion.
 
-### Added
-
-- **Share this Harness**: owner-scoped sharing toggle, single-use invite links
-  with 15 min / 1 h / 24 h / **Never** TTL, owner approval, multiple
-  simultaneous guests, permanent guest sessions, per-guest Revoke and Revoke
-  all. Guest sessions are device-scoped; admin routes return 403.
-- **Guest Disconnect**: injected `Remote session · Disconnect` pill plus the
-  `/i/session` page; explicit disconnect, owner revoke, sharing-off and device
-  revoke close live guest WebSockets (1008).
-- **Edge dashboard sharing controls**: enable/disable, create invite (URL shown
-  once), approve/deny, list and revoke guests, revoke all.
-- **`dsh-rc-edge-passwd`**: owner password rotation from `DSHRC_NEW_PASSWORD`
-  (never argv), scrypt, no restart.
-- **macOS supervision**: standalone CJS edge bundle, `com.dshrc.edge` and
-  `com.dshrc.tailscaled` launchd agents, `scripts/install-macos.sh`,
-  `npm run build:bundle`.
-
-### Fixed
-
-- Real-browser form POSTs: `Referrer-Policy: no-referrer` made Chromium send
-  `Origin: null`; owner login/setup/pair/claim were rejected as cross-site.
-  Edge pages now use `same-origin` and accept `Origin: null` only with
-  `Sec-Fetch-Site: same-origin`.
-- Post-claim guest page showed “Invite unavailable” instead of “Waiting for
-  approval”; the claim cookie now takes precedence.
-- Guest Disconnect pill was skipped on DSH's gzipped HTML; guest document
-  requests ask for identity encoding.
-- Upgrades no longer orphan the approved device: the plugin falls back to the
-  legacy `<DSH_HOME>/link` state dir when `<DSH_HOME>/rc` is absent.
-
-### Verified
-
-- 276 automated tests; real-DSH E2E; guest flow through Tailscale Funnel
-  (request → waiting → approve → Harness UI + `remote.mux` WebSocket).
-- Runtime verified with Node 24.22.1 and Tailscale 1.104.4.
+- Share toggle, invites, approval, multiple permanent guest sessions,
+  Disconnect pill, revoke one/all, guest-scoped isolation.
+- Edge dashboard sharing controls.
+- `dsh-rc-edge-passwd`; legacy state-dir fallback.
+- macOS launchd supervision and standalone edge bundle.
 
 ## v0.1.0 — 2026-10-28
 
-First end-to-end release. Desktop-only remote access for DeepSeek Harness
-0.2.1-rc.3.
-
-### Added
-
-- **Protocol v1** (`packages/protocol`): binary frames, JSON payload guards,
-  device-path parsing, header allow/deny policy, request priority classification.
-- **Multiplexer** (`packages/mux`): HTTP and WebSocket streams over one socket,
-  credit-based flow control (256 KiB/stream, 8 MiB/tunnel), high/normal/low
-  scheduling, heartbeat and idle timeout, stream cap, reset-release semantics.
-- **Edge** (`apps/edge`): owner setup/login, HMAC session cookies, CSRF
-  double-submit, rate limits, device registration, owner-gated pairing,
-  approval/revocation, audit log with retention, SQLite storage, dashboard, and
-  the `/d/<device>/` HTTP + WebSocket proxy with header hygiene and backpressure.
-- **Agent** (`apps/agent`): outbound tunnel, DSH launch-token exchange (0600
-  file, never argv/logs), loopback-only proxy, full-jitter reconnect
-  (250 ms–20 s), terminal close-code handling, and a per-state-dir singleton
-  lock.
-- **Harness plugin — "Remote Control"** (`packages/plugin`): host service that mints the
-  authenticated URL, supervises the agent (Electron-safe runtime selection), and
-  a sidebar status panel with state, latency, reconnects, uptime, pairing QR and
-  start/restart/stop.
-- **Operations**: Dockerfile + Caddy Compose, systemd guidance, threat model,
-  deployment and runbook docs, English and Simplified Chinese README.
-- **Verification**: 196 automated tests, fault injection, benchmarks, and a
-  real-DSH end-to-end test that renders the unmodified UI in Chromium through
-  the tunnel.
-
-### Security
-
-- The browser never receives a DSH credential; the launch token is exchanged
-  in-process for a loopback-bound cookie held in memory.
-- Device secrets are random 32 bytes stored as SHA-256; pair codes are
-  single-use, 10-minute, and require an owner session or owner password.
-- The edge terminates TLS and sees proxied plaintext. Self-hosting is supported
-  and documented; this is the central trust decision (ADR-0001).
-
-### Known limits
-
-- No WebRTC/P2P fast path; see `docs/adr/0001-no-webrtc.md` for revisit
-  criteria.
-- No mobile app and no supported mobile browser; the browser is the client.
-- No replay of Harness mutations after an unknown outcome.
-- Multi-region routing, hosted accounts/OAuth, and native TLS in the edge
-  process are roadmap; put a TLS terminator in front for now.
-- Measured numbers are loopback and measure tunnel overhead, not internet RTT.
-
-### Upgrade notes
-
-None; first release.
+First end-to-end release: protocol, mux, edge, agent, plugin, tests and docs.
