@@ -97,6 +97,9 @@ interface ClientContext {
     bind(namespace: string): (key: string, values?: Record<string, unknown>) => string;
   };
   effect(dispose: () => void, label?: string): unknown;
+  uiWorkspace?: {
+    startSession?: (workspaceId?: string, options?: Record<string, unknown>) => void;
+  };
 }
 
 const LOCALE_NAMESPACE = 'dsh-rc';
@@ -177,6 +180,9 @@ const EN: Record<string, string> = {
   sharingLoopbackWarning: 'Guests need a public edge URL. This edge advertises a loopback or unknown address, so an invite link will not open from another machine. Use Tailscale Funnel or a VPS edge.',
   sharingInvites: 'Outstanding invites',
   harnessTitle: 'Harnesses',
+  remoteWorkspaces: 'Remote Workspaces',
+  remoteWorkspacesEmpty: 'No other Harnesses paired yet.',
+  remoteNewSession: 'New session at this Harness',
   harnessManage: 'Manage / approve',
   harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; it registers automatically and no approval step is needed.',
   harnessPending: 'Waiting for the edge to finish registering this Harness…',
@@ -270,6 +276,9 @@ const ZH: Record<string, string> = {
   sharingLoopbackWarning: '访客需要可公开访问的边缘地址。当前边缘节点广播的是回环或未知地址，因此邀请链接无法从其他机器打开。请使用 Tailscale Funnel 或 VPS 边缘节点。',
   sharingInvites: '未使用的邀请',
   harnessTitle: 'Harness 主机',
+  remoteWorkspaces: '远程工作区',
+  remoteWorkspacesEmpty: '尚未配对其他 Harness。',
+  remoteNewSession: '在此 Harness 新建会话',
   harnessManage: '管理 / 批准',
   harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它会自动注册，无需批准。',
   harnessPending: '正在等待 edge 完成此 Harness 的注册…',
@@ -481,6 +490,48 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 }
 .dsh-rc-sidebar-host-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; }
 .dsh-rc-sidebar-host-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dsh-rc-remote-workspaces {
+  margin: 2px 0 2px;
+  padding: 0;
+}
+.dsh-rc-remote-ws-header {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 0 0 4px;
+  margin: 2px 0 2px;
+}
+.dsh-rc-remote-ws-title {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--dsw-alias-label-secondary, #81858c);
+}
+.dsh-rc-remote-ws-empty {
+  padding: 2px 8px 6px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #81858c);
+}
+.dsh-rc-remote-ws-row { display: flex; align-items: center; gap: 2px; }
+.dsh-rc-remote-ws-open {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; font-weight: 500;
+  line-height: 20px; text-align: left; cursor: pointer;
+}
+.dsh-rc-remote-ws-open > svg { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
+.dsh-rc-remote-ws-open:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+.dsh-rc-remote-ws-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; margin-left: auto; }
+.dsh-rc-remote-ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-rc-remote-ws-new {
+  flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--dsw-alias-label-secondary, #a1a1aa);
+  font: 600 16px/1 inherit; cursor: pointer;
+}
+.dsh-rc-remote-ws-new:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, #fff); }
 `;
   document.head.append(style);
 }
@@ -1256,34 +1307,112 @@ function createComponent(React: any): (props: AnyProps) => any {
         : null,
     );
 
-    const openHarness = (peer: HarnessPeerView): void => {
+    const openHarness = (peer: HarnessPeerView, newSession = false): void => {
       const base = (harnessPublicUrl !== '' ? harnessPublicUrl : (status?.edgeUrl ?? '')).replace(/\/+$/, '');
       if (base === '') return;
-      window.open(`${base}/d/${encodeURIComponent(peer.id)}/`, '_blank', 'noopener,noreferrer');
+      const suffix = newSession ? '?dsh-rc-new=1' : '';
+      window.open(`${base}/d/${encodeURIComponent(peer.id)}/${suffix}`, '_blank', 'noopener,noreferrer');
     };
+
+    // DSH's sidebar exposes `sidebar.workspaces` as a single slot occupied by
+    // the native Workspaces section. Add a sibling inside the same region so
+    // Remote Workspaces sits directly below it, and re-attach if React
+    // reconciles the region.
+    ReactUse.useEffect(() => {
+      if (typeof document === 'undefined') return undefined;
+      const slot = document.querySelector('[data-slot="sidebar.workspaces"]');
+      const root = slot?.firstElementChild;
+      const header = root?.querySelector('[class*="sectionHeader"]');
+      if (root === null || root === undefined || header === null || header === undefined) return undefined;
+      let container = document.getElementById('dsh-rc-remote-workspaces');
+      if (container === null) {
+        container = document.createElement('div');
+        container.id = 'dsh-rc-remote-workspaces';
+        container.className = 'dsh-rc-remote-ws';
+      }
+      // Directly below the native Workspaces header, before the local list.
+      if (container.parentElement !== root || container.previousElementSibling !== header) {
+        root.insertBefore(container, header.nextSibling);
+      }
+      const render = (): void => {
+        if (container === null) return;
+        container.replaceChildren();
+        container.style.display = props.wide === false ? 'none' : '';
+        if (props.wide === false) return;
+        const header = document.createElement('div');
+        header.className = 'dsh-rc-remote-ws-header';
+        const title = document.createElement('span');
+        title.className = 'dsh-rc-remote-ws-title';
+        title.textContent = t('remoteWorkspaces');
+        header.append(title);
+        container.append(header);
+        if (harnessPeers.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'dsh-rc-remote-ws-empty';
+          empty.textContent = t('remoteWorkspacesEmpty');
+          container.append(empty);
+          return;
+        }
+        for (const peer of harnessPeers) {
+          const row = document.createElement('div');
+          row.className = 'dsh-rc-remote-ws-row';
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.className = 'dsh-rc-remote-ws-open';
+          open.title = peer.name;
+          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          icon.setAttribute('viewBox', '0 0 24 24');
+          icon.setAttribute('width', '16');
+          icon.setAttribute('height', '16');
+          icon.setAttribute('fill', 'none');
+          icon.setAttribute('stroke', 'currentColor');
+          icon.setAttribute('stroke-width', '1.6');
+          icon.setAttribute('stroke-linecap', 'round');
+          icon.setAttribute('stroke-linejoin', 'round');
+          icon.setAttribute('aria-hidden', 'true');
+          const screen = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          screen.setAttribute('x', '3'); screen.setAttribute('y', '4');
+          screen.setAttribute('width', '18'); screen.setAttribute('height', '13');
+          screen.setAttribute('rx', '2');
+          const stand = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          stand.setAttribute('d', 'M8 21h8M12 17v4');
+          icon.append(screen, stand);
+          const dot = document.createElement('span');
+          dot.className = 'dsh-rc-remote-ws-dot';
+          dot.style.background = peer.online === true ? '#22c55e' : '#71717a';
+          const name = document.createElement('span');
+          name.className = 'dsh-rc-remote-ws-name';
+          name.textContent = peer.name;
+          open.append(icon, name, dot);
+          open.addEventListener('click', () => openHarness(peer));
+          const add = document.createElement('button');
+          add.type = 'button';
+          add.className = 'dsh-rc-remote-ws-new';
+          add.textContent = '+';
+          add.title = t('remoteNewSession');
+          add.setAttribute('aria-label', `${t('remoteNewSession')}: ${peer.name}`);
+          add.addEventListener('click', () => openHarness(peer, true));
+          row.append(open, add);
+          container.append(row);
+        }
+      };
+      render();
+      const observer = new MutationObserver(() => {
+        if (container !== null && container.parentElement !== root) {
+          root.insertBefore(container, header.nextSibling);
+          render();
+        }
+      });
+      observer.observe(root, { childList: true });
+      return () => {
+        observer.disconnect();
+        container?.remove();
+      };
+    }, [harnessPeers, harnessPublicUrl, props.wide, status?.edgeUrl, t]);
 
     return h(
       'div',
-      { className: 'dsh-rc-sidebar-section' },
-      props.wide !== false && (state === 'online' || harnessPeers.length > 0)
-        ? h('div', { className: 'dsh-rc-sidebar-title' }, t('harnessTitle'))
-        : null,
-      props.wide !== false
-        ? harnessPeers.map((peer: HarnessPeerView) =>
-            h(
-              'button',
-              {
-                key: `host-${peer.id}`,
-                type: 'button',
-                className: 'dsh-rc-sidebar-host',
-                title: `${peer.name}${peer.online === true ? '' : ' · offline'}`,
-                onClick: () => openHarness(peer),
-              },
-              h('span', { className: 'dsh-rc-sidebar-host-dot', style: { background: peer.online === true ? '#22c55e' : '#71717a' } }),
-              h('span', { className: 'dsh-rc-sidebar-host-name' }, peer.name),
-            ),
-          )
-        : null,
+      null,
       h(
         'button',
         {
@@ -1374,6 +1503,21 @@ function apply(ctx: ClientContext): void {
   // see (or attempt to call) the host sharing controls; the edge also blocks
   // /dsh-rc for guest sessions as defence in depth.
   if ((globalThis as unknown as Record<string, unknown>)['__DSH_RC_GUEST__'] === true) return;
+  // `?dsh-rc-new=1` is set by the Remote Workspaces "+" action. It opens the
+  // host UI and asks this host's workspace service to create a fresh session.
+  if (typeof window !== 'undefined') {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('dsh-rc-new') === '1') {
+        params.delete('dsh-rc-new');
+        const query = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${query === '' ? '' : `?${query}`}${window.location.hash}`);
+        window.setTimeout(() => {
+          try { ctx.uiWorkspace?.startSession?.(undefined, { clearPreviousDraft: false }); } catch { /* host UI decides */ }
+        }, 700);
+      }
+    } catch { /* ignore malformed URLs */ }
+  }
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
   ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, { en: EN, zh: ZH }), 'dsh-rc: dictionaries');
 

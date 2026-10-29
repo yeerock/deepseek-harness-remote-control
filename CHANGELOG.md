@@ -3,7 +3,25 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.4 — 2026-10-29
+## v0.2.5 — 2026-10-29
+
+Remote Workspaces styling and host-side new session.
+
+### Changed
+
+- **Remote Workspaces** now uses the native Workspaces typography and row
+  metrics: 14px muted section label, 28px rows, 13px/500 names, 16px monitor
+  icon, 8px padding, 8px radius. It sits directly below the native Workspaces
+  header, above the local workspace list.
+- Each host row has a **+** action that opens the host UI with
+  `?dsh-rc-new=1`; the host-side plugin consumes the flag and calls
+  `uiWorkspace.startSession()`, creating the session on that host.
+
+### Verification
+
+- 290 automated tests; the new-session deep link was exercised through the
+  edge against a second Harness, and the query flag is removed after use.
+
 
 Remote Control sidebar host switcher.
 
