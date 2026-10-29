@@ -72,6 +72,11 @@ function gitUpdate() {
     return;
   }
   try {
+    const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).trim();
+    if (dirty !== '') {
+      log('working tree is dirty; stashing before updating (git stash list to recover)');
+      run('git', ['stash', 'push', '--include-untracked', '-m', `dsh-rc auto-update ${new Date().toISOString()}`]);
+    }
     run('git', ['fetch', '--tags', '--force', 'origin']);
     const tags = execFileSync('git', ['tag', '--list', 'v*', '--sort=-v:refname'], { cwd: repo, encoding: 'utf8' })
       .split('\n').map((line) => line.trim()).filter(Boolean);

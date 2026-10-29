@@ -531,16 +531,29 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   padding: 0 6px;
   margin: 0 0 2px;
 }
-.dsh-rc-remote-ws-badge {
+.dsh-rc-remote-ws-gear {
+  position: relative;
+  flex: 0 0 auto;
   margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12));
-  color: var(--dsw-alias-label-tertiary, #71717a);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--dsw-alias-label-secondary, #81858c);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
+.dsh-rc-remote-ws-gear:hover { background: color-mix(in srgb, currentColor 9%, transparent); color: var(--dsw-alias-label-primary, #d4d4d8); }
+.dsh-rc-remote-ws-gear:focus { outline: none; box-shadow: none; }
+.dsh-rc-remote-ws-gear:focus-visible { outline: 1.5px solid var(--dsw-focus-ring-color, #4c8dff); outline-offset: 1px; }
+.dsh-rc-remote-ws-gear-dot { position: absolute; top: 2px; right: 1px; width: 5px; height: 5px; border-radius: 999px; box-shadow: 0 0 0 1.5px var(--dsw-alias-bg-subtle, #161616); }
 .dsh-rc-remote-ws-title {
   font-size: 14px;
   font-weight: 400;
@@ -635,7 +648,7 @@ function createComponent(React: any): (props: AnyProps) => any {
       padding: '16px',
     } as const,
     card: {
-      width: '460px',
+      width: '600px',
       maxWidth: 'calc(100vw - 32px)',
       maxHeight: 'calc(100vh - 48px)',
       overflowY: 'auto',
@@ -675,10 +688,9 @@ function createComponent(React: any): (props: AnyProps) => any {
     }),
     grid: {
       display: 'grid',
-      gridTemplateColumns: '104px 1fr',
-      columnGap: '10px',
-      rowGap: '7px',
-      alignItems: 'baseline',
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+      gap: '8px 10px',
+      marginTop: '12px',
       fontSize: '12.5px',
     } as const,
     label: { color: '#a1a1aa' } as const,
@@ -1117,10 +1129,13 @@ function createComponent(React: any): (props: AnyProps) => any {
       window.open(pairUrl, '_blank', 'noopener,noreferrer');
     };
 
-    const row = (label: string, value: any, mono = false): [any, any] => [
-      h('div', { style: styles.label, key: `l-${label}` }, label),
-      h('div', { style: mono ? styles.mono : styles.value, key: `v-${label}` }, value),
-    ];
+    const row = (label: string, value: any, mono = false): any =>
+      h(
+        'div',
+        { className: `dsh-rc-status-cell${label === t('lastError') ? ' dsh-rc-status-cell-wide' : ''}`, key: `cell-${label}` },
+        h('div', { className: 'dsh-rc-status-label' }, label),
+        h('div', { className: `dsh-rc-status-value${mono ? ' dsh-rc-mono' : ''}`, title: typeof value === 'string' ? value : undefined }, value),
+      );
 
     const redact = (value: string): string => value
       .replace(/\/Users\/[^/\s]+/g, '~')
@@ -1413,10 +1428,30 @@ function createComponent(React: any): (props: AnyProps) => any {
         const title = document.createElement('span');
         title.className = 'dsh-rc-remote-ws-title';
         title.textContent = t('remoteWorkspaces');
-        const badge = document.createElement('span');
-        badge.className = 'dsh-rc-remote-ws-badge';
-        badge.textContent = t('remoteBadge');
-        header.append(title, badge);
+        const gear = document.createElement('button');
+        gear.type = 'button';
+        gear.className = 'dsh-rc-remote-ws-gear';
+        gear.title = `${t('title')} — ${stateLabel}`;
+        gear.setAttribute('aria-label', t('title'));
+        const gearIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        gearIcon.setAttribute('viewBox', '0 0 24 24');
+        gearIcon.setAttribute('width', '15');
+        gearIcon.setAttribute('height', '15');
+        gearIcon.setAttribute('fill', 'none');
+        gearIcon.setAttribute('stroke', 'currentColor');
+        gearIcon.setAttribute('stroke-width', '1.7');
+        gearIcon.setAttribute('stroke-linecap', 'round');
+        gearIcon.setAttribute('stroke-linejoin', 'round');
+        gearIcon.setAttribute('aria-hidden', 'true');
+        const gearPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        gearPath.setAttribute('d', 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.09A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z');
+        gearIcon.append(gearPath);
+        const gearDot = document.createElement('span');
+        gearDot.className = 'dsh-rc-remote-ws-gear-dot';
+        gearDot.style.background = color;
+        gear.append(gearIcon, gearDot);
+        gear.addEventListener('click', () => setOpen(true));
+        header.append(title, gear);
         container.append(header);
         if (harnessPeers.length === 0) {
           const empty = document.createElement('div');
@@ -1480,35 +1515,11 @@ function createComponent(React: any): (props: AnyProps) => any {
         observer.disconnect();
         container?.remove();
       };
-    }, [harnessPeers, harnessPublicUrl, props.wide, status?.edgeUrl, t]);
+    }, [harnessPeers, harnessPublicUrl, props.wide, status?.edgeUrl, t, stateLabel, color, setOpen]);
 
     return h(
       'div',
       null,
-      h(
-        'button',
-        {
-          type: 'button',
-          'data-dsh-rc-entry': 'true',
-          'data-collapsed': props.wide === false ? 'true' : 'false',
-          title: `${t('title')} — ${stateLabel}`,
-          onClick: () => setOpen(true),
-          'aria-haspopup': 'dialog',
-          'aria-label': `${t('title')} — ${stateLabel}`,
-        },
-        entryIcon(h),
-        props.wide === false
-          ? null
-          : h('span', { className: 'dsh-rc-label', key: 'label' }, t('title')),
-        props.wide === false
-          ? null
-          : h(
-              'span',
-              { className: 'dsh-rc-status', key: 'status' },
-              h('span', { className: 'dsh-rc-dot', style: { background: color } }),
-              unavailable ? t('hostUnavailableShort') : (STATE_LABELS[state] !== undefined ? t(STATE_LABELS[state] as string) : ''),
-            ),
-      ),
       open
         ? h(
             'div',
@@ -1547,7 +1558,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               h(
                 'div',
                 { style: styles.grid },
-                ...rows.flatMap(([label, value, mono]) => row(label as string, value, mono === true)),
+                ...rows.map(([label, value, mono]) => row(label as string, value, mono === true)),
               ),
               h(
                 'div',
