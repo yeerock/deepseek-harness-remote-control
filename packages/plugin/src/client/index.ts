@@ -13,6 +13,7 @@
  * instead of failing to mount.
  */
 
+import { PLUGIN_VERSION } from '../onboard.js';
 import { encodeQr, qrToSvg } from './qr.js';
 import { createRemoteChat, REMOTE_CHAT_CSS, REMOTE_PANEL_ID, remoteChatStore } from './remote-chat.js';
 import type { RemoteTarget } from './remote-chat.js';
@@ -197,6 +198,7 @@ const EN: Record<string, string> = {
   shareStateOff: 'Not Shared',
   remotePick: 'Select a Computer',
   remotePickHint: 'Choose a computer to see its sessions.',
+  remoteRestartNeeded: 'The plugin was updated but is only half loaded. Quit DeepSeek Harness fully (including its tray or menu bar icon) and open it again to finish the update.',
   remoteNoneOnline: 'None of your other computers can be opened right now. They must be online, sharing, and on plugin v0.3.0 or later.',
   remoteRenameComputer: 'Rename Computer',
   remoteOffline: 'offline',
@@ -333,6 +335,7 @@ const ZH: Record<string, string> = {
   shareStateOff: '未共享',
   remotePick: '选择一台电脑',
   remotePickHint: '选择一台电脑以查看其会话。',
+  remoteRestartNeeded: '插件已更新但尚未完全加载。请完全退出 DeepSeek Harness（包括托盘或菜单栏图标）后重新打开，以完成更新。',
   remoteNoneOnline: '目前没有可远程打开的电脑。对方需在线、已开启共享并使用 v0.3.0 或更高版本的插件。',
   remoteRenameComputer: '重命名电脑',
   remoteOffline: '离线',
@@ -1749,6 +1752,16 @@ function createComponent(React: any): (props: AnyProps) => any {
           setHarnessPeers((previous: HarnessPeerView[]) => [...previous]);
           setRemoteSessions((previous: any) => ({ ...previous }));
         };
+        // A plugin update replaces this screen at once, but the background host
+        // keeps the old code until Harness restarts; the two cannot talk then.
+        if (status?.version !== undefined && status.version !== PLUGIN_VERSION) {
+          const stale = document.createElement('div');
+          stale.className = 'dsh-rc-remote-ws-note';
+          stale.style.marginLeft = '8px';
+          stale.textContent = t('remoteRestartNeeded');
+          container.append(stale);
+          return;
+        }
         // Only computers you can remote to: online, not this one, and answering
         // with their sessions (a computer on an older plugin cannot be opened).
         const others = harnessPeers.filter((peer: HarnessPeerView) =>
@@ -1914,7 +1927,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         observer.disconnect();
         container?.remove();
       };
-    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, t, stateLabel, color, setOpen]);
+    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, status?.version, t, stateLabel, color, setOpen]);
 
     return h(
       'div',

@@ -3,6 +3,10 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.2 - 2026-10-29
+
+- Remote Workspaces now says when an update is only half loaded (the sidebar is new but the background host still runs the old plugin) and asks you to quit and reopen DeepSeek Harness, instead of wrongly saying no computers can be opened.
+
 ## v0.3.1 — 2026-10-29
 
 ### Changed
