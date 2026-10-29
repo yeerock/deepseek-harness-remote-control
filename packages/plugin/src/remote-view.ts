@@ -25,6 +25,8 @@ export class RemoteViewServer {
   private token = randomBytes(18).toString('base64url');
   private readonly wss = new WebSocketServer({ noServer: true });
   private readonly cookies = new Map<string, string>();
+  private mountedOrigin = '';
+  private mountedBase = '';
 
   constructor(private readonly options: RemoteViewOptions) {}
 
@@ -40,10 +42,49 @@ export class RemoteViewServer {
     return this.baseUrl();
   }
 
+  /** Mount on the DSH web server so the iframe is same-origin. */
+  mount(webServer: { getOrigin?: () => string; register: (route: unknown) => unknown; registerUpgrade?: (route: unknown) => unknown }): void {
+    this.mountedOrigin = webServer.getOrigin?.() ?? '';
+    this.mountedBase = '/dsh-rc/remote';
+    webServer.register({
+      kind: 'prefix',
+      path: this.mountedBase,
+      handler: (req: IncomingMessage, res: ServerResponse) => this.handleMounted(req, res),
+    });
+    this.mountedUpgrade = (deviceId, path) => {
+      if (typeof webServer.registerUpgrade !== 'function') return () => undefined;
+      const dispose = webServer.registerUpgrade({
+        path,
+        handler: (req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => this.handleMountedUpgrade(req, socket, head),
+      });
+      return typeof dispose === 'function' ? dispose as () => void : () => undefined;
+    };
+  }
+
+  private mountedUpgrade: ((deviceId: string, path: string) => () => void) | undefined;
+
   async embedUrl(deviceId: string): Promise<string> {
+    if (this.mountedOrigin !== '') {
+      await this.ensureCookie(deviceId);
+      const path = `${this.mountedBase}/${encodeURIComponent(deviceId)}/api/remote.mux`;
+      this.mountedUpgrade?.(deviceId, path);
+      return `${this.mountedOrigin}${this.mountedBase}/${encodeURIComponent(deviceId)}/`;
+    }
     await this.start();
     await this.ensureCookie(deviceId);
     return `${this.baseUrl()}/d/${encodeURIComponent(deviceId)}/`;
+  }
+
+  private async handleMounted(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const rest = (req.url ?? '').slice(this.mountedBase.length);
+    req.url = `/r/${this.token}/d${rest}`;
+    await this.handleHttp(req, res);
+  }
+
+  private async handleMountedUpgrade(req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): Promise<void> {
+    const rest = (req.url ?? '').slice(this.mountedBase.length);
+    req.url = `/r/${this.token}/d${rest}`;
+    await this.handleUpgrade(req, socket, head);
   }
 
   close(): void {

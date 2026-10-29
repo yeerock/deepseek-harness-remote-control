@@ -1583,11 +1583,11 @@ function createComponent(React: any): (props: AnyProps) => any {
               h('span', null, t('remoteEmbedTitle')),
               h('button', { type: 'button', style: { border: 0, background: 'transparent', color: '#e6ecff', fontSize: '18px', cursor: 'pointer' }, onClick: () => setEmbedUrl(undefined), 'aria-label': t('close') }, '×'),
             ),
-            h('iframe', {
+            h('webview', {
               src: embedUrl,
               title: t('remoteEmbedTitle'),
               style: { flex: '1 1 auto', width: '100%', border: 0, background: '#fff' },
-              allow: 'clipboard-read; clipboard-write',
+              allowpopups: false,
             }),
           )
         : null,

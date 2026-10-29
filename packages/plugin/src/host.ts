@@ -48,6 +48,7 @@ interface WebServerLike {
   host?: string;
   port?: number;
   register?: (route: { kind: 'prefix' | 'exact'; path: string; handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void> }) => (() => void) | void;
+  registerUpgrade?: (route: { path: string; handler: (req: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => void }) => (() => void) | void;
 }
 
 interface ConnectionLike {
@@ -148,6 +149,10 @@ class DshRcService {
 
   embedTicket(deviceId: string): Promise<string> {
     return this.remoteView.embedUrl(deviceId);
+  }
+
+  mountRemoteView(webServer: WebServerLike): void {
+    this.remoteView.mount(webServer as Parameters<RemoteViewServer['mount']>[0]);
   }
 
   async harnessList(): Promise<PeerList> {
@@ -298,6 +303,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
   } catch (error) {
     service.failSetup(error);
   }
+
 
   try {
     ctx.effect?.(
