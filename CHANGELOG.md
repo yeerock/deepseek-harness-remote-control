@@ -3,7 +3,24 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.6 — 2026-10-29
+## v0.2.7 — 2026-10-29
+
+Plugin-load regression fix.
+
+### Fixed
+
+- The host bundle bundled `ws` into ESM, which crashed at import with
+  `Dynamic require of "events" is not supported`. The whole plugin failed to
+  activate: no sidebar entry, no agent, stale upstream. `ws` is now external and
+  resolved from the installed dependency; `import('dist/index.js')` succeeds.
+- Removed the leftover old `ds-harness-remote` plugin from the reference
+  profile (bundle, dependency, patch and package) so only `dsh-rc` loads.
+
+### Verification
+
+- 290 automated tests; host bundle import check `IMPORT_OK`; `ws` resolution
+  verified from the plugin dist path.
+
 
 Click-to-use remote sessions, zero-touch pairing.
 
