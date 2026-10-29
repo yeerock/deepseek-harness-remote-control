@@ -3,7 +3,24 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## v0.2.3 — 2026-10-29
+## v0.2.4 — 2026-10-29
+
+Remote Control sidebar host switcher.
+
+### Added
+
+- **Remote Control section in the left sidebar** once the agent is online. It
+  lists approved paired Harnesses with an online/offline dot; clicking one opens
+  that host's real DSH UI at `/d/<deviceId>/`.
+- **`GET /v1/devices/me/peers`** — approved Harnesses can read the metadata
+  (id, name, platform, online, lastSeenAt) of other approved Harnesses. No
+  device secrets or session data cross the boundary.
+
+### Verification
+
+- 290 automated tests, including peers listing (caller excluded, no secret in
+  the response) and the existing auto-approval/pairing suites.
+
 
 Auto-approval cleanup.
 

@@ -46,6 +46,19 @@ export interface SharingState {
   activeGuests: ActiveGuest[];
 }
 
+export interface HarnessPeer {
+  id: string;
+  name: string;
+  platform: string;
+  online: boolean;
+  lastSeenAt?: number | null;
+}
+
+export interface PeerList {
+  peers: HarnessPeer[];
+  publicUrl: string;
+}
+
 export interface CreatedInvite {
   id: string;
   /** Full guest URL (`<publicUrl>/i/<token>`). Shown once; never logged. */
@@ -224,6 +237,28 @@ export class SharingClient {
   async getSharing(): Promise<SharingState> {
     const body = await this.request('GET', '/v1/devices/me/sharing');
     return normalizeSharing(body);
+  }
+
+  /** `GET /v1/devices/me/peers` — approved Harnesses, metadata only. */
+  async listPeers(): Promise<PeerList> {
+    const body = await this.request('GET', '/v1/devices/me/peers');
+    const record = isRecord(body) ? body : {};
+    const rawPeers = Array.isArray(record['peers']) ? record['peers'] : [];
+    const peers: HarnessPeer[] = [];
+    for (const raw of rawPeers) {
+      if (!isRecord(raw) || typeof raw['id'] !== 'string' || raw['id'] === '') continue;
+      peers.push({
+        id: raw['id'],
+        name: typeof raw['name'] === 'string' && raw['name'] !== '' ? raw['name'] : raw['id'],
+        platform: typeof raw['platform'] === 'string' ? raw['platform'] : 'unknown',
+        online: raw['online'] === true,
+        lastSeenAt: typeof raw['lastSeenAt'] === 'number' ? raw['lastSeenAt'] : null,
+      });
+    }
+    return {
+      peers,
+      publicUrl: typeof record['publicUrl'] === 'string' ? record['publicUrl'] : '',
+    };
   }
 
   /** `PUT /v1/devices/me/sharing` — disabling revokes invites and guest sessions. */

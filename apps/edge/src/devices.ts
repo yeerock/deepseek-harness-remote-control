@@ -174,6 +174,11 @@ export class DeviceService {
     return { ok: true, device: approved };
   }
 
+  /** Approved peers, excluding the caller; metadata only, never secrets. */
+  listPeers(excludeId: string): DeviceRow[] {
+    return this.db.listDevices().filter((device) => device.id !== excludeId && device.status === 'approved');
+  }
+
   publicDevice(device: DeviceRow, online: boolean): Record<string, unknown> {
     return {
       deviceId: device.id,

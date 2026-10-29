@@ -61,6 +61,22 @@ describe('device auto-approval', () => {
     }
   });
 
+  it('lists approved peer Harnesses without secrets', async () => {
+    const edge = await startEdge({ autoApproveDevices: true });
+    edges.push(edge);
+    const first = await register(edge.base, 'first-harness');
+    const second = await register(edge.base, 'second-harness');
+    const response = await fetch(`${edge.base}/v1/devices/me/peers`, {
+      headers: { authorization: `Bearer ${first.deviceSecret}` },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { peers: Array<Record<string, unknown>> };
+    expect(body.peers).toHaveLength(1);
+    expect(body.peers[0]?.['id']).toBe(second.deviceId);
+    expect(body.peers[0]?.['name']).toBe('second-harness');
+    expect(JSON.stringify(body)).not.toContain(second.deviceSecret);
+  });
+
   it('parses the CLI flag and env var', async () => {
     const { loadConfig } = await import('../src/config.js');
     expect(loadConfig({ argv: ['--insecure', '--auto-approve-devices'] }).autoApproveDevices).toBe(true);

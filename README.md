@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.2.3.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 289 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.2.4.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 290 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.

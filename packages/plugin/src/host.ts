@@ -31,7 +31,7 @@ import type { PluginConfig } from './config.js';
 import { SharingClient, sharingErrorCode } from './sharing.js';
 import { buildJoinPrompt, isLoopbackOrigin, PLUGIN_VERSION } from './onboard.js';
 import { UpdateManager } from './update.js';
-import type { CreatedInvite, SharingState } from './sharing.js';
+import type { CreatedInvite, PeerList, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
 interface LoggerLike {
@@ -137,6 +137,14 @@ class DshRcService {
     if (!response.ok) throw new Error(`edge returned HTTP ${String(response.status)}`);
     const body = await response.json() as { publicUrl?: unknown };
     return typeof body.publicUrl === 'string' ? body.publicUrl : '';
+  }
+
+  async harnessList(): Promise<PeerList> {
+    const list = await this.sharingClient.listPeers();
+    if (list.publicUrl === '') {
+      try { list.publicUrl = await this.publicUrl(); } catch { /* keep empty */ }
+    }
+    return list;
   }
 
   /* ------------------------------ sharing ------------------------------ */
@@ -414,6 +422,7 @@ export interface SharingRpcTarget {
   pairUrl(): string | undefined;
   sharingGet(): Promise<SharingState>;
   publicUrl(): Promise<string>;
+  harnessList(): Promise<PeerList>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
   sharingRevokeInvite(id: string): Promise<{ ok: true }>;
@@ -440,6 +449,8 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         return rpcOk(await target.stop());
       case 'pair-url':
         return rpcOk({ pairUrl: target.pairUrl() ?? null });
+      case 'harness.list':
+        return rpcOk(await target.harnessList());
       case 'sharing.get':
         return rpcOk(await target.sharingGet());
       case 'sharing.set': {

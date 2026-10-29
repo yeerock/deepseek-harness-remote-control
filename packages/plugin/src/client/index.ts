@@ -60,6 +60,14 @@ interface ActiveGuestView {
   since?: number;
 }
 
+interface HarnessPeerView {
+  id: string;
+  name: string;
+  platform?: string;
+  online?: boolean;
+  lastSeenAt?: number | null;
+}
+
 interface SharingView {
   enabled?: boolean;
   publicUrl?: string;
@@ -434,6 +442,45 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   justify-content: center;
   padding: 0;
 }
+.dsh-rc-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+}
+.dsh-rc-sidebar-title {
+  padding: 8px 8px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary, #71717a);
+}
+.dsh-rc-sidebar-host {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-rc-sidebar-host:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+.dsh-rc-sidebar-host:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4c8dff);
+  outline-offset: -2px;
+}
+.dsh-rc-sidebar-host-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; }
+.dsh-rc-sidebar-host-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
   document.head.append(style);
 }
@@ -703,6 +750,8 @@ function createComponent(React: any): (props: AnyProps) => any {
     const call: (endpoint: string, payload?: unknown) => Promise<any> = props.call;
     const ReactUse = React;
     const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
+    const [harnessPeers, setHarnessPeers] = ReactUse.useState([] as HarnessPeerView[]);
+    const [harnessPublicUrl, setHarnessPublicUrl] = ReactUse.useState('');
     const [open, setOpen] = ReactUse.useState(false);
     const [unavailable, setUnavailable] = ReactUse.useState(false);
     const [error, setError] = ReactUse.useState(undefined as string | undefined);
@@ -747,6 +796,27 @@ function createComponent(React: any): (props: AnyProps) => any {
       };
     }, [refresh, open]);
 
+
+    // Paired Harnesses for the sidebar switcher; metadata only, no secrets.
+    ReactUse.useEffect(() => {
+      let alive = true;
+      const tick = async (): Promise<void> => {
+        try {
+          const result = (await call('harness.list')) as { peers?: HarnessPeerView[]; publicUrl?: string };
+          if (!alive) return;
+          setHarnessPeers(Array.isArray(result.peers) ? result.peers : []);
+          if (typeof result.publicUrl === 'string') setHarnessPublicUrl(result.publicUrl);
+        } catch {
+          // The agent may still be connecting; keep the last known list.
+        }
+      };
+      void tick();
+      const timer = window.setInterval(() => void tick(), 5_000);
+      return () => {
+        alive = false;
+        window.clearInterval(timer);
+      };
+    }, [call]);
 
     ReactUse.useEffect(() => {
       if (!open) return undefined;
@@ -1186,9 +1256,34 @@ function createComponent(React: any): (props: AnyProps) => any {
         : null,
     );
 
+    const openHarness = (peer: HarnessPeerView): void => {
+      const base = (harnessPublicUrl !== '' ? harnessPublicUrl : (status?.edgeUrl ?? '')).replace(/\/+$/, '');
+      if (base === '') return;
+      window.open(`${base}/d/${encodeURIComponent(peer.id)}/`, '_blank', 'noopener,noreferrer');
+    };
+
     return h(
       'div',
-      null,
+      { className: 'dsh-rc-sidebar-section' },
+      props.wide !== false && (state === 'online' || harnessPeers.length > 0)
+        ? h('div', { className: 'dsh-rc-sidebar-title' }, t('harnessTitle'))
+        : null,
+      props.wide !== false
+        ? harnessPeers.map((peer: HarnessPeerView) =>
+            h(
+              'button',
+              {
+                key: `host-${peer.id}`,
+                type: 'button',
+                className: 'dsh-rc-sidebar-host',
+                title: `${peer.name}${peer.online === true ? '' : ' · offline'}`,
+                onClick: () => openHarness(peer),
+              },
+              h('span', { className: 'dsh-rc-sidebar-host-dot', style: { background: peer.online === true ? '#22c55e' : '#71717a' } }),
+              h('span', { className: 'dsh-rc-sidebar-host-name' }, peer.name),
+            ),
+          )
+        : null,
       h(
         'button',
         {

@@ -262,6 +262,11 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       return;
     }
 
+    if (pathname === '/v1/devices/me/peers') {
+      if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+      return handleDevicePeers(request, response);
+    }
+
     if (pathname === '/v1/devices/me/sharing') {
       if (method === 'GET') return handleSharingGet(request, response);
       if (method === 'PUT') return handleSharingPut(request, response);
@@ -457,6 +462,22 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       pairUrl,
       status: registered.device.status,
     });
+  }
+
+  function handleDevicePeers(request: IncomingMessage, response: ServerResponse): void {
+    const token = bearerToken(request);
+    if (token === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'missing bearer device secret');
+    const device = devices.findBySecret(token);
+    if (device === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'unknown device secret');
+    if (device.status !== 'approved') return sendJsonError(response, 403, 'DEVICE_NOT_APPROVED', 'this device is not approved');
+    const peers = devices.listPeers(device.id).map((peer) => ({
+      id: peer.id,
+      name: peer.name,
+      platform: peer.platform,
+      online: tunnels.isOnline(peer.id),
+      lastSeenAt: peer.lastSeenAt,
+    }));
+    sendJson(response, 200, { peers, publicUrl: config.publicUrl });
   }
 
   function handleDeviceMe(request: IncomingMessage, response: ServerResponse): void {
