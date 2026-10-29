@@ -25,6 +25,15 @@ interface Transcript {
   items: TranscriptItem[];
   running: boolean;
   title: string;
+  hasMore?: boolean;
+  firstSeq?: number;
+}
+
+/** Earlier pages the reader asked for, kept while the newest page refreshes. */
+interface Older {
+  items: TranscriptItem[];
+  firstSeq: number;
+  hasMore: boolean;
 }
 
 /* --------------------------- shared selection --------------------------- */
@@ -163,6 +172,11 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-send[disabled] { opacity: 0.45; cursor: default; }
 .dsh-rc-chat-send[data-stop="true"] { background: var(--dsw-alias-label-primary, #333); color: var(--dsw-alias-bg-primary, #fff); }
 .dsh-rc-chat-error { max-width: 760px; margin: 0 auto 8px; font-size: 12px; color: #ef4444; }
+.dsh-rc-chat-older {
+  align-self: center; margin: 0 0 8px; padding: 4px 12px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25));
+  border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); font: inherit; font-size: 12px; cursor: pointer;
+}
+.dsh-rc-chat-older:disabled { opacity: 0.6; cursor: default; }
 .dsh-rc-chat-working { font-size: 12px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 `;
 
@@ -191,6 +205,9 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const [tick, setTick] = React.useState(0);
     const bodyRef = React.useRef(null);
     const pinned = React.useRef(true);
+    const [older, setOlder] = React.useState(undefined as Older | undefined);
+    const [loadingOlder, setLoadingOlder] = React.useState(false);
+    const keepOffset = React.useRef(undefined as number | undefined);
 
     React.useEffect(() => remoteChatStore.subscribe(() => setTarget(remoteChatStore.get())), []);
 
@@ -221,15 +238,21 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
 
     React.useEffect(() => {
       setTranscript(undefined);
+      setOlder(undefined);
       setDraft('');
       pinned.current = true;
     }, [target?.deviceId, target?.sessionId]);
 
-    // Stay at the bottom while the reader is at the bottom.
+    // Stay at the bottom while the reader is at the bottom; after loading an
+    // earlier page, keep the message the reader was looking at in place.
     React.useEffect(() => {
       const body = bodyRef.current as HTMLElement | null;
-      if (body !== null && pinned.current) body.scrollTop = body.scrollHeight;
-    }, [transcript]);
+      if (body === null) return;
+      if (keepOffset.current !== undefined) {
+        body.scrollTop = body.scrollHeight - keepOffset.current;
+        keepOffset.current = undefined;
+      } else if (pinned.current) body.scrollTop = body.scrollHeight;
+    }, [transcript, older]);
 
     if (target === undefined) {
       return h('div', { className: 'dsh-rc-chat' }, h('div', { className: 'dsh-rc-chat-empty' }, t('chatPick')));
@@ -261,7 +284,35 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       }
     };
 
-    const items: TranscriptItem[] = transcript?.items ?? [];
+    const latest: TranscriptItem[] = transcript?.items ?? [];
+    const latestFirst = transcript?.firstSeq ?? (latest[0]?.seq ?? 0);
+    const items: TranscriptItem[] = older === undefined
+      ? latest
+      : [...older.items.filter((item: TranscriptItem) => latestFirst === 0 || item.seq < latestFirst), ...latest];
+    const canLoadOlder = older === undefined ? transcript?.hasMore === true : older.hasMore;
+    const loadOlder = async (): Promise<void> => {
+      const before = older?.firstSeq ?? latestFirst;
+      if (loadingOlder || before <= 1) return;
+      setLoadingOlder(true);
+      const asked = `${target.deviceId}|${target.sessionId}`;
+      try {
+        const page = (await call('session.history', { deviceId: target.deviceId, sessionId: target.sessionId, beforeSeq: before })) as Transcript;
+        // The reader may have opened another session while this page loaded.
+        const now = remoteChatStore.get();
+        if (now === undefined || `${now.deviceId}|${now.sessionId}` !== asked) return;
+        const body = bodyRef.current as HTMLElement | null;
+        if (body !== null) keepOffset.current = body.scrollHeight - body.scrollTop;
+        setOlder((previous: Older | undefined) => ({
+          items: [...page.items, ...(previous?.items ?? [])],
+          firstSeq: page.firstSeq ?? page.items[0]?.seq ?? 0,
+          hasMore: page.hasMore === true,
+        }));
+      } catch (reason) {
+        setError(messageOf(reason));
+      } finally {
+        setLoadingOlder(false);
+      }
+    };
     const rendered = items.map((item: TranscriptItem) => {
       const key = `${item.kind}-${String(item.seq)}`;
       if (item.kind === 'user') {
@@ -313,6 +364,9 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
           'div',
           { className: 'dsh-rc-chat-col' },
           transcript === undefined && error === undefined ? h('div', { className: 'dsh-rc-chat-empty' }, t('chatLoading')) : null,
+          canLoadOlder
+            ? h('button', { type: 'button', className: 'dsh-rc-chat-older', disabled: loadingOlder, onClick: () => void loadOlder() }, loadingOlder ? t('chatLoading') : t('chatLoadEarlier'))
+            : null,
           transcript !== undefined && items.length === 0 ? h('div', { className: 'dsh-rc-chat-empty' }, t('chatEmpty')) : null,
           ...rendered,
           running ? h('div', { className: 'dsh-rc-chat-working' }, t('chatWorking')) : null,

@@ -3,6 +3,13 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.5 - 2026-10-29
+
+- Remote conversations are complete: long sessions load the newest part first and **Load Earlier Messages** pages back to the first prompt (it used to stop at the last 80 events). Context the Harness injects for the model (runtime, time, skill and teammate notes) no longer shows as your messages.
+- Remote sessions have the local hover strip: **...** (Pin Session, Rename, Archive Session, Copy Session ID), Archive and Pin. Pinned sessions lead the list; archived ones are hidden. Archiving a session that is still working is refused.
+- Button label: Build Setup Prompt.
+- README: illustrated guide with new screenshots.
+
 ## v0.3.4 - 2026-10-29
 
 - Remote workspaces fold and unfold like local ones: click a workspace (folder icon) to hide or show its sessions. The choice is remembered on that computer.

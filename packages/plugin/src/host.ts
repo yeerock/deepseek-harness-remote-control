@@ -99,11 +99,17 @@ interface ServiceOptions {
   /** Rows from this Harness's own session catalog; empty when it is unavailable. */
   listSessions: () => Promise<unknown[]>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
-  history: (sessionId: string, maxMessages: number) => Promise<unknown[]>;
+  history: (sessionId: string, maxMessages: number, throughSeq?: number) => Promise<unknown[]>;
   sessions: SessionActions;
 }
 
 interface SessionActions {
+  /** Archive (hide) or pin one session through the Harness workspace controller. */
+  organize(sessionId: string, action: 'archive' | 'pin' | 'unpin'): Promise<void>;
+  /** Pinned session ids, most recently pinned first. */
+  pinned(): string[];
+  /** Archived session ids (hidden from lists, as in the local sidebar). */
+  archived(): string[];
   prompt(sessionId: string, text: string): Promise<void>;
   cancel(sessionId: string): Promise<void>;
   create(cwd: string): Promise<string>;
@@ -113,9 +119,19 @@ interface SessionActions {
 export interface RemoteSessionRow {
   id: string;
   title: string;
+  pinned?: boolean;
   updatedAt: number | null;
   workspaceId: string;
   workspaceName: string;
+}
+
+/** Events per history page; long tool-heavy turns need far more than a few dozen. */
+const HISTORY_PAGE = 400;
+const SESSION_ROWS_MAX = 200;
+
+function seqOf(record: unknown): number {
+  const event = isRecord(record) && isRecord(record['event']) ? record['event'] : {};
+  return typeof event['seq'] === 'number' ? event['seq'] : 0;
 }
 
 const START_URL_WAIT_MS = 5_000;
@@ -129,7 +145,7 @@ class DshRcService {
   private readonly dshUrl: () => string;
   private readonly listSessions: () => Promise<unknown[]>;
   private readonly renameSession: (sessionId: string, title: string) => Promise<void>;
-  private readonly history: (sessionId: string, maxMessages: number) => Promise<unknown[]>;
+  private readonly history: (sessionId: string, maxMessages: number, throughSeq?: number) => Promise<unknown[]>;
   private readonly sessions: SessionActions;
   private readonly stateDir: string;
   private readonly edgeUrl: string;
@@ -198,7 +214,24 @@ class DshRcService {
 
   /** This Harness's sessions grouped for a peer's sidebar (called over the edge). */
   async remoteList(): Promise<{ sessions: RemoteSessionRow[] }> {
-    return { sessions: normalizeSessions(await this.listSessions()) };
+    const pins = this.sessions.pinned();
+    const rank = new Map(pins.map((id, index) => [id, index]));
+    const hidden = new Set(this.sessions.archived());
+    const rows = normalizeSessions(await this.listSessions(), Number.MAX_SAFE_INTEGER).filter((row) => !hidden.has(row.id)).map((row) => (rank.has(row.id) ? { ...row, pinned: true } : row));
+    // Pinned first (most recently pinned leading), like the local list.
+    rows.sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+    return { sessions: rows.slice(0, SESSION_ROWS_MAX) };
+  }
+
+  /** Archive, pin or unpin one of this computer's sessions (called over the edge by a peer). */
+  async organizeLocalSession(sessionId: string, action: 'archive' | 'pin' | 'unpin'): Promise<{ ok: true }> {
+    if (action === 'archive') {
+      // Archiving never stops work from another computer; refuse while it runs.
+      const row = (await this.listSessions()).find((candidate) => isRecord(candidate) && candidate['sessionId'] === sessionId);
+      if (isRecord(row) && row['running'] === true) throw new Error('That session is still working. Stop it first, then archive it.');
+    }
+    await this.sessions.organize(sessionId, action);
+    return { ok: true };
   }
 
   /** Rename a computer (this one or a peer); this computer's own name is also kept locally. */
@@ -218,12 +251,17 @@ class DshRcService {
   }
 
   /** This computer's session as a compact transcript (served to peers). */
-  async localTranscript(sessionId: string): Promise<Transcript> {
-    const [records, rows] = await Promise.all([this.history(sessionId, 80), this.listSessions()]);
+  async localTranscript(sessionId: string, beforeSeq?: number): Promise<Transcript> {
+    const [records, rows] = await Promise.all([
+      this.history(sessionId, HISTORY_PAGE, beforeSeq === undefined ? undefined : beforeSeq - 1),
+      this.listSessions(),
+    ]);
     const row = rows.find((candidate) => isRecord(candidate) && candidate['sessionId'] === sessionId);
     const running = isRecord(row) && row['running'] === true;
     const title = normalizeSessions(row === undefined ? [] : [row])[0]?.title ?? '';
-    return buildTranscript(records, { hasMore: false, running, title });
+    const firstSeq = records.length === 0 ? 0 : seqOf(records[0]);
+    // Seq 0 is the session header: reaching it means nothing older is left.
+    return buildTranscript(records, { hasMore: firstSeq > 1, running, title, firstSeq });
   }
 
   async localPrompt(sessionId: string, text: string): Promise<{ accepted: true }> {
@@ -430,8 +468,22 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
     dshUrl: () => resolveAuthenticatedUrl(ctx, logger),
     listSessions: () => listLocalSessions(ctx, logger),
     renameSession: (sessionId, title) => renameLocalSession(ctx, sessionId, title),
-    history: (sessionId, maxMessages) => readSessionHistory(ctx, sessionId, maxMessages),
+    history: (sessionId, maxMessages, throughSeq) => readSessionHistory(ctx, sessionId, maxMessages, throughSeq),
     sessions: {
+      organize: async (sessionId, action) => {
+        const workspaces = getService<WorkspaceControllerLike>(ctx, 'workspaceController');
+        const method = action === 'archive' ? workspaces?.archiveSession : action === 'pin' ? workspaces?.pinSession : workspaces?.unpinSession;
+        if (workspaces === undefined || typeof method !== 'function') throw new Error('This Harness cannot organise sessions right now.');
+        try {
+          await method.call(workspaces, { sessionId });
+        } catch (error) {
+          // A session with work in progress is never stopped from another computer.
+          if (isRecord(error) && error['code'] === 'workspace/session-active') throw new Error('That session is still working. Stop it first, then archive it.');
+          throw error;
+        }
+      },
+      pinned: () => registryIds(ctx, 'pinnedSessionIds'),
+      archived: () => registryIds(ctx, 'archivedSessionIds'),
       prompt: async (sessionId, text) => {
         const controller = sessionControllerOf(ctx);
         if (typeof controller.prompt !== 'function') throw new Error('This Harness cannot accept prompts right now.');
@@ -526,6 +578,7 @@ const PEER_ENDPOINTS = new Set([
   'remote.cancel',
   'remote.create',
   'remote.renameSession',
+  'remote.organize',
 ]);
 
 /** Response cap for control requests; the browser never sends more. */
@@ -638,13 +691,14 @@ export interface SharingRpcTarget {
   embedTicket(deviceId: string): Promise<string>;
   openRemoteWindow(deviceId: string, newSession: boolean, sessionId?: string): Promise<{ url: string; opened: boolean }>;
   setHostEnabled(enabled: boolean): Promise<DshRcStatus>;
-  localTranscript(sessionId: string): Promise<Transcript>;
+  localTranscript(sessionId: string, beforeSeq?: number): Promise<Transcript>;
   localPrompt(sessionId: string, text: string): Promise<{ accepted: true }>;
   localCancel(sessionId: string): Promise<{ ok: true }>;
   localCreate(workspaceId: string): Promise<{ sessionId: string }>;
   peerCall(deviceId: string, endpoint: string, payload: Record<string, unknown>): Promise<unknown>;
   renameComputer(deviceId: string, name: string): Promise<{ id: string; name: string }>;
   renameLocalSession(sessionId: string, title: string): Promise<{ ok: true }>;
+  organizeLocalSession(sessionId: string, action: 'archive' | 'pin' | 'unpin'): Promise<{ ok: true }>;
   renameRemoteSession(deviceId: string, sessionId: string, title: string): Promise<{ ok: true }>;
   remoteList(): Promise<{ sessions: RemoteSessionRow[] }>;
   remoteSessions(deviceId: string): Promise<{ sessions: RemoteSessionRow[] }>;
@@ -705,10 +759,17 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         if (deviceId === '' || !isSessionId(sessionId) || title === '' || title.length > 200) return rpcFail('bad-request', 'deviceId, sessionId and a 1-200 character title are required.');
         return rpcOk(await target.renameRemoteSession(deviceId, sessionId, title));
       }
+      case 'remote.organize': {
+        const action = input['action'];
+        if (!isSessionId(input['sessionId']) || (action !== 'archive' && action !== 'pin' && action !== 'unpin')) return rpcFail('bad-request', 'sessionId and action (archive, pin or unpin) are required.');
+        return rpcOk(await target.organizeLocalSession(input['sessionId'], action));
+      }
       /* Served to peers (over the edge) about this computer's own sessions. */
       case 'remote.history': {
         if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
-        return rpcOk(await target.localTranscript(input['sessionId']));
+        const before = input['beforeSeq'];
+        if (before !== undefined && (typeof before !== 'number' || !Number.isSafeInteger(before) || before < 1)) return rpcFail('bad-request', 'beforeSeq is invalid.');
+        return rpcOk(await target.localTranscript(input['sessionId'], before));
       }
       case 'remote.prompt': {
         if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
@@ -728,7 +789,8 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'session.history':
       case 'session.prompt':
       case 'session.cancel':
-      case 'session.create': {
+      case 'session.create':
+      case 'session.organize': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
         const { deviceId: _omit, ...rest } = input;
@@ -898,6 +960,12 @@ async function writeHostSettings(stateDir: string, settings: HostSettings): Prom
   await writeFile(join(stateDir, 'host.json'), `${JSON.stringify(settings)}\n`, { mode: 0o600 });
 }
 
+interface WorkspaceControllerLike {
+  archiveSession?: (request: unknown) => Promise<unknown>;
+  pinSession?: (request: unknown) => Promise<unknown>;
+  unpinSession?: (request: unknown) => Promise<unknown>;
+}
+
 interface SessionControllerLike {
   list?: (request: unknown, signal?: AbortSignal) => Promise<unknown>;
   rename?: (request: unknown) => Promise<unknown>;
@@ -914,10 +982,14 @@ function sessionControllerOf(ctx: CordisContextLike): SessionControllerLike {
 }
 
 /** Raw history records of one session (newest page), for a peer's conversation view. */
-async function readSessionHistory(ctx: CordisContextLike, sessionId: string, maxMessages: number): Promise<unknown[]> {
+async function readSessionHistory(ctx: CordisContextLike, sessionId: string, maxMessages: number, olderThrough?: number): Promise<unknown[]> {
   const controller = sessionControllerOf(ctx);
   if (typeof controller.page !== 'function') throw new Error('This Harness cannot read session history.');
   let throughSeq = Number.MAX_SAFE_INTEGER;
+  if (olderThrough !== undefined) {
+    const page = await controller.page({ address: { kind: 'session', sessionId }, throughSeq: olderThrough, maxMessages }, AbortSignal.timeout(20_000));
+    return isRecord(page) && Array.isArray(page['records']) ? page['records'] : [];
+  }
   try {
     const projections = await controller.projections?.({ sessionId }, AbortSignal.timeout(10_000));
     if (isRecord(projections) && typeof projections['asOfSeq'] === 'number') throughSeq = projections['asOfSeq'];
@@ -987,7 +1059,7 @@ function findTitle(value: unknown, depth = 0): string {
 }
 
 /** Reduce raw catalog rows to the few plain fields a peer needs; drops archived rows. */
-export function normalizeSessions(rows: unknown[]): RemoteSessionRow[] {
+export function normalizeSessions(rows: unknown[], limit = SESSION_ROWS_MAX): RemoteSessionRow[] {
   const out: RemoteSessionRow[] = [];
   for (const raw of rows) {
     if (!isRecord(raw)) continue;
@@ -1006,10 +1078,24 @@ export function normalizeSessions(rows: unknown[]): RemoteSessionRow[] {
       updatedAt: pickTime(raw, ['updatedAt', 'lastActivityAt', 'lastMessageAt', 'modifiedAt', 'createdAt']),
       workspaceId,
       workspaceName,
+      ...(raw['pinned'] === true ? { pinned: true } : {}),
     });
   }
-  out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  return out.slice(0, 200);
+  // Pinned rows keep the order their owner gave them, ahead of the rest.
+  out.sort((a, b) => (a.pinned === b.pinned ? (a.pinned === true ? 0 : (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) : a.pinned === true ? -1 : 1));
+  return out.slice(0, limit);
+}
+
+/** Session ids from the Harness workspace registry's pin or archive set; `[]` when unavailable. */
+function registryIds(ctx: CordisContextLike, field: 'pinnedSessionIds' | 'archivedSessionIds'): string[] {
+  try {
+    const registry = getService<Record<string, unknown>>(ctx, 'workspaceRegistry');
+    const value = registry?.[field];
+    if (value === undefined || value === null || typeof (value as Iterable<unknown>)[Symbol.iterator] !== 'function') return [];
+    return [...(value as Iterable<unknown>)].filter((id): id is string => typeof id === 'string');
+  } catch {
+    return [];
+  }
 }
 
 function getService<T>(ctx: CordisContextLike, name: string): T | undefined {

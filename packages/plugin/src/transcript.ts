@@ -24,11 +24,23 @@ export interface Transcript {
   hasMore: boolean;
   running: boolean;
   title: string;
+  /** Seq of the oldest event read; pass it back as `beforeSeq` for the page before. */
+  firstSeq?: number;
 }
 
 const TEXT_MAX = 60_000;
 const TOOL_INPUT_MAX = 1_200;
 const TOOL_OUTPUT_MAX = 4_000;
+/** Context Harness adds as user messages; anything else (typed, queued, relayed) is shown. */
+const INJECTED_KINDS = new Set([
+  'runtime-context',
+  'time-context',
+  'skill-catalog',
+  'agent-message',
+  'subagent-settled',
+  'tool-jobs',
+  'compact-checkpoint',
+]);
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,200}$/;
 
 export function isSessionId(value: unknown): value is string {
@@ -57,7 +69,7 @@ function countImages(content: unknown): number {
   return Array.isArray(content) ? content.filter((part) => isRecord(part) && part['type'] === 'image').length : 0;
 }
 
-export function buildTranscript(records: unknown[], meta: { hasMore: boolean; running: boolean; title: string }): Transcript {
+export function buildTranscript(records: unknown[], meta: { hasMore: boolean; running: boolean; title: string; firstSeq?: number }): Transcript {
   const items: TranscriptItem[] = [];
   const tools = new Map<string, TranscriptTool>();
   for (const record of records) {
@@ -69,6 +81,10 @@ export function buildTranscript(records: unknown[], meta: { hasMore: boolean; ru
     const data = isRecord(event['data']) ? event['data'] : {};
     switch (type) {
       case 'user/message': {
+        // Harness injects context (runtime, time, skills, teammate notes) as
+        // user messages with their own source kind; only what a person typed shows.
+        const source = isRecord(data['source']) ? data['source'] : undefined;
+        if (source !== undefined && typeof source['kind'] === 'string' && INJECTED_KINDS.has(source['kind'])) break;
         const text = clip(partsText(data['content'], 'text'), TEXT_MAX);
         const images = countImages(data['content']);
         if (text.trim() !== '' || images > 0) items.push({ kind: 'user', seq, time, text, images });

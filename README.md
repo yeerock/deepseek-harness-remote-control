@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.4.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 299 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.3.5.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 300 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -204,21 +204,53 @@ panel, **Share This Computer** decides whether your other computers may open it
 (on by default; the choice survives restarts). Double-click the computer name
 there, or the **Rename** link, to rename it.
 
-Under **Remote Workspaces** in the sidebar:
+### Guide: using another computer from this one
 
-1. **Select a Computer** from the drop-down. Only computers you can open
-   right now are listed: online, sharing, and on plugin v0.3.0 or later. The
-   computer you are on is not listed; its sessions are already in the normal
-   Workspaces section. Remote Workspaces itself is a plain section at the end
-   of the Workspaces list and scrolls with it, like the local workspaces.
-2. Its sessions appear grouped by workspace. Click a workspace to fold or
-   unfold it, like local workspaces; the choice is remembered. **Click a session** and the
-   conversation opens in the main area, exactly where local conversations
-   open, with a composer to keep chatting and a **Stop** button while it works.
-   The session keeps running on that computer; its files, tools and
-   permissions stay there.
-3. **+** on a workspace (or on the computer) starts a new session there.
-4. **Double-click** a computer or session to rename it.
+> Screenshots use demo data (an "Office PC" with sample sessions) so no real
+> work is shown. Everything else is the real plugin running inside DeepSeek
+> Harness.
+
+**1. Pick the computer.** Remote Workspaces is a plain section at the end of
+the Workspaces list and scrolls with it. Choose a computer in the drop-down.
+Only computers you can open right now are listed (online, sharing, plugin
+v0.3.0 or later); the computer you are on is never listed, because its
+sessions are already in the normal Workspaces section. **✎** renames the
+computer and **+** starts a new session on it.
+
+<p align="center"><img src="docs/images/01-remote-workspaces.webp" alt="Remote Workspaces section listing an Office PC's sessions grouped by workspace" width="300"></p>
+
+**2. Fold what you do not need.** Click a workspace (folder icon) to fold or
+unfold it, just like local workspaces. The choice is remembered on that
+computer.
+
+<p align="center"><img src="docs/images/03-folded-workspaces.webp" alt="Two remote workspaces folded, one unfolded" width="300"></p>
+
+**3. Hover a session for its actions.** The same strip as a local session
+appears: **…** opens Pin Session, Rename, Archive Session and Copy Session
+ID; the box archives it and the pin pins it (pinned sessions lead the list).
+Archiving is refused while that session is still working, so nothing running
+is stopped from another computer. Double-click a session to rename it in
+place.
+
+<p align="center"><img src="docs/images/02-session-actions.webp" alt="Hover actions and the session menu on a remote session" width="470"></p>
+
+**4. Click a session to open the conversation.** It opens in the main area,
+exactly where local conversations open: your messages, the assistant's
+replies, collapsible Thinking and tool steps with their output, and a
+composer to keep chatting (with **Stop** while it works). Long conversations
+load the newest part first; **Load Earlier Messages** at the top pages back
+to the very first prompt. Context the Harness injects for the model (runtime,
+time and skill notes) is hidden, as in the local view. The session keeps
+running on that computer; its files, tools and permissions stay there.
+
+<p align="center"><img src="docs/images/04-remote-conversation.webp" alt="A remote conversation open in the main area with Load Earlier Messages" width="800"></p>
+
+**5. Settings.** The gear opens Remote Control: **Share This Computer**
+(whether your other computers may open this one, on by default), the
+computer's name, connection status, and **Build Setup Prompt** to add
+another computer.
+
+<p align="center"><img src="docs/images/05-remote-control-panel.webp" alt="Remote Control panel with Share This Computer" width="800"></p>
 
 If you see "The plugin was updated but is only half loaded", that computer got
 the new sidebar but its background host still runs the old plugin. Quit
@@ -236,7 +268,7 @@ interface in a side tab, for files and the terminal.
 
 How it works: the panel is registered in DSH's `main` slot. The host plugin of
 the computer you are on relays `session.history`, `session.prompt`,
-`session.cancel` and `session.create` over the edge to the owning computer's
+`session.cancel`, `session.create` and `session.organize` (archive, pin, unpin) over the edge to the owning computer's
 plugin, which calls its own Harness session API and returns a compact
 transcript (raw tool output is clipped, request headers never leave). Both
 computers need plugin v0.3.0 or later for sessions to list and open.
@@ -250,7 +282,7 @@ reach the host plugin at all.
 ## Pair another DeepSeek Harness
 
 A Harness is a host computer running DSH. To bring another one onto the same
-edge, open **Remote Control → Harnesses → Build setup prompt** on this host,
+edge, open **Remote Control → Harnesses → Build Setup Prompt** on this host,
 copy the one-paragraph prompt, and paste it into the other Harness's agent.
 The prompt clones the pinned release, installs the plugin into that machine's
 profile, points its agent at this edge, and **schedules the Harness restart

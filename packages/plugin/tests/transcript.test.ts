@@ -37,3 +37,16 @@ describe('buildTranscript', () => {
     expect(isSessionId(5)).toBe(false);
   });
 });
+
+describe('injected context messages', () => {
+  it('shows only what a person typed, not runtime, time or skill context', () => {
+    const ev = (seq: number, kind: string | undefined, text: string) => ({
+      event: { type: 'user/message', seq, time: seq, data: { content: [{ type: 'text', text }], ...(kind === undefined ? {} : { source: { kind } }) } },
+    });
+    const out = buildTranscript(
+      [ev(1, 'user', 'real prompt'), ev(2, 'runtime-context', 'cwd...'), ev(3, 'time-context', 'Time sampled'), ev(4, 'skill-catalog', '<system-reminder>'), ev(5, undefined, 'legacy prompt')],
+      { hasMore: false, running: false, title: '' },
+    );
+    expect(out.items.map((item) => (item.kind === 'user' ? item.text : ''))).toEqual(['real prompt', 'legacy prompt']);
+  });
+});

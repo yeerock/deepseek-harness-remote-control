@@ -33,6 +33,87 @@ const saveCollapsedRemoteGroups = (): void => {
   try { globalThis.localStorage?.setItem(COLLAPSED_KEY, JSON.stringify([...collapsedRemoteGroups].slice(-500))); } catch { /* storage unavailable */ }
 };
 
+/* Remote session row actions, shaped like the local sidebar's hover strip. */
+const ROW_ICONS: Record<string, string[]> = {
+  more: ['M5 12h.01', 'M12 12h.01', 'M19 12h.01'],
+  archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
+  pin: ['M12 17v5', 'M9 10.8V5h6v5.8l2.4 3.2H6.6Z', 'M8 2h8'],
+  unpin: ['M12 17v5', 'M9 10.8V5h6v5.8l2.4 3.2H6.6Z', 'M8 2h8', 'M3 3l18 18'],
+};
+
+function rowIconButton(icon: string, label: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'dsh-rc-remote-ws-icon';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [key, value] of [['viewBox', '0 0 24 24'], ['width', '14'], ['height', '14'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', icon === 'more' ? '3' : '1.6'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) {
+    svg.setAttribute(key as string, value as string);
+  }
+  for (const d of ROW_ICONS[icon] ?? []) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  button.append(svg);
+  return button;
+}
+
+interface RowMenuItem { label: string; run: () => void; separator?: boolean }
+
+/** A small menu under the "..." button; closes on choice, outside click, scroll or Escape. */
+let closeRowMenu: (() => void) | undefined;
+
+function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[]): void {
+  // A second press on the same "..." closes the menu it opened.
+  const reopen = anchor.getAttribute('aria-expanded') !== 'true';
+  closeRowMenu?.();
+  if (!reopen) return;
+  const menu = document.createElement('div');
+  menu.id = 'dsh-rc-row-menu';
+  menu.setAttribute('role', 'menu');
+  const close = (): void => {
+    menu.remove();
+    anchor.setAttribute('aria-expanded', 'false');
+    if (closeRowMenu === close) closeRowMenu = undefined;
+    document.removeEventListener('pointerdown', outside, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('blur', close);
+    document.removeEventListener('scroll', close, true);
+  };
+  const outside = (event: Event): void => {
+    if (!menu.contains(event.target as Node) && !anchor.contains(event.target as Node)) close();
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape') { close(); anchor.focus(); }
+  };
+  for (const entry of entries) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitem');
+    button.className = entry.separator === true ? 'dsh-rc-row-menu-item dsh-rc-row-menu-sep' : 'dsh-rc-row-menu-item';
+    button.textContent = entry.label;
+    button.addEventListener('click', (event: MouseEvent) => { event.stopPropagation(); close(); entry.run(); });
+    menu.append(button);
+  }
+  const rect = anchor.getBoundingClientRect();
+  document.body.append(menu);
+  // Open below the button, or above it when the menu would run off the bottom.
+  const height = menu.offsetHeight;
+  const below = rect.bottom + 4 + height <= window.innerHeight;
+  const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8);
+  menu.style.left = `${String(Math.round(Math.max(8, left) + window.scrollX))}px`;
+  menu.style.top = `${String(Math.round((below ? rect.bottom + 4 : rect.top - 4 - height) + window.scrollY))}px`;
+  anchor.setAttribute('aria-expanded', 'true');
+  closeRowMenu = close;
+  (menu.firstElementChild as HTMLElement | null)?.focus();
+  document.addEventListener('pointerdown', outside, true);
+  document.addEventListener('keydown', onKey, true);
+  window.addEventListener('blur', close);
+  document.addEventListener('scroll', close, true);
+}
+
 
 interface RpcResult<T> {
   ok?: boolean;
@@ -94,6 +175,7 @@ interface RemoteSessionView {
   updatedAt: number | null;
   workspaceId: string;
   workspaceName: string;
+  pinned?: boolean;
 }
 
 interface SharingView {
@@ -200,12 +282,19 @@ const EN: Record<string, string> = {
   chatFullView: 'Open Full View',
   chatFullViewHint: "Open that computer's own interface (files, terminal) in a side tab",
   chatLoading: 'Loading conversation…',
+  chatLoadEarlier: 'Load Earlier Messages',
   chatEmpty: 'No messages yet. Send the first one below.',
   chatWorking: 'Working…',
   chatPlaceholder: 'Message {name}…',
   chatStop: 'Stop',
   chatSend: 'Send',
   renameHint: 'double-click to rename',
+  rowArchive: 'Archive Session',
+  rowPin: 'Pin Session',
+  rowUnpin: 'Unpin Session',
+  rowRename: 'Rename',
+  rowCopyId: 'Copy Session ID',
+  rowActionsFor: 'Session actions for {name}',
   renameComputer: 'Rename',
   shareTitle: 'Share This Computer',
   shareOn: 'Your other computers can open this one from Remote Workspaces. It appears there as "{name}".',
@@ -268,7 +357,7 @@ const EN: Record<string, string> = {
   harnessPending: 'Waiting for the edge to finish registering this Harness…',
   sharingJoinTitle: 'Add another DeepSeek Harness',
   sharingJoinHint: 'The prompt installs DSH RC on that Harness, points its agent at this edge, and waits for your approval. It contains no password or secret.',
-  sharingJoinButton: 'Build setup prompt',
+  sharingJoinButton: 'Build Setup Prompt',
   sharingJoinBuilding: 'Building…',
   sharingJoinCopy: 'Copy prompt',
   sharingJoinCopied: 'Copied',
@@ -337,12 +426,19 @@ const ZH: Record<string, string> = {
   chatFullView: '打开完整视图',
   chatFullViewHint: '在侧边标签中打开那台电脑自身的界面（文件、终端）',
   chatLoading: '正在加载对话…',
+  chatLoadEarlier: '加载更早的消息',
   chatEmpty: '暂无消息，在下方发送第一条。',
   chatWorking: '处理中…',
   chatPlaceholder: '发送消息给 {name}…',
   chatStop: '停止',
   chatSend: '发送',
   renameHint: '双击可重命名',
+  rowArchive: '归档会话',
+  rowPin: '置顶会话',
+  rowUnpin: '取消置顶',
+  rowRename: '重命名',
+  rowCopyId: '复制会话 ID',
+  rowActionsFor: '{name} 的会话操作',
   renameComputer: '重命名',
   shareTitle: '共享这台电脑',
   shareOn: '你的其他电脑可在“远程工作区”中打开这台电脑，显示名称为“{name}”。',
@@ -795,6 +891,28 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 }
 .dsh-rc-remote-ws-session:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
 .dsh-rc-remote-ws-session > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-rc-remote-ws-actions { display: none; flex: 0 0 auto; align-items: center; gap: 1px; }
+.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-actions,
+.dsh-rc-remote-ws-session:focus-within .dsh-rc-remote-ws-actions { display: inline-flex; }
+.dsh-rc-remote-ws-session:hover .dsh-rc-remote-ws-age,
+.dsh-rc-remote-ws-session:focus-within .dsh-rc-remote-ws-age { display: none; }
+.dsh-rc-remote-ws-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); cursor: pointer;
+}
+.dsh-rc-remote-ws-icon:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.16)); color: var(--dsw-alias-label-primary, inherit); }
+#dsh-rc-row-menu {
+  position: absolute; z-index: 1000; min-width: 180px; padding: 4px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.22));
+  border-radius: 10px; background: var(--dsw-alias-bg-elevated, #fff); box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+}
+.dsh-rc-row-menu-item {
+  display: block; width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--dsw-alias-label-primary, #111); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.dsh-rc-row-menu-item:hover, .dsh-rc-row-menu-item:focus-visible { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); outline: none; }
+.dsh-rc-row-menu-sep { margin-top: 4px; position: relative; }
+.dsh-rc-row-menu-sep::before { content: ''; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.2)); }
+@media (prefers-color-scheme: dark) { #dsh-rc-row-menu { background: var(--dsw-alias-bg-elevated, #1f2023); } .dsh-rc-row-menu-item { color: var(--dsw-alias-label-primary, #eee); } }
 .dsh-rc-remote-ws-age { flex: 0 0 auto; font-size: 11px; color: var(--dsw-alias-label-tertiary, #81858c); }
 .dsh-rc-remote-ws-more {
   margin: 0 0 0 22px; padding: 2px 8px 2px 8px; border: 0; background: transparent; cursor: pointer;
@@ -1727,6 +1845,12 @@ function createComponent(React: any): (props: AnyProps) => any {
         return true;
       };
       attach();
+      const refreshPeer = (id: string): void => {
+        void call('remote.sessions', { deviceId: id }).then(
+          (value: { sessions?: RemoteSessionView[] }) => setRemoteSessions((previous: any) => ({ ...previous, [id]: { sessions: value.sessions ?? [] } })),
+          (reason: unknown) => setRenameError(messageOf(reason)),
+        );
+      };
       const render = (): void => {
         if (container === null || inlineEditing) return;
         container.replaceChildren();
@@ -1895,12 +2019,38 @@ function createComponent(React: any): (props: AnyProps) => any {
                 const age = document.createElement('span');
                 age.className = 'dsh-rc-remote-ws-age';
                 age.textContent = session.updatedAt === null ? '' : relativeAge(session.updatedAt);
-                item.append(label, age);
+                const rename = (): void => editInline(label, session.title, 200, async (value) => { await call('session.rename', { deviceId: peer.id, sessionId: session.id, title: value }); }, afterRename);
+                const organize = (action: 'archive' | 'pin' | 'unpin'): void => {
+                  void call('session.organize', { deviceId: peer.id, sessionId: session.id, action })
+                    .then(() => refreshPeer(peer.id), (reason: unknown) => setRenameError(messageOf(reason)));
+                };
+                const pinIcon = session.pinned === true ? 'unpin' : 'pin';
+                const actions = document.createElement('span');
+                actions.className = 'dsh-rc-remote-ws-actions';
+                const more = rowIconButton('more', t('rowActionsFor').replace('{name}', session.title));
+                more.addEventListener('click', (event: MouseEvent) => {
+                  event.stopPropagation();
+                  openRowMenu(more, [
+                    { label: session.pinned === true ? t('rowUnpin') : t('rowPin'), run: () => organize(pinIcon) },
+                    { label: t('rowRename'), run: rename },
+                    { label: t('rowArchive'), run: () => organize('archive'), separator: true },
+                    { label: t('rowCopyId'), run: () => { void navigator.clipboard?.writeText(session.id); } },
+                  ]);
+                });
+                const archive = rowIconButton('archive', t('rowArchive'));
+                archive.addEventListener('click', (event: MouseEvent) => { event.stopPropagation(); organize('archive'); });
+                const pin = rowIconButton(pinIcon, session.pinned === true ? t('rowUnpin') : t('rowPin'));
+                pin.addEventListener('click', (event: MouseEvent) => { event.stopPropagation(); organize(pinIcon); });
+                actions.append(more, archive, pin);
+                // Strip clicks must not open or rename the row.
+                actions.addEventListener('dblclick', (event: MouseEvent) => event.stopPropagation());
+                if (session.pinned === true) item.classList.add('dsh-rc-remote-ws-pinned');
+                item.append(label, age, actions);
                 item.title = `${session.title} - ${t('renameHint')}`;
                 clickOrDouble(
                   item,
                   () => props.openRemoteSession({ deviceId: peer.id, deviceName: peer.name, sessionId: session.id, title: session.title }),
-                  () => editInline(label, session.title, 200, async (value) => { await call('session.rename', { deviceId: peer.id, sessionId: session.id, title: value }); }, afterRename),
+                  rename,
                 );
                 container?.append(item);
               };
