@@ -16,7 +16,7 @@ WebSocket 流转发给它，浏览器打开的就是真正的 DSH 界面。没�
 edge、agent，完成 owner 初始化与配对后，用无头 Chromium 从
 `http://<edge>/d/<device>/` 加载出来的。
 
-> **状态：v0.1.0。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
+> **状态：v0.2.10。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
 > 168 个自动化测试全绿，真实 DSH 端到端验证通过，下面的基准数字是实测值。
 > 仍是预发布软件：请把插件当 beta，并在暴露桌面之前阅读
 > [`THREAT-MODEL.md`](THREAT-MODEL.md)。
@@ -121,14 +121,16 @@ node apps/agent/dist/main.js \
 ### 3. 桌面插件（推荐）
 
 插件从运行中的 DSH 桌面取得已认证 URL，写入 0600 文件，启动并监管 agent。
-Harness 侧边栏显示状态点与标签；弹窗显示设备、edge、延迟、重连/重启次数、
-运行时间、agent/pid、last error 和 Start/Restart/Stop 控制。**仅在状态为
-pairing（或带新配对码的 error）时**，弹窗才显示 pair URL 的 Copy/Open 和配对
-二维码，提示语是“扫描即可在浏览器中打开配对链接”；进入
-online/connecting/reconnecting 后只显示 Paired + device id，因为配对码一次性，
-需要重启 agent 才会产生新码。
+**Remote Workspaces** 行右侧的齿轮打开 Remote Control 弹窗：版本、两列状态、
+Start/Restart/Stop 与 setup prompt。配对只使用一段可复制的提示词，不再有
+pair URL、邀请链接或二维码。
 
-![Harness 中的远程控制面板：状态、设备、延迟、配对二维码与操作](images/plugin-panel.png)
+点击 **Remote Workspaces** 中的主机，会在 DSH 的原生 Electron 子窗口中打开
+完整远程界面（会话、聊天、文件、终端），通过一次性 embed ticket 自动认证，
+不会出现 edge 登录页。真正的“侧边栏原生会话”设计见
+[ADR-0002](adr/0002-native-remote-sessions.md)。
+
+当前英文 README 是事实来源；本文件保留为中文说明。
 
 ```bash
 dsh plugin --profile <profile> add link:"$PWD/packages/plugin"
