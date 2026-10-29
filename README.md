@@ -95,7 +95,8 @@ it anyway.
 
 Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 [PROTOCOL.md](docs/PROTOCOL.md) ·
-[ADR-0001: no WebRTC](docs/adr/0001-no-webrtc.md).
+[ADR-0001: no WebRTC](docs/adr/0001-no-webrtc.md) ·
+[ADR-0002: native remote sessions](docs/adr/0002-native-remote-sessions.md).
 
 ## Requirements
 
