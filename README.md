@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.2.10.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 290 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.3.3.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 299 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -102,7 +102,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 
 | Component | Requirement |
 | --- | --- |
-| Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.0`) |
+| Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.1`) |
 | Edge | Node.js ≥ 24.0 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. macOS hosts use the included launchd installer |
 | Browser | Any current Chromium, Firefox or Safari |
 | Network | Outbound 443 from the desktop; no inbound ports, no UDP |
@@ -206,8 +206,11 @@ there, or the **Rename** link, to rename it.
 
 Under **Remote Workspaces** in the sidebar:
 
-1. **Select a Computer** from the drop-down. The computer you are on is not
-   listed; its sessions are already in the normal Workspaces section.
+1. **Select a Computer** from the drop-down. Only computers you can open
+   right now are listed: online, sharing, and on plugin v0.3.0 or later. The
+   computer you are on is not listed; its sessions are already in the normal
+   Workspaces section. Remote Workspaces itself is a plain section at the end
+   of the Workspaces list and scrolls with it, like the local workspaces.
 2. Its sessions appear grouped by workspace. **Click a session** and the
    conversation opens in the main area, exactly where local conversations
    open, with a composer to keep chatting and a **Stop** button while it works.
@@ -215,6 +218,10 @@ Under **Remote Workspaces** in the sidebar:
    permissions stay there.
 3. **+** on a workspace (or on the computer) starts a new session there.
 4. **Double-click** a computer or session to rename it.
+
+If you see "The plugin was updated but is only half loaded", that computer got
+the new sidebar but its background host still runs the old plugin. Quit
+DeepSeek Harness fully (including its tray or menu bar icon) and open it again.
 
 On macOS the installer adds a small watchdog (`com.dshrc.watchdog`) that
 relaunches DeepSeek Harness at login or within two minutes if it is not
