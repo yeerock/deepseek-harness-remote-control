@@ -31,7 +31,7 @@ import { WebSocketServer } from 'ws';
 import { AuthService } from './auth.js';
 import { loadConfig, type EdgeConfig } from './config.js';
 import { EdgeDatabase, type DeviceRow, type SessionRow } from './db.js';
-import { DeviceService, validateRegisterBody } from './devices.js';
+import { DeviceService, validateDeviceName, validateRegisterBody } from './devices.js';
 import { GuestConnections } from './guest-connections.js';
 import { proxyDeviceHttp } from './proxy-http.js';
 import { proxyDeviceWs } from './proxy-ws.js';
@@ -43,6 +43,7 @@ import { TunnelManager } from './tunnels.js';
 import { rejectUpgrade } from './upgrade.js';
 
 const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
+const DEVICE_RENAME_RE = /^\/v1\/devices\/([^/]+)\/rename$/;
 const DEVICE_ACTION_RE = /^\/v1\/devices\/([^/]+)\/(approve|revoke)$/;
 const INVITES_PATH = '/v1/devices/me/invites';
 const INVITE_ID_RE = /^\/v1\/devices\/me\/invites\/([^/]+)$/;
@@ -122,6 +123,18 @@ function safeNextPath(value: string | null | undefined): string {
   if (!value.startsWith('/') || value.startsWith('//')) return '/';
   if (value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return '/';
   return value;
+}
+
+/** True for the host plugin's RPC channel, however the path is encoded or cased. */
+export function isHostPluginPath(rest: string): boolean {
+  let decoded = rest;
+  try {
+    decoded = decodeURIComponent(rest);
+  } catch {
+    return true; // undecodable: refuse rather than guess
+  }
+  const normal = decoded.toLowerCase().replace(/\/{2,}/g, '/');
+  return normal === '/dsh-rc' || normal.startsWith('/dsh-rc/');
 }
 
 function metaFor(request: IncomingMessage, config: EdgeConfig, actor: string | null) {
@@ -349,6 +362,12 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       return handleOwnerGuestRevoke(request, response, ownerGuestRevoke[1] ?? '', ownerGuestRevoke[2] ?? '');
     }
 
+    const deviceRename = DEVICE_RENAME_RE.exec(pathname);
+    if (deviceRename !== null) {
+      if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+      return handleDeviceRename(request, response, deviceRename[1] ?? '');
+    }
+
     const deviceAction = DEVICE_ACTION_RE.exec(pathname);
     if (deviceAction !== null) {
       const deviceId = deviceAction[1] ?? '';
@@ -474,6 +493,25 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       pairUrl,
       status: registered.device.status,
     });
+  }
+
+  /**
+   * Rename a paired computer. Any approved device of the owner may do it (they
+   * all belong to one owner), authenticated by its device secret like peers/embed.
+   */
+  async function handleDeviceRename(request: IncomingMessage, response: ServerResponse, targetId: string): Promise<void> {
+    const token = bearerToken(request);
+    if (token === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'missing bearer device secret');
+    const caller = devices.findBySecret(token);
+    if (caller === undefined) return sendJsonError(response, 401, 'AUTH_FAILED', 'unknown device secret');
+    if (caller.status !== 'approved') return sendJsonError(response, 403, 'DEVICE_NOT_APPROVED', 'this device is not approved');
+    if (!isValidDeviceId(targetId)) return sendJsonError(response, 404, 'NOT_FOUND');
+    const body = await readJsonBody(request, 4 * 1024);
+    const checked = validateDeviceName(typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>)['name'] : undefined);
+    if (!checked.ok) return sendJsonError(response, 400, 'BAD_REQUEST', checked.error);
+    const updated = devices.rename(targetId, checked.name, metaFor(request, config, `device:${caller.id}`));
+    if (updated === undefined) return sendJsonError(response, 404, 'NOT_FOUND', 'approved Harness not found');
+    sendJson(response, 200, { id: updated.id, name: updated.name });
   }
 
   async function handleEmbedTicket(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -1235,7 +1273,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
     const access = checkDeviceAccess(request, device);
     if (!access.ok) return sendErrorPage(response, access.status, access.title, access.message, access.status === 401 ? { 'www-authenticate': 'Cookie' } : {});
 
-    if (access.guest && (parsed.rest === '/dsh-rc' || parsed.rest.startsWith('/dsh-rc/'))) {
+    if (access.guest && isHostPluginPath(parsed.rest)) {
       return sendJsonError(response, 403, 'FORBIDDEN', 'guest sessions cannot call the host plugin');
     }
     if (hasEncodedTraversal(parsed.rest)) {
@@ -1315,7 +1353,7 @@ export function createEdgeServer(options: EdgeServerOptions): EdgeServer {
       rejectUpgrade(socket, access.status, access.message);
       return;
     }
-    if (access.guest && (parsed.rest === '/dsh-rc' || parsed.rest.startsWith('/dsh-rc/'))) {
+    if (access.guest && isHostPluginPath(parsed.rest)) {
       rejectUpgrade(socket, 403, 'guest sessions cannot call the host plugin');
       return;
     }

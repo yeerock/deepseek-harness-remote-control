@@ -9,6 +9,7 @@
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
 import type { ClientRequest, IncomingMessage } from 'node:http';
+import { VIA_EDGE_HEADER } from './proxy-http.js';
 import {
   MAX_FRAME_BYTES,
   decodeCloseBody,
@@ -61,6 +62,7 @@ export function buildWsHeaders(open: Open, target: DshTarget, cookie: string | u
   }
   headers['host'] = target.hostHeader;
   if (cookie !== undefined && cookie !== '') headers['cookie'] = cookie;
+  headers[VIA_EDGE_HEADER] = 'edge';
   return headers;
 }
 

@@ -9,6 +9,7 @@
  * keep serving local work no matter what the remote-access plugin does.
  */
 
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
@@ -31,6 +32,9 @@ import type { PluginConfig } from './config.js';
 import { SharingClient, sharingErrorCode } from './sharing.js';
 import { buildJoinPrompt, isLoopbackOrigin, PLUGIN_VERSION } from './onboard.js';
 import { UpdateManager } from './update.js';
+import { buildTranscript, isSessionId } from './transcript.js';
+import type { Transcript } from './transcript.js';
+import { randomUUID } from 'node:crypto';
 import { RemoteViewServer } from './remote-view.js';
 import type { CreatedInvite, PeerList, SharingState } from './sharing.js';
 
@@ -68,6 +72,14 @@ interface CordisContextLike {
   [key: string]: unknown;
 }
 
+/**
+ * Teardown of the previous plugin instance. Cordis re-applies this plugin when
+ * `webServer`/`connection` reload; the old instance kills its agent and deletes
+ * the credential file asynchronously, so the new instance must wait for that or
+ * it races the old one (lost upstream file, held agent lock, agent never back).
+ */
+let previousTeardown: Promise<void> = Promise.resolve();
+
 /** Public service face other host plugins can inject as `dsh-rc`. */
 export interface DshRcServiceApi {
   status(): DshRcStatus;
@@ -84,6 +96,26 @@ interface ServiceOptions {
   pluginRoot: string;
   logger: SupervisorLogger;
   dshUrl: () => string;
+  /** Rows from this Harness's own session catalog; empty when it is unavailable. */
+  listSessions: () => Promise<unknown[]>;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
+  history: (sessionId: string, maxMessages: number) => Promise<unknown[]>;
+  sessions: SessionActions;
+}
+
+interface SessionActions {
+  prompt(sessionId: string, text: string): Promise<void>;
+  cancel(sessionId: string): Promise<void>;
+  create(cwd: string): Promise<string>;
+}
+
+/** Plain view of one session, safe to hand to another Harness. */
+export interface RemoteSessionRow {
+  id: string;
+  title: string;
+  updatedAt: number | null;
+  workspaceId: string;
+  workspaceName: string;
 }
 
 const START_URL_WAIT_MS = 5_000;
@@ -95,15 +127,28 @@ class DshRcService {
   private readonly sharingClient: SharingClient;
   private readonly logger: SupervisorLogger;
   private readonly dshUrl: () => string;
+  private readonly listSessions: () => Promise<unknown[]>;
+  private readonly renameSession: (sessionId: string, title: string) => Promise<void>;
+  private readonly history: (sessionId: string, maxMessages: number) => Promise<unknown[]>;
+  private readonly sessions: SessionActions;
   private readonly stateDir: string;
   private readonly edgeUrl: string;
   private readonly updates: UpdateManager;
   private readonly remoteView: RemoteViewServer;
   private setupError: string | undefined;
+  private hostEnabled: boolean;
+  private ownName: string | undefined;
 
   constructor(options: ServiceOptions) {
     this.logger = options.logger;
+    const saved = readHostSettings(options.stateDir);
+    this.hostEnabled = saved.enabled;
+    this.ownName = saved.name;
     this.dshUrl = options.dshUrl;
+    this.listSessions = options.listSessions;
+    this.renameSession = options.renameSession;
+    this.history = options.history;
+    this.sessions = options.sessions;
     this.stateDir = options.stateDir;
     this.edgeUrl = options.config.edgeUrl.replace(/\/+$/, '');
     this.updates = new UpdateManager({
@@ -151,26 +196,87 @@ class DshRcService {
     return this.remoteView.embedUrl(deviceId);
   }
 
-  async openRemoteWindow(deviceId: string, newSession: boolean): Promise<{ url: string; opened: boolean }> {
-    const url = await this.remoteView.embedUrl(deviceId);
-    const target = `${url}${newSession ? '?dsh-rc-new=1' : ''}`;
-    try {
-      // @ts-expect-error electron is provided by the DSH runtime, not npm
-      const electron = await import('electron');
-      const parent = electron.BrowserWindow.getFocusedWindow() ?? undefined;
-      const child = new electron.BrowserWindow({
-        width: 1280,
-        height: 860,
-        ...(parent === undefined ? {} : { parent }),
-        title: 'Remote Harness',
-        backgroundColor: '#111214',
-        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
-      });
-      await child.loadURL(target);
-      return { url: target, opened: true };
-    } catch {
-      return { url: target, opened: false };
+  /** This Harness's sessions grouped for a peer's sidebar (called over the edge). */
+  async remoteList(): Promise<{ sessions: RemoteSessionRow[] }> {
+    return { sessions: normalizeSessions(await this.listSessions()) };
+  }
+
+  /** Rename a computer (this one or a peer); this computer's own name is also kept locally. */
+  async renameComputer(deviceId: string, name: string): Promise<{ id: string; name: string }> {
+    const renamed = await this.sharingClient.renameDevice(deviceId, name);
+    if (deviceId === this.supervisor.status().deviceId) {
+      this.ownName = renamed.name;
+      await writeHostSettings(this.stateDir, { enabled: this.hostEnabled, name: renamed.name });
     }
+    return renamed;
+  }
+
+  /** Rename one of this computer's sessions (called over the edge by a peer, or locally). */
+  async renameLocalSession(sessionId: string, title: string): Promise<{ ok: true }> {
+    await this.renameSession(sessionId, title);
+    return { ok: true };
+  }
+
+  /** This computer's session as a compact transcript (served to peers). */
+  async localTranscript(sessionId: string): Promise<Transcript> {
+    const [records, rows] = await Promise.all([this.history(sessionId, 80), this.listSessions()]);
+    const row = rows.find((candidate) => isRecord(candidate) && candidate['sessionId'] === sessionId);
+    const running = isRecord(row) && row['running'] === true;
+    const title = normalizeSessions(row === undefined ? [] : [row])[0]?.title ?? '';
+    return buildTranscript(records, { hasMore: false, running, title });
+  }
+
+  async localPrompt(sessionId: string, text: string): Promise<{ accepted: true }> {
+    await this.sessions.prompt(sessionId, text);
+    return { accepted: true };
+  }
+
+  async localCancel(sessionId: string): Promise<{ ok: true }> {
+    await this.sessions.cancel(sessionId);
+    return { ok: true };
+  }
+
+  /** New session in one of this computer's known workspaces (never an arbitrary path). */
+  async localCreate(workspaceId: string): Promise<{ sessionId: string }> {
+    const known = new Set(normalizeSessions(await this.listSessions()).map((row) => row.workspaceId));
+    if (!known.has(workspaceId)) throw new Error('That workspace is not on this computer.');
+    return { sessionId: await this.sessions.create(workspaceId) };
+  }
+
+  /** Forward one `remote.*` call to a peer Harness through the edge. */
+  peerCall(deviceId: string, endpoint: string, payload: Record<string, unknown>): Promise<unknown> {
+    return this.remoteView.rpc(deviceId, endpoint, payload);
+  }
+
+  /** Rename a session that lives on a peer Harness. */
+  async renameRemoteSession(deviceId: string, sessionId: string, title: string): Promise<{ ok: true }> {
+    await this.remoteView.rpc(deviceId, 'remote.renameSession', { sessionId, title });
+    return { ok: true };
+  }
+
+  /** A peer Harness's sessions, fetched through the edge. */
+  async remoteSessions(deviceId: string): Promise<{ sessions: RemoteSessionRow[] }> {
+    const value = await this.remoteView.rpc(deviceId, 'remote.list');
+    const rows = isRecord(value) && Array.isArray(value['sessions']) ? value['sessions'] : [];
+    return { sessions: normalizeSessions(rows) };
+  }
+
+  /**
+   * Mint the one-time embed URL for a paired Harness. The plugin host runs in a
+   * child process of the Electron main process, so it cannot create a native
+   * BrowserWindow (`electron.BrowserWindow` is undefined here); the sidebar
+   * opens the returned loopback URL itself. Refuse offline Harnesses up front
+   * instead of opening a tab that can only say "Device offline".
+   */
+  async openRemoteWindow(deviceId: string, newSession: boolean, sessionId?: string): Promise<{ url: string; opened: boolean }> {
+    const peer = (await this.sharingClient.listPeers()).peers.find((candidate) => candidate.id === deviceId);
+    if (peer === undefined) throw new Error('That Harness is not paired with this edge any more.');
+    if (!peer.online) {
+      throw new Error(`${peer.name} is offline. Start DeepSeek Harness on that computer (its Remote Control agent must be running), then try again.`);
+    }
+    const url = await this.remoteView.embedUrl(deviceId);
+    const query = newSession ? '?dsh-rc-new=1' : sessionId !== undefined && sessionId !== '' ? `?dsh-rc-session=${encodeURIComponent(sessionId)}` : '';
+    return { url: `${url}${query}`, opened: false };
   }
 
   async harnessList(): Promise<PeerList> {
@@ -217,6 +323,8 @@ class DshRcService {
   status(): DshRcStatus {
     const status = this.supervisor.status();
     status.version = PLUGIN_VERSION;
+    status.hostEnabled = this.hostEnabled;
+    if (this.ownName !== undefined) status.deviceName = this.ownName;
     const update = this.updates.getSnapshot();
     status.updateState = update.state;
     if (update.latest !== undefined) status.latestVersion = update.latest;
@@ -227,6 +335,22 @@ class DshRcService {
 
   pairUrl(): string | undefined {
     return this.supervisor.pairUrlValue();
+  }
+
+  /** Whether this computer is shared; read once at apply to decide auto-start. */
+  isHostEnabled(): boolean {
+    return this.hostEnabled;
+  }
+
+  /**
+   * "Share This Computer" switch. Persists the choice (survives restarts) and
+   * starts or stops the tunnel agent. Turning it off disconnects this computer
+   * from the edge; its paired identity is kept, so turning it on is instant.
+   */
+  async setHostEnabled(enabled: boolean): Promise<DshRcStatus> {
+    this.hostEnabled = enabled;
+    await writeHostSettings(this.stateDir, { enabled, ...(this.ownName === undefined ? {} : { name: this.ownName }) });
+    return enabled ? this.start() : this.supervisor.stop().then(() => this.status());
   }
 
   async start(): Promise<DshRcStatus> {
@@ -279,7 +403,7 @@ export const name = '@dsh-rc/plugin';
  * Apply after the two services this plugin depends on exist. Cordis keeps the
  * fiber pending otherwise; nothing throws and no host code runs early.
  */
-export const inject = ['webServer', 'connection'];
+export const inject = ['webServer', 'connection', 'sessionController'];
 
 /**
  * Register the `dsh-rc` service and wire auto-start.
@@ -304,6 +428,31 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
     pluginRoot,
     logger,
     dshUrl: () => resolveAuthenticatedUrl(ctx, logger),
+    listSessions: () => listLocalSessions(ctx, logger),
+    renameSession: (sessionId, title) => renameLocalSession(ctx, sessionId, title),
+    history: (sessionId, maxMessages) => readSessionHistory(ctx, sessionId, maxMessages),
+    sessions: {
+      prompt: async (sessionId, text) => {
+        const controller = sessionControllerOf(ctx);
+        if (typeof controller.prompt !== 'function') throw new Error('This Harness cannot accept prompts right now.');
+        await controller.prompt(
+          { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] },
+          AbortSignal.timeout(30_000),
+        );
+      },
+      cancel: async (sessionId) => {
+        const controller = sessionControllerOf(ctx);
+        if (typeof controller.cancel !== 'function') throw new Error('This Harness cannot stop a turn right now.');
+        await controller.cancel({ sessionId });
+      },
+      create: async (cwd) => {
+        const controller = sessionControllerOf(ctx) as SessionControllerLike & { create?: (request: unknown) => Promise<unknown> };
+        if (typeof controller.create !== 'function') throw new Error('This Harness cannot create sessions right now.');
+        const created = await controller.create({ cwd });
+        if (!isRecord(created) || typeof created['sessionId'] !== 'string') throw new Error('The new session was not created.');
+        return created['sessionId'];
+      },
+    },
   });
 
   // Provide the service first: a later failure must leave a readable status,
@@ -315,6 +464,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
     logger.error('could not register the dsh-rc service', { message: messageOf(error) });
   }
 
+  const waitFor = previousTeardown;
   let disposeRpc: (() => void) | undefined;
   try {
     disposeRpc = registerRpcChannel(ctx, service, logger);
@@ -331,7 +481,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
         } catch {
           /* already torn down with the fiber */
         }
-        void service.dispose();
+        previousTeardown = service.dispose().catch(() => undefined);
       },
       'dsh-rc: agent supervisor lifecycle',
     );
@@ -348,10 +498,10 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
     locale: LOCALE_NAMESPACE,
   });
 
-  if (config.enabled && config.autoStart) {
+  if (config.enabled && config.autoStart && service.isHostEnabled()) {
     // Never make boot wait on a child process.
     queueMicrotask(() => {
-      void service.start().catch((error: unknown) => {
+      void waitFor.then(() => service.start()).catch((error: unknown) => {
         logger.error('auto-start failed', { message: messageOf(error) });
       });
     });
@@ -359,6 +509,24 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
 }
 
 /* -------------------------------- RPC -------------------------------- */
+
+/**
+ * Set by our agent on every request it relays from the edge (HTTP and WS).
+ * endpointOf() matches case and encoding exactly, never more loosely than the
+ * edge's guest guard (isHostPluginPath), so the two cannot disagree in a way
+ * that admits a call.
+ */
+const VIA_EDGE_HEADER = 'x-dsh-rc-via';
+const PEER_ENDPOINTS = new Set([
+  'status',
+  'harness.list',
+  'remote.list',
+  'remote.history',
+  'remote.prompt',
+  'remote.cancel',
+  'remote.create',
+  'remote.renameSession',
+]);
 
 /** Response cap for control requests; the browser never sends more. */
 const MAX_RPC_BODY_BYTES = 256 * 1024;
@@ -412,6 +580,14 @@ async function handleRpcRequest(
 
   const pathname = new URL(request.url ?? '/', 'http://dsh.internal').pathname;
   const endpoint = endpointOf(pathname);
+  // Requests relayed by our agent (another computer, or a browser through the
+  // edge) get only read-only status and the session endpoints. Switches,
+  // sharing, renames and calls that reach onward to other computers stay with
+  // the local window.
+  if (request.headers[VIA_EDGE_HEADER] !== undefined && (endpoint === undefined || !PEER_ENDPOINTS.has(endpoint))) {
+    writeRpcText(response, 403, 'not available over the edge');
+    return;
+  }
   if (request.method !== 'POST' || endpoint === undefined) {
     writeRpcText(response, 404, 'not found');
     return;
@@ -460,7 +636,18 @@ export interface SharingRpcTarget {
   publicUrl(): Promise<string>;
   harnessList(): Promise<PeerList>;
   embedTicket(deviceId: string): Promise<string>;
-  openRemoteWindow(deviceId: string, newSession: boolean): Promise<{ url: string; opened: boolean }>;
+  openRemoteWindow(deviceId: string, newSession: boolean, sessionId?: string): Promise<{ url: string; opened: boolean }>;
+  setHostEnabled(enabled: boolean): Promise<DshRcStatus>;
+  localTranscript(sessionId: string): Promise<Transcript>;
+  localPrompt(sessionId: string, text: string): Promise<{ accepted: true }>;
+  localCancel(sessionId: string): Promise<{ ok: true }>;
+  localCreate(workspaceId: string): Promise<{ sessionId: string }>;
+  peerCall(deviceId: string, endpoint: string, payload: Record<string, unknown>): Promise<unknown>;
+  renameComputer(deviceId: string, name: string): Promise<{ id: string; name: string }>;
+  renameLocalSession(sessionId: string, title: string): Promise<{ ok: true }>;
+  renameRemoteSession(deviceId: string, sessionId: string, title: string): Promise<{ ok: true }>;
+  remoteList(): Promise<{ sessions: RemoteSessionRow[] }>;
+  remoteSessions(deviceId: string): Promise<{ sessions: RemoteSessionRow[] }>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
   sharingRevokeInvite(id: string): Promise<{ ok: true }>;
@@ -492,7 +679,68 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'remote.embed': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
-        return rpcOk(await target.openRemoteWindow(deviceId, input['newSession'] === true));
+        const sessionId = typeof input['sessionId'] === 'string' ? input['sessionId'] : undefined;
+        return rpcOk(await target.openRemoteWindow(deviceId, input['newSession'] === true, sessionId));
+      }
+      case 'host.set': {
+        if (typeof input['enabled'] !== 'boolean') return rpcFail('bad-request', 'enabled must be a boolean.');
+        return rpcOk(await target.setHostEnabled(input['enabled']));
+      }
+      case 'computer.rename': {
+        const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
+        const name = typeof input['name'] === 'string' ? input['name'].trim() : '';
+        if (deviceId === '' || name === '') return rpcFail('bad-request', 'deviceId and name are required.');
+        return rpcOk(await target.renameComputer(deviceId, name));
+      }
+      case 'remote.renameSession': {
+        const sessionId = input['sessionId'];
+        const title = typeof input['title'] === 'string' ? input['title'].trim() : '';
+        if (!isSessionId(sessionId) || title === '' || title.length > 200) return rpcFail('bad-request', 'sessionId and a 1-200 character title are required.');
+        return rpcOk(await target.renameLocalSession(sessionId, title));
+      }
+      case 'session.rename': {
+        const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
+        const sessionId = input['sessionId'];
+        const title = typeof input['title'] === 'string' ? input['title'].trim() : '';
+        if (deviceId === '' || !isSessionId(sessionId) || title === '' || title.length > 200) return rpcFail('bad-request', 'deviceId, sessionId and a 1-200 character title are required.');
+        return rpcOk(await target.renameRemoteSession(deviceId, sessionId, title));
+      }
+      /* Served to peers (over the edge) about this computer's own sessions. */
+      case 'remote.history': {
+        if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
+        return rpcOk(await target.localTranscript(input['sessionId']));
+      }
+      case 'remote.prompt': {
+        if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
+        const text = typeof input['text'] === 'string' ? input['text'] : '';
+        if (text.trim() === '' || text.length > 100_000) return rpcFail('bad-request', 'text must be 1-100000 characters.');
+        return rpcOk(await target.localPrompt(input['sessionId'], text));
+      }
+      case 'remote.cancel': {
+        if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
+        return rpcOk(await target.localCancel(input['sessionId']));
+      }
+      case 'remote.create': {
+        const workspace = typeof input['workspaceId'] === 'string' ? input['workspaceId'] : '';
+        return rpcOk(await target.localCreate(workspace));
+      }
+      /* Called by this computer's own UI about a peer's session. */
+      case 'session.history':
+      case 'session.prompt':
+      case 'session.cancel':
+      case 'session.create': {
+        const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
+        if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
+        const { deviceId: _omit, ...rest } = input;
+        void _omit;
+        return rpcOk(await target.peerCall(deviceId, `remote.${endpoint.slice('session.'.length)}`, rest));
+      }
+      case 'remote.list':
+        return rpcOk(await target.remoteList());
+      case 'remote.sessions': {
+        const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
+        if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
+        return rpcOk(await target.remoteSessions(deviceId));
       }
       case 'sharing.get':
         return rpcOk(await target.sharingGet());
@@ -624,6 +872,144 @@ function resolveAuthenticatedUrl(ctx: CordisContextLike, logger: SupervisorLogge
     logger.debug('authenticated URL not ready', { message: messageOf(error) });
     return '';
   }
+}
+
+interface HostSettings {
+  /** "Share This Computer"; a missing file means shared, the default after pairing. */
+  enabled: boolean;
+  /** Name the user gave this computer; overrides the configured device name. */
+  name?: string;
+}
+
+function readHostSettings(stateDir: string): HostSettings {
+  try {
+    const parsed = JSON.parse(readFileSync(join(stateDir, 'host.json'), 'utf8')) as { enabled?: unknown; name?: unknown };
+    return {
+      enabled: parsed.enabled !== false,
+      ...(typeof parsed.name === 'string' && parsed.name.trim() !== '' ? { name: parsed.name.trim() } : {}),
+    };
+  } catch {
+    return { enabled: true };
+  }
+}
+
+async function writeHostSettings(stateDir: string, settings: HostSettings): Promise<void> {
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  await writeFile(join(stateDir, 'host.json'), `${JSON.stringify(settings)}\n`, { mode: 0o600 });
+}
+
+interface SessionControllerLike {
+  list?: (request: unknown, signal?: AbortSignal) => Promise<unknown>;
+  rename?: (request: unknown) => Promise<unknown>;
+  page?: (request: unknown, signal: AbortSignal) => Promise<unknown>;
+  projections?: (request: unknown, signal?: AbortSignal) => Promise<unknown>;
+  prompt?: (request: unknown, signal: AbortSignal) => Promise<unknown>;
+  cancel?: (request: unknown) => Promise<unknown>;
+}
+
+function sessionControllerOf(ctx: CordisContextLike): SessionControllerLike {
+  const controller = getService<SessionControllerLike>(ctx, 'sessionController');
+  if (controller === undefined) throw new Error('This Harness cannot read sessions right now.');
+  return controller;
+}
+
+/** Raw history records of one session (newest page), for a peer's conversation view. */
+async function readSessionHistory(ctx: CordisContextLike, sessionId: string, maxMessages: number): Promise<unknown[]> {
+  const controller = sessionControllerOf(ctx);
+  if (typeof controller.page !== 'function') throw new Error('This Harness cannot read session history.');
+  let throughSeq = Number.MAX_SAFE_INTEGER;
+  try {
+    const projections = await controller.projections?.({ sessionId }, AbortSignal.timeout(10_000));
+    if (isRecord(projections) && typeof projections['asOfSeq'] === 'number') throughSeq = projections['asOfSeq'];
+  } catch { /* fall back to the open-ended cut */ }
+  const page = await controller.page({ address: { kind: 'session', sessionId }, throughSeq, maxMessages }, AbortSignal.timeout(20_000));
+  return isRecord(page) && Array.isArray(page['records']) ? page['records'] : [];
+}
+
+async function renameLocalSession(ctx: CordisContextLike, sessionId: string, title: string): Promise<void> {
+  const controller = getService<{ rename?: (request: unknown) => Promise<unknown> }>(ctx, 'sessionController');
+  if (typeof controller?.rename !== 'function') throw new Error('This Harness cannot rename sessions right now.');
+  await controller.rename({ sessionId, title });
+}
+
+/** Rows from this Harness's session catalog, or `[]` when the controller is not ready. */
+async function listLocalSessions(ctx: CordisContextLike, logger: SupervisorLogger): Promise<unknown[]> {
+  try {
+    const controller = getService<{ list?: (request: unknown, signal?: AbortSignal) => Promise<unknown> }>(ctx, 'sessionController');
+    if (typeof controller?.list !== 'function') return [];
+    const result = await controller.list({}, AbortSignal.timeout(10_000));
+    const items = isRecord(result) ? result['items'] : result;
+    return Array.isArray(items) ? items : [];
+  } catch (error) {
+    logger.warn('session list unavailable', { message: messageOf(error) });
+    return [];
+  }
+}
+
+function pickString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value !== '') return value;
+  }
+  return '';
+}
+
+function pickTime(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value < 1e12 ? value * 1000 : value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+/** First non-empty `title` string inside a projection tree (bounded depth). */
+function findTitle(value: unknown, depth = 0): string {
+  if (depth > 4 || value === null || typeof value !== 'object') return '';
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findTitle(entry, depth + 1);
+      if (found !== '') return found;
+    }
+    return '';
+  }
+  const record = value as Record<string, unknown>;
+  const direct = record['title'];
+  if (typeof direct === 'string' && direct.trim() !== '') return direct.trim();
+  for (const key of Object.keys(record)) {
+    const found = findTitle(record[key], depth + 1);
+    if (found !== '') return found;
+  }
+  return '';
+}
+
+/** Reduce raw catalog rows to the few plain fields a peer needs; drops archived rows. */
+export function normalizeSessions(rows: unknown[]): RemoteSessionRow[] {
+  const out: RemoteSessionRow[] = [];
+  for (const raw of rows) {
+    if (!isRecord(raw)) continue;
+    const id = pickString(raw, ['sessionId', 'id']);
+    if (id === '' || raw['archived'] === true || raw['archivedAt'] != null || raw['blank'] === true) continue;
+    const workspace = isRecord(raw['workspace']) ? raw['workspace'] : {};
+    const directory = pickString(raw, ['directory', 'cwd', 'workspacePath', 'path']) || pickString(workspace, ['directory', 'path']);
+    const workspaceId = pickString(raw, ['workspaceId']) || pickString(workspace, ['id', 'workspaceId']) || directory;
+    const workspaceName =
+      pickString(raw, ['workspaceName', 'workspaceTitle']) ||
+      pickString(workspace, ['name', 'title']) ||
+      (directory === '' ? 'Workspace' : directory.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? 'Workspace');
+    out.push({
+      id,
+      title: pickString(raw, ['title', 'name', 'summary']) || findTitle(raw['projections']) || 'Untitled session',
+      updatedAt: pickTime(raw, ['updatedAt', 'lastActivityAt', 'lastMessageAt', 'modifiedAt', 'createdAt']),
+      workspaceId,
+      workspaceName,
+    });
+  }
+  out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return out.slice(0, 200);
 }
 
 function getService<T>(ctx: CordisContextLike, name: string): T | undefined {

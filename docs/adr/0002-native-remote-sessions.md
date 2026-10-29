@@ -1,6 +1,6 @@
 # ADR-0002: Native remote sessions, not embedded UI
 
-Status: proposed, v0.2.10 ships the interim native window.
+Status: phases 1-2 implemented in v0.3.0 (session list, conversation panel in the `main` slot, prompt, stop, create, rename). Phase 3 (approvals, files, terminal inside the panel) remains; Open Full View covers it meanwhile.
 Date: 2026-10-29
 
 ## Context

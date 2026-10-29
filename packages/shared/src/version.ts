@@ -1,4 +1,4 @@
-export const VERSION = '0.2.10';
+export const VERSION = '0.3.0';
 export const USER_AGENT = `dsh-rc/${VERSION}`;
 
 export function platformLabel(): string {

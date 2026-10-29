@@ -41,6 +41,14 @@ export interface RequestMeta {
   actor: string | null;
 }
 
+/** Validate a user-typed computer name: 1-64 printable characters. */
+export function validateDeviceName(value: unknown): { ok: true; name: string } | { ok: false; error: string } {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (name.length === 0 || name.length > NAME_MAX) return { ok: false, error: `name must be 1-${String(NAME_MAX)} characters` };
+  if (CONTROL_RE.test(name)) return { ok: false, error: 'name contains control characters' };
+  return { ok: true, name };
+}
+
 export function validateRegisterBody(body: unknown): { ok: true; value: RegisterInput } | { ok: false; error: string } {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return { ok: false, error: 'body must be a JSON object' };
@@ -140,6 +148,15 @@ export class DeviceService {
       this.db.addAudit({ event: 'approve', deviceId, actor: meta.actor, ip: meta.ip, ts: now });
       this.logger.info('device approved', { deviceId });
     }
+    return device;
+  }
+
+  rename(deviceId: string, name: string, meta: RequestMeta): DeviceRow | undefined {
+    const existing = this.db.getDevice(deviceId);
+    if (existing === undefined || existing.status !== 'approved') return undefined;
+    const device = this.db.renameDevice(deviceId, name);
+    this.db.addAudit({ event: 'rename', deviceId, actor: meta.actor, ip: meta.ip, ts: Date.now() });
+    this.logger.info('device renamed', { deviceId });
     return device;
   }
 

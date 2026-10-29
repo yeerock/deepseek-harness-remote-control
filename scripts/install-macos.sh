@@ -109,3 +109,19 @@ say "Setup:         http://127.0.0.1:8787/setup"
 say "Public URL:    $PUBLIC_URL"
 say "Plugin:        dsh plugin --profile <profile> add link:$REPO/packages/plugin"
 say "Then enable the dsh-rc entry with edgeUrl http://127.0.0.1:8787."
+# Watchdog: relaunch DeepSeek Harness at login / if it is not running, so the
+# remote host comes back by itself after a reboot or a quit.
+cp "$(dirname "$0")/dsh-watchdog.sh" "$HOME/.dsh-rc/dsh-watchdog.sh"
+chmod 755 "$HOME/.dsh-rc/dsh-watchdog.sh"
+cat > "$AGENTS/com.dshrc.watchdog.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.dshrc.watchdog</string>
+  <key>ProgramArguments</key><array><string>$HOME/.dsh-rc/dsh-watchdog.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>120</integer>
+</dict></plist>
+PLIST
+launchctl bootout "gui/$(id -u)" "$AGENTS/com.dshrc.watchdog.plist" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$AGENTS/com.dshrc.watchdog.plist"

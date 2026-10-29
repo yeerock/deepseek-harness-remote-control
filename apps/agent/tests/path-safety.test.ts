@@ -47,3 +47,31 @@ describe('assertProxyPath encoded traversal hardening', () => {
     for (const path of allowed) expect(() => assertProxyPath(path), path).not.toThrow();
   });
 });
+
+import { buildUpstreamHeaders, VIA_EDGE_HEADER } from '../src/proxy-http.js';
+
+describe('edge marker header', () => {
+  it('always sets the via-edge marker and drops a client-supplied copy', () => {
+    const headers = buildUpstreamHeaders(
+      { headers: [['x-dsh-rc-via', 'local'], ['accept', 'text/html']] } as never,
+      { hostHeader: '127.0.0.1:1' } as never,
+      undefined,
+    );
+    expect(headers[VIA_EDGE_HEADER]).toBe('edge');
+    expect(headers['accept']).toBe('text/html');
+  });
+});
+
+import { buildWsHeaders } from '../src/proxy-ws.js';
+
+describe('edge marker on websocket upgrades', () => {
+  it('sets the marker and drops a client-supplied copy', () => {
+    const headers = buildWsHeaders(
+      { headers: [['x-dsh-rc-via', 'local'], ['user-agent', 'ua']] } as never,
+      { hostHeader: '127.0.0.1:1' } as never,
+      undefined,
+    );
+    expect(headers['x-dsh-rc-via']).toBe('edge');
+    expect(headers['user-agent']).toBe('ua');
+  });
+});

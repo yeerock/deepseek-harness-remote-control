@@ -49,6 +49,11 @@ export interface DshRcStatus extends AgentStatus {
   /** Config switch: start on plugin apply (only when `enabled`). */
   autoStart: boolean;
   deviceName: string;
+  /**
+   * "Share This Computer": whether this computer accepts remote access from
+   * the owner's other computers. Persisted per state dir; on by default.
+   */
+  hostEnabled?: boolean;
   /** True while a child process is alive. */
   agentRunning: boolean;
   /** Resolved launch target, for troubleshooting copy. */

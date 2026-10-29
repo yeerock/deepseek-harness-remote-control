@@ -14,6 +14,8 @@
  */
 
 import { encodeQr, qrToSvg } from './qr.js';
+import { createRemoteChat, REMOTE_CHAT_CSS, REMOTE_PANEL_ID, remoteChatStore } from './remote-chat.js';
+import type { RemoteTarget } from './remote-chat.js';
 
 interface RpcResult<T> {
   ok?: boolean;
@@ -23,6 +25,7 @@ interface RpcResult<T> {
 
 interface DshRcStatusView {
   state?: string;
+  hostEnabled?: boolean;
   deviceName?: string;
   edgeUrl?: string;
   pairUrl?: string;
@@ -68,6 +71,14 @@ interface HarnessPeerView {
   lastSeenAt?: number | null;
 }
 
+interface RemoteSessionView {
+  id: string;
+  title: string;
+  updatedAt: number | null;
+  workspaceId: string;
+  workspaceName: string;
+}
+
 interface SharingView {
   enabled?: boolean;
   publicUrl?: string;
@@ -97,7 +108,18 @@ interface ClientContext {
     bind(namespace: string): (key: string, values?: Record<string, unknown>) => string;
   };
   effect(dispose: () => void, label?: string): unknown;
+  /** DSH's frame layout; `selectPanel` swaps the main area to a registered panel. */
+  layout?: {
+    selectPanel(id: string | null): void;
+  };
+  /** DSH's right-sidebar service; its `browser` tab is an in-app Electron webview. */
+  sidebarRight?: {
+    openTab(kind: string, options?: Record<string, unknown>): void;
+    commandTarget?(element?: unknown): unknown;
+    toggleFullscreen?(target: unknown): void;
+  };
   uiWorkspace?: {
+    openSession?: (target: unknown) => unknown;
     startSession?: (workspaceId?: string, options?: Record<string, unknown>) => void;
   };
 }
@@ -148,6 +170,36 @@ const EN: Record<string, string> = {
   hostUnavailableShort: 'Unavailable',
   disabledHint: 'The plugin is disabled in configuration. Press Start to run the agent anyway.',
   stoppedHint: 'The agent is not running.',
+  remoteOfflineNote: '{name} is offline. Start DeepSeek Harness on that computer, then try again.',
+  remoteNoWorkspace: 'Open that computer once so its workspaces are known, then try again.',
+  remoteNewSessionIn: 'New Session in {name}',
+  chatPick: 'Choose a remote session in the sidebar.',
+  chatImages: 'image(s)',
+  chatThinking: 'Thinking',
+  chatRunning: 'running',
+  chatNoOutput: '(no output)',
+  chatRemoteHint: 'This session runs on that computer. Its files, tools and permissions stay there.',
+  chatUntitled: 'New Session',
+  chatFullView: 'Open Full View',
+  chatFullViewHint: "Open that computer's own interface (files, terminal) in a side tab",
+  chatLoading: 'Loading conversation…',
+  chatEmpty: 'No messages yet. Send the first one below.',
+  chatWorking: 'Working…',
+  chatPlaceholder: 'Message {name}…',
+  chatStop: 'Stop',
+  chatSend: 'Send',
+  renameHint: 'double-click to rename',
+  renameComputer: 'Rename',
+  shareTitle: 'Share This Computer',
+  shareOn: 'Your other computers can open this one from Remote Workspaces. It appears there as "{name}".',
+  shareOff: 'Off. This computer is disconnected and cannot be opened remotely. Your other computers are not affected.',
+  shareStateOn: 'Shared',
+  shareStateOff: 'Not Shared',
+  remotePick: 'Select a Computer',
+  remotePickHint: 'Choose a computer to see its sessions.',
+  remoteNoneOnline: 'None of your other computers is online right now.',
+  remoteOffline: 'offline',
+  remoteOpenComputer: 'Open Computer',
   qrHint: 'Scan to open the pairing link in a browser.',
   unconfigured: 'Set edgeUrl in the plugin config before starting.',
   sharingTitle: 'Share this Harness with guests',
@@ -187,6 +239,11 @@ const EN: Record<string, string> = {
   remoteBannerHint: 'You are controlling another computer through DSH RC.',
   remoteWorkspacesEmpty: 'No other Harnesses paired yet.',
   remoteNewSession: 'New session at this Harness',
+  remoteSessionsLoading: 'Loading sessions…',
+  remoteSessionsUnavailable: 'Sessions unavailable (update the plugin on that computer)',
+  remoteSessionsEmpty: 'No sessions yet',
+  remoteShowAll: 'Show all ({count})',
+  remoteShowLess: 'Show less',
   harnessManage: 'Manage / approve',
   harnessHint: 'Pair another DeepSeek Harness as a host on this edge. Copy the setup prompt into that Harness; it registers automatically and no approval step is needed.',
   harnessPending: 'Waiting for the edge to finish registering this Harness…',
@@ -248,6 +305,36 @@ const ZH: Record<string, string> = {
   hostUnavailableShort: '不可用',
   disabledHint: '插件在配置中处于禁用状态。点击“启动”仍可手动运行代理。',
   stoppedHint: '代理未运行。',
+  remoteOfflineNote: '{name} 已离线。请先在那台电脑上启动 DeepSeek Harness 再试。',
+  remoteNoWorkspace: '请先打开那台电脑一次以读取其工作区，然后再试。',
+  remoteNewSessionIn: '在 {name} 中新建会话',
+  chatPick: '请在侧边栏选择一个远程会话。',
+  chatImages: '张图片',
+  chatThinking: '思考过程',
+  chatRunning: '运行中',
+  chatNoOutput: '（无输出）',
+  chatRemoteHint: '此会话运行在那台电脑上，其文件、工具和权限都保留在那里。',
+  chatUntitled: '新会话',
+  chatFullView: '打开完整视图',
+  chatFullViewHint: '在侧边标签中打开那台电脑自身的界面（文件、终端）',
+  chatLoading: '正在加载对话…',
+  chatEmpty: '暂无消息，在下方发送第一条。',
+  chatWorking: '处理中…',
+  chatPlaceholder: '发送消息给 {name}…',
+  chatStop: '停止',
+  chatSend: '发送',
+  renameHint: '双击可重命名',
+  renameComputer: '重命名',
+  shareTitle: '共享这台电脑',
+  shareOn: '你的其他电脑可在“远程工作区”中打开这台电脑，显示名称为“{name}”。',
+  shareOff: '已关闭。这台电脑已断开，无法被远程打开，不影响你的其他电脑。',
+  shareStateOn: '已共享',
+  shareStateOff: '未共享',
+  remotePick: '选择一台电脑',
+  remotePickHint: '选择一台电脑以查看其会话。',
+  remoteNoneOnline: '你的其他电脑目前都不在线。',
+  remoteOffline: '离线',
+  remoteOpenComputer: '打开这台电脑',
   qrHint: '扫码在浏览器中打开配对链接。',
   unconfigured: '请先在插件配置中设置 edgeUrl。',
   sharingTitle: '与访客共享此 Harness',
@@ -287,6 +374,11 @@ const ZH: Record<string, string> = {
   remoteBannerHint: '你正在通过 DSH RC 控制另一台电脑。',
   remoteWorkspacesEmpty: '尚未配对其他 Harness。',
   remoteNewSession: '在此 Harness 新建会话',
+  remoteSessionsLoading: '正在加载会话…',
+  remoteSessionsUnavailable: '无法读取会话（请更新对方电脑上的插件）',
+  remoteSessionsEmpty: '暂无会话',
+  remoteShowAll: '显示全部（{count}）',
+  remoteShowLess: '收起',
   harnessManage: '管理 / 批准',
   harnessHint: '把另一台 DeepSeek Harness 作为主机配对到此 edge。复制安装提示到那台 Harness；它会自动注册，无需批准。',
   harnessPending: '正在等待 edge 完成此 Harness 的注册…',
@@ -345,6 +437,81 @@ function isMissingChannel(reason: unknown): boolean {
   );
 }
 
+/** True while an inline rename box is open; the sidebar must not rebuild under it. */
+let inlineEditing = false;
+
+/**
+ * Replace `target`'s content with a text box. Enter or leaving the box saves,
+ * Escape cancels. `commit` may throw; `done` always runs afterwards so the
+ * caller can rebuild the list.
+ */
+function editInline(
+  target: HTMLElement,
+  current: string,
+  maxLength: number,
+  commit: (value: string) => Promise<void>,
+  done: (error?: string) => void,
+): void {
+  if (inlineEditing) return;
+  inlineEditing = true;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.maxLength = maxLength;
+  input.className = 'dsh-rc-inline-input';
+  input.setAttribute('aria-label', current);
+  let finished = false;
+  const finish = (save: boolean): void => {
+    if (finished) return;
+    finished = true;
+    const next = input.value.trim();
+    void (async () => {
+      let failure: string | undefined;
+      try {
+        if (save && next !== '' && next !== current) await commit(next);
+      } catch (reason) {
+        failure = messageOf(reason);
+      }
+      inlineEditing = false;
+      done(failure);
+    })();
+  };
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Enter') finish(true);
+    else if (event.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  for (const type of ['click', 'dblclick', 'mousedown']) input.addEventListener(type, (event) => event.stopPropagation());
+  target.replaceChildren(input);
+  input.focus();
+  input.select();
+}
+
+/** Single click runs `onClick` (after a short wait); double click runs `onDouble` instead. */
+function clickOrDouble(element: HTMLElement, onClick: () => void, onDouble: () => void): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  element.addEventListener('click', () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(onClick, 260);
+  });
+  element.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    if (timer !== undefined) clearTimeout(timer);
+    onDouble();
+  });
+}
+
+function relativeAge(timestamp: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${String(minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${String(hours)}h`;
+  return `${String(Math.floor(hours / 24))}d`;
+}
+
 function formatSince(since: number | undefined): string {
   if (since === undefined || !Number.isFinite(since) || since <= 0) return '—';
   const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
@@ -400,7 +567,7 @@ function ensureStyles(): void {
   if (document.getElementById('dsh-rc-sidebar-style') !== null) return;
   const style = document.createElement('style');
   style.id = 'dsh-rc-sidebar-style';
-  style.textContent = `
+  style.textContent = REMOTE_CHAT_CSS + `
 div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   flex-direction: column;
   align-items: stretch;
@@ -578,6 +745,40 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-open > svg { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #81858c); }
 .dsh-rc-remote-ws-open:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
 .dsh-rc-remote-ws-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; margin-left: auto; }
+.dsh-rc-remote-ws-picker {
+  display: block; width: calc(100% - 16px); height: 30px; margin: 2px 8px 6px; padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.28)); border-radius: 8px;
+  background: transparent; color: var(--dsw-alias-label-primary, inherit); font: inherit; font-size: 13px; cursor: pointer;
+}
+.dsh-rc-remote-ws-picker:focus-visible { outline: 2px solid var(--dsw-alias-focus-ring, #5b8def); outline-offset: 1px; }
+.dsh-rc-inline-input {
+  width: 100%; min-width: 0; height: 24px; padding: 0 6px; box-sizing: border-box; font: inherit; font-size: 13px;
+  color: var(--dsw-alias-label-primary, inherit); background: var(--dsw-alias-bg-input, rgba(127,127,127,0.12));
+  border: 1px solid var(--dsw-alias-focus-ring, #5b8def); border-radius: 6px; outline: none;
+}
+.dsh-rc-remote-ws-error { margin: 2px 8px 4px; font-size: 12px; color: #ef4444; }
+.dsh-rc-remote-ws-group-add {
+  float: right; width: 18px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: transparent;
+  color: var(--dsw-alias-label-tertiary, #81858c); font: inherit; font-size: 13px; line-height: 14px; cursor: pointer;
+}
+.dsh-rc-remote-ws-group-add:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-remote-ws-group {
+  margin: 4px 0 0 22px; padding: 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--dsw-alias-label-tertiary, #81858c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsh-rc-remote-ws-session {
+  display: flex; align-items: center; gap: 6px; width: calc(100% - 22px); margin-left: 22px; height: 28px;
+  padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary, inherit);
+  font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer;
+}
+.dsh-rc-remote-ws-session:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
+.dsh-rc-remote-ws-session > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-rc-remote-ws-age { flex: 0 0 auto; font-size: 11px; color: var(--dsw-alias-label-tertiary, #81858c); }
+.dsh-rc-remote-ws-more {
+  margin: 0 0 0 22px; padding: 2px 8px 2px 8px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary, #81858c);
+}
+.dsh-rc-remote-ws-note { margin: 0 0 0 22px; padding: 2px 8px; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c); }
 .dsh-rc-remote-ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rc-remote-ws-new {
   flex: 0 0 auto; width: 24px; height: 24px; border: 0; border-radius: 7px;
@@ -855,6 +1056,13 @@ function createComponent(React: any): (props: AnyProps) => any {
     const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
     const [harnessPeers, setHarnessPeers] = ReactUse.useState([] as HarnessPeerView[]);
     const [harnessPublicUrl, setHarnessPublicUrl] = ReactUse.useState('');
+    const [selectedHost, setSelectedHost] = ReactUse.useState(
+      (() => { try { return globalThis.localStorage?.getItem('dsh-rc.remoteHost') ?? ''; } catch { return ''; } })() as string,
+    );
+    const [ownNameDraft, setOwnNameDraft] = ReactUse.useState(undefined as string | undefined);
+    const [renameError, setRenameError] = ReactUse.useState(undefined as string | undefined);
+    const [remoteSessions, setRemoteSessions] = ReactUse.useState({} as Record<string, { sessions?: RemoteSessionView[]; error?: string }>);
+    const [showAll, setShowAll] = ReactUse.useState({} as Record<string, boolean>);
     const [embedUrl, setEmbedUrl] = ReactUse.useState(undefined as string | undefined);
     const [open, setOpen] = ReactUse.useState(false);
     const [unavailable, setUnavailable] = ReactUse.useState(false);
@@ -930,6 +1138,34 @@ function createComponent(React: any): (props: AnyProps) => any {
       window.addEventListener('keydown', onKey);
       return () => window.removeEventListener('keydown', onKey);
     }, [open]);
+
+    const saveOwnName = async (): Promise<void> => {
+      const name = (ownNameDraft ?? '').trim();
+      setOwnNameDraft(undefined);
+      if (name === '' || status?.deviceId === undefined || name === status.deviceName) return;
+      setBusy(true);
+      setError(undefined);
+      try {
+        await call('computer.rename', { deviceId: status.deviceId, name });
+        setStatus((await call('status')) as DshRcStatusView);
+      } catch (reason) {
+        setError(messageOf(reason));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const setHost = async (enabled: boolean): Promise<void> => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        setStatus((await call('host.set', { enabled })) as DshRcStatusView);
+      } catch (reason) {
+        setError(messageOf(reason));
+      } finally {
+        setBusy(false);
+      }
+    };
 
     const run = async (endpoint: 'start' | 'restart' | 'stop'): Promise<void> => {
       setBusy(true);
@@ -1384,12 +1620,16 @@ function createComponent(React: any): (props: AnyProps) => any {
       return () => banner?.remove();
     }, [remoteDeviceId, status?.deviceName, t]);
 
-    const openHarness = (peer: HarnessPeerView, newSession = false): void => {
+    const openHarness = (peer: HarnessPeerView, newSession = false, sessionId?: string): void => {
+      if (peer.online !== true) {
+        setError(`${peer.name} is offline. Start DeepSeek Harness on that computer, then try again.`);
+        return;
+      }
       void (async () => {
         try {
-          const result = (await call('remote.embed', { deviceId: peer.id, newSession })) as { url?: string; opened?: boolean };
+          const result = (await call('remote.embed', { deviceId: peer.id, newSession, ...(sessionId === undefined ? {} : { sessionId }) })) as { url?: string; opened?: boolean };
           if (typeof result.url === 'string' && result.url !== '') {
-            if (result.opened !== true) window.open(result.url, '_blank', 'noopener,noreferrer');
+            props.openInSidebar(result.url);
             setOpen(false);
           }
         } catch (reason) {
@@ -1397,6 +1637,37 @@ function createComponent(React: any): (props: AnyProps) => any {
         }
       })();
     };
+
+    // Sessions of every online Harness, refreshed while the sidebar is shown, so
+    // remote sessions can be listed and opened like local ones.
+    const selectedPeer = harnessPeers.find((peer: HarnessPeerView) => peer.id === selectedHost && peer.id !== status?.deviceId);
+    const onlineKey = selectedPeer !== undefined && selectedPeer.online === true ? selectedPeer.id : '';
+    ReactUse.useEffect(() => {
+      if (onlineKey === '' || props.wide === false) return undefined;
+      let cancelled = false;
+      let inFlight = false;
+      const load = (): void => {
+        // Skip a tick while the previous request is still out (slow or offline peer).
+        if (inFlight) return;
+        inFlight = true;
+        for (const id of onlineKey.split(',')) {
+          void call('remote.sessions', { deviceId: id }).finally(() => { inFlight = false; }).then(
+            (value: { sessions?: RemoteSessionView[] }) => {
+              if (!cancelled) setRemoteSessions((previous: any) => ({ ...previous, [id]: { sessions: value.sessions ?? [] } }));
+            },
+            (reason: unknown) => {
+              if (!cancelled) setRemoteSessions((previous: any) => ({ ...previous, [id]: { error: messageOf(reason) } }));
+            },
+          );
+        }
+      };
+      load();
+      const timer = setInterval(load, 20_000);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }, [onlineKey, props.wide, call]);
 
     // DSH's sidebar exposes `sidebar.workspaces` as a single slot occupied by
     // the native Workspaces section. Add a sibling inside the same region so
@@ -1419,7 +1690,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         region.insertBefore(container, slot.nextSibling);
       }
       const render = (): void => {
-        if (container === null) return;
+        if (container === null || inlineEditing) return;
         container.replaceChildren();
         container.style.display = props.wide === false ? 'none' : '';
         if (props.wide === false) return;
@@ -1460,11 +1731,53 @@ function createComponent(React: any): (props: AnyProps) => any {
           container.append(empty);
           return;
         }
-        for (const peer of harnessPeers) {
+        if (renameError !== undefined) {
+          const failed = document.createElement('div');
+          failed.className = 'dsh-rc-remote-ws-error';
+          failed.textContent = renameError;
+          container.append(failed);
+        }
+        const afterRename = (error?: string): void => {
+          setRenameError(error);
+          setHarnessPeers((previous: HarnessPeerView[]) => [...previous]);
+          setRemoteSessions((previous: any) => ({ ...previous }));
+        };
+        // Only computers that can be opened right now: online, and not this one.
+        const others = harnessPeers.filter((peer: HarnessPeerView) => peer.id !== status?.deviceId && peer.online === true);
+        const picker = document.createElement('select');
+        picker.className = 'dsh-rc-remote-ws-picker';
+        picker.setAttribute('aria-label', t('remotePick'));
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = t('remotePick');
+        picker.append(placeholder);
+        for (const peer of others) {
+          const option = document.createElement('option');
+          option.value = peer.id;
+          option.textContent = peer.name;
+          picker.append(option);
+        }
+        picker.value = others.some((peer: HarnessPeerView) => peer.id === selectedHost) ? selectedHost : '';
+        picker.addEventListener('change', () => {
+          try { globalThis.localStorage?.setItem('dsh-rc.remoteHost', picker.value); } catch { /* optional */ }
+          setSelectedHost(picker.value);
+        });
+        container.append(picker);
+        const shown = others.filter((peer: HarnessPeerView) => peer.id === selectedHost);
+        if (shown.length === 0) {
+          const hint = document.createElement('div');
+          hint.className = 'dsh-rc-remote-ws-note';
+          hint.style.marginLeft = '8px';
+          hint.textContent = others.length === 0 ? t('remoteNoneOnline') : t('remotePickHint');
+          container.append(hint);
+          return;
+        }
+        for (const peer of shown) {
           const row = document.createElement('div');
           row.className = 'dsh-rc-remote-ws-row';
-          const open = document.createElement('button');
-          open.type = 'button';
+          const open = document.createElement('div');
+          open.setAttribute('role', 'button');
+          open.tabIndex = 0;
           open.className = 'dsh-rc-remote-ws-open';
           open.title = peer.name;
           const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1491,16 +1804,110 @@ function createComponent(React: any): (props: AnyProps) => any {
           name.className = 'dsh-rc-remote-ws-name';
           name.textContent = peer.name;
           open.append(icon, name, dot);
-          open.addEventListener('click', () => openHarness(peer));
+          open.title = `${peer.name} - ${t('renameHint')}`;
+          clickOrDouble(
+            open,
+            () => {
+              const latest = remoteSessions[peer.id]?.sessions?.[0];
+              if (peer.online !== true) setRenameError(t('remoteOfflineNote').replace('{name}', peer.name));
+              else if (latest !== undefined) props.openRemoteSession({ deviceId: peer.id, deviceName: peer.name, sessionId: latest.id, title: latest.title });
+            },
+            () => editInline(name, peer.name, 64, async (value) => { await call('computer.rename', { deviceId: peer.id, name: value }); }, afterRename),
+          );
           const add = document.createElement('button');
           add.type = 'button';
           add.className = 'dsh-rc-remote-ws-new';
           add.textContent = '+';
           add.title = t('remoteNewSession');
           add.setAttribute('aria-label', `${t('remoteNewSession')}: ${peer.name}`);
-          add.addEventListener('click', () => openHarness(peer, true));
+          add.addEventListener('click', () => {
+            const workspaceId = remoteSessions[peer.id]?.sessions?.[0]?.workspaceId;
+            if (peer.online !== true || workspaceId === undefined) {
+              setRenameError(t('remoteNoWorkspace'));
+              return;
+            }
+            void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
+          });
           row.append(open, add);
           container.append(row);
+          if (peer.online === true) {
+            const entry = remoteSessions[peer.id];
+            if (entry === undefined) {
+              const note = document.createElement('div');
+              note.className = 'dsh-rc-remote-ws-note';
+              note.textContent = t('remoteSessionsLoading');
+              container.append(note);
+            } else if (entry.error !== undefined) {
+              const note = document.createElement('div');
+              note.className = 'dsh-rc-remote-ws-note';
+              note.textContent = t('remoteSessionsUnavailable');
+              note.title = entry.error;
+              container.append(note);
+            } else if ((entry.sessions ?? []).length === 0) {
+              const note = document.createElement('div');
+              note.className = 'dsh-rc-remote-ws-note';
+              note.textContent = t('remoteSessionsEmpty');
+              container.append(note);
+            } else {
+              const all = entry.sessions ?? [];
+              const visible = showAll[peer.id] === true ? all : all.slice(0, 8);
+              const renderSession = (session: RemoteSessionView): void => {
+                const item = document.createElement('div');
+                item.setAttribute('role', 'button');
+                item.tabIndex = 0;
+                item.className = 'dsh-rc-remote-ws-session';
+                item.title = `${session.title} · ${peer.name}`;
+                const label = document.createElement('span');
+                label.textContent = session.title;
+                const age = document.createElement('span');
+                age.className = 'dsh-rc-remote-ws-age';
+                age.textContent = session.updatedAt === null ? '' : relativeAge(session.updatedAt);
+                item.append(label, age);
+                item.title = `${session.title} - ${t('renameHint')}`;
+                clickOrDouble(
+                  item,
+                  () => props.openRemoteSession({ deviceId: peer.id, deviceName: peer.name, sessionId: session.id, title: session.title }),
+                  () => editInline(label, session.title, 200, async (value) => { await call('session.rename', { deviceId: peer.id, sessionId: session.id, title: value }); }, afterRename),
+                );
+                container?.append(item);
+              };
+              // Group by workspace, most recently active workspace first.
+              const groups = new Map<string, RemoteSessionView[]>();
+              for (const session of visible) {
+                const bucket = groups.get(session.workspaceId) ?? [];
+                bucket.push(session);
+                groups.set(session.workspaceId, bucket);
+              }
+              for (const bucket of groups.values()) {
+                const group = document.createElement('div');
+                group.className = 'dsh-rc-remote-ws-group';
+                const groupName = document.createElement('span');
+                groupName.textContent = bucket[0]?.workspaceName ?? '';
+                const groupAdd = document.createElement('button');
+                groupAdd.type = 'button';
+                groupAdd.className = 'dsh-rc-remote-ws-group-add';
+                groupAdd.textContent = '+';
+                groupAdd.title = t('remoteNewSessionIn').replace('{name}', bucket[0]?.workspaceName ?? '');
+                groupAdd.setAttribute('aria-label', groupAdd.title);
+                groupAdd.addEventListener('click', () => {
+                  const workspaceId = bucket[0]?.workspaceId;
+                  if (workspaceId === undefined) return;
+                  void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
+                });
+                group.append(groupName, groupAdd);
+                container.append(group);
+                for (const session of bucket) renderSession(session);
+              }
+              if (all.length > 8) {
+                const more = document.createElement('button');
+                more.type = 'button';
+                more.className = 'dsh-rc-remote-ws-more';
+                more.textContent = showAll[peer.id] === true ? t('remoteShowLess') : t('remoteShowAll').replace('{count}', String(all.length));
+                more.addEventListener('click', () => setShowAll((previous: any) => ({ ...previous, [peer.id]: previous[peer.id] !== true })));
+                container.append(more);
+              }
+            }
+          }
         }
       };
       render();
@@ -1515,7 +1922,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         observer.disconnect();
         container?.remove();
       };
-    }, [harnessPeers, harnessPublicUrl, props.wide, status?.edgeUrl, t, stateLabel, color, setOpen]);
+    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, t, stateLabel, color, setOpen]);
 
     return h(
       'div',
@@ -1557,6 +1964,81 @@ function createComponent(React: any): (props: AnyProps) => any {
                 : null,
               h(
                 'div',
+                {
+                  style: {
+                    display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', margin: '0 0 12px',
+                    border: '1px solid rgba(127,127,127,0.28)', borderRadius: '10px',
+                  },
+                },
+                h(
+                  'div',
+                  { style: { flex: '1 1 auto', minWidth: 0 } },
+                  h('div', { style: { fontSize: '13px', fontWeight: 600 } }, t('shareTitle'), ' · ', status?.hostEnabled === false ? t('shareStateOff') : t('shareStateOn')),
+                  h(
+                    'div',
+                    { style: { fontSize: '12px', color: '#a1a1aa', marginTop: '2px' } },
+                    status?.hostEnabled === false ? t('shareOff') : t('shareOn').replace('{name}', redact(status?.deviceName ?? '')),
+                  ),
+                  h(
+                    'div',
+                    { style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' } },
+                    ownNameDraft === undefined
+                      ? h(
+                          'span',
+                          {
+                            title: t('renameHint'),
+                            onDoubleClick: () => setOwnNameDraft(status?.deviceName ?? ''),
+                            style: { fontSize: '12.5px', fontWeight: 600 },
+                          },
+                          redact(status?.deviceName ?? '—'),
+                        )
+                      : h('input', {
+                          autoFocus: true,
+                          value: ownNameDraft,
+                          maxLength: 64,
+                          'aria-label': t('device'),
+                          onChange: (event: any) => setOwnNameDraft(event.target.value),
+                          onKeyDown: (event: any) => {
+                            if (event.key === 'Enter') void saveOwnName();
+                            else if (event.key === 'Escape') setOwnNameDraft(undefined);
+                          },
+                          onBlur: () => void saveOwnName(),
+                          style: { height: '24px', fontSize: '12.5px', padding: '0 6px', borderRadius: '6px', minWidth: '160px' },
+                        }),
+                    ownNameDraft === undefined
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            disabled: busy || unavailable || status?.deviceId === undefined,
+                            onClick: () => setOwnNameDraft(status?.deviceName ?? ''),
+                            style: { fontSize: '12px', border: 0, background: 'transparent', color: '#60a5fa', cursor: 'pointer', padding: 0 },
+                          },
+                          t('renameComputer'),
+                        )
+                      : null,
+                  ),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    role: 'switch',
+                    'aria-checked': status?.hostEnabled !== false,
+                    'aria-label': t('shareTitle'),
+                    disabled: busy || unavailable,
+                    onClick: () => void setHost(status?.hostEnabled === false),
+                    style: {
+                      flex: '0 0 auto', width: '40px', height: '22px', borderRadius: '11px', border: 0, padding: '2px',
+                      cursor: 'pointer', background: status?.hostEnabled === false ? 'rgba(127,127,127,0.45)' : '#22c55e',
+                      display: 'flex', justifyContent: status?.hostEnabled === false ? 'flex-start' : 'flex-end', transition: 'background 120ms',
+                    },
+                  },
+                  h('span', { style: { width: '18px', height: '18px', borderRadius: '9px', background: '#fff', display: 'block' } }),
+                ),
+              ),
+              h(
+                'div',
                 { style: styles.grid },
                 ...rows.map(([label, value, mono]) => row(label as string, value, mono === true)),
               ),
@@ -1591,6 +2073,26 @@ function apply(ctx: ClientContext): void {
   if (typeof window !== 'undefined') {
     try {
       const params = new URLSearchParams(window.location.search);
+      const wantedSession = params.get('dsh-rc-session');
+      if (wantedSession !== null && wantedSession !== '') {
+        params.delete('dsh-rc-session');
+        const rest = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${rest === '' ? '' : `?${rest}`}${window.location.hash}`);
+        // The catalog loads after boot; keep trying until the session opens.
+        let attempts = 0;
+        const timer = setInterval(() => {
+          attempts += 1;
+          try {
+            const workspace = ctx.uiWorkspace as { openSession?: (target: unknown) => unknown } | undefined;
+            if (typeof workspace?.openSession === 'function') {
+              workspace.openSession(wantedSession);
+              clearInterval(timer);
+              return;
+            }
+          } catch { /* not ready yet */ }
+          if (attempts >= 40) clearInterval(timer);
+        }, 500);
+      }
       if (params.get('dsh-rc-new') === '1') {
         params.delete('dsh-rc-new');
         const query = params.toString();
@@ -1618,6 +2120,59 @@ function apply(ctx: ClientContext): void {
     return result.value;
   };
 
+  // Remote sessions open inside DSH itself, as a tab of the built-in Browser
+  // sidebar (a lease-approved webview that supports loopback pages), never as a
+  // tab of the system browser.
+  const openInSidebar = (url: string): void => {
+    if (ctx.sidebarRight === undefined) throw new Error('The DSH sidebar browser is not available in this window.');
+    const sidebar = ctx.sidebarRight;
+    // Reuse the tab if this remote is already open instead of stacking copies.
+    sidebar.openTab('browser', { params: { url }, revealIfOpened: true });
+    // A narrow side column squeezes the remote Harness into its phone layout, so
+    // widen the panel over the conversation (DSH's own fullscreen mode).
+    const widen = (attempt: number): void => {
+      try {
+        const panel = document.querySelector('[data-sidebar-right-panel]');
+        if (panel === null) {
+          if (attempt < 10) setTimeout(() => widen(attempt + 1), 100);
+          return;
+        }
+        if (panel.getAttribute('data-sidebar-right-panel') === 'fullscreen') return;
+        const target = sidebar.commandTarget?.();
+        if (target !== undefined && target !== null) sidebar.toggleFullscreen?.(target);
+      } catch { /* the tab is open; widening is cosmetic */ }
+    };
+    setTimeout(() => widen(0), 150);
+  };
+
+  // Remote sessions open in DSH's main area, where local conversations render.
+  const openRemoteSession = (target: RemoteTarget): void => {
+    remoteChatStore.set(target);
+    ctx.layout?.selectPanel(REMOTE_PANEL_ID);
+  };
+  const newRemoteSession = async (deviceId: string, deviceName: string, workspaceId: string): Promise<void> => {
+    const created = (await call('session.create', { deviceId, workspaceId })) as { sessionId?: string };
+    if (typeof created.sessionId !== 'string') throw new Error('The new session was not created.');
+    openRemoteSession({ deviceId, deviceName, sessionId: created.sessionId, title: '' });
+  };
+  // Escape hatch for files and terminal: the remote's own full interface.
+  const openFullView = (target: RemoteTarget): void => {
+    void call('remote.embed', { deviceId: target.deviceId, sessionId: target.sessionId }).then(
+      (result: { url?: string }) => { if (typeof result.url === 'string') openInSidebar(result.url); },
+      () => undefined,
+    );
+  };
+  // Test hook for the end-to-end probe (tools/e2e/remote-chat.mjs). It only
+  // opens the view; every call behind it is still authenticated by the host.
+  (globalThis as unknown as Record<string, unknown>)['__DSH_RC_OPEN_REMOTE__'] = openRemoteSession;
+  const remoteChat = createRemoteChat(requireReact());
+  ctx.slots.inject('main', () =>
+    ctx.slots.register(
+      { name: 'main', key: REMOTE_PANEL_ID, locale: LOCALE_NAMESPACE, inject: () => ({ call, t, openFullView }) },
+      remoteChat,
+    ),
+  );
+
   ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register(
       {
@@ -1625,7 +2180,7 @@ function apply(ctx: ClientContext): void {
         id: 'dsh-rc',
         order: 40,
         locale: LOCALE_NAMESPACE,
-        inject: () => ({ call, t }),
+        inject: () => ({ call, t, openInSidebar, openRemoteSession, newRemoteSession }),
       },
       component,
     ),
@@ -1667,7 +2222,7 @@ function loadModule(): void {
       const module = { exports: {} as Record<string, unknown> };
       const exports = module.exports;
       exports.apply = apply;
-      exports.inject = ['connection', 'slots', 'locale'];
+      exports.inject = ['connection', 'slots', 'locale', 'layout', 'sidebarRight', 'uiWorkspace'];
       return module.exports;
     },
   });

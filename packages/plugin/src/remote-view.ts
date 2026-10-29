@@ -63,6 +63,32 @@ export class RemoteViewServer {
 
   private mountedUpgrade: ((deviceId: string, path: string) => () => void) | undefined;
 
+  /**
+   * Call a `/dsh-rc/<endpoint>` RPC on another Harness through the edge, with
+   * the same device-scoped embed session the remote view uses. Retries once
+   * with a fresh session if the edge says the cached one expired.
+   */
+  async rpc(deviceId: string, endpoint: string, payload: unknown = {}): Promise<unknown> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const cookie = await this.ensureCookie(deviceId);
+      const edge = new URL(this.options.edgeUrl);
+      const rpcId = randomBytes(12).toString('hex');
+      const response = await fetch(`${edge.origin}/d/${encodeURIComponent(deviceId)}/dsh-rc/${encodeURIComponent(endpoint)}`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'client-request', rpcId, method: endpoint, payload }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (response.status === 401 && attempt === 0) { this.cookies.delete(deviceId); continue; }
+      if (response.status === 503) throw new Error('That Harness is offline.');
+      if (!response.ok) throw new Error(`remote Harness answered HTTP ${String(response.status)}`);
+      const body = await response.json() as { result?: { ok?: boolean; value?: unknown; error?: { message?: string } } };
+      if (body.result?.ok !== true) throw new Error(body.result?.error?.message ?? 'remote Harness refused the request');
+      return body.result.value;
+    }
+    throw new Error('remote Harness session expired');
+  }
+
   async embedUrl(deviceId: string): Promise<string> {
     if (this.mountedOrigin !== '') {
       await this.ensureCookie(deviceId);

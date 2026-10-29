@@ -179,6 +179,8 @@ export class AgentSupervisor {
     this.spawnFailures = 0;
     this.attempt = 0;
     await this.removeUpstreamFile();
+    try { this.awakeGuard?.kill(); } catch { /* already gone */ }
+    this.awakeGuard = undefined;
     const child = this.child;
     this.child = undefined;
     if (child !== undefined && child.exitCode === null && child.signalCode === null) {
@@ -323,9 +325,29 @@ export class AgentSupervisor {
       stateDir: this.options.stateDir,
     });
     this.startPolling();
+    this.holdAwake(child);
+  }
+
+  /**
+   * macOS: keep the Mac from idle-sleeping while the agent runs, otherwise an
+   * office desktop drops off the edge as soon as it idles. `caffeinate -w`
+   * exits by itself when the agent does. Opt out with DSHRC_KEEP_AWAKE=0.
+   */
+  private holdAwake(child: ChildProcess): void {
+    if (process.platform !== 'darwin' || child.pid === undefined) return;
+    if (process.env['DSHRC_KEEP_AWAKE'] === '0') return;
+    try {
+      const guard = spawn('/usr/bin/caffeinate', ['-i', '-w', String(child.pid)], { stdio: 'ignore', detached: true });
+      guard.on('error', () => undefined);
+      guard.unref();
+      this.awakeGuard = guard;
+    } catch {
+      /* best effort */
+    }
   }
 
   private spawnFailure: Error | undefined;
+  private awakeGuard: ChildProcess | undefined;
 
   private onChildClose(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {
     if (this.child !== child) return;
@@ -360,7 +382,10 @@ export class AgentSupervisor {
       // protocol mismatch, state-dir lock). The agent also writes an `error`
       // status with an actionable lastError before exiting; do not restart
       // into the same terminal condition.
-      const terminal = code === 1 && this.lastAgentState?.state === 'error';
+      // A lock held by a previous plugin instance that is still shutting down
+      // (hot reload of the web server) is transient, not terminal.
+      const lockContention = /already running/i.test(this.lastAgentState?.lastError ?? '');
+      const terminal = code === 1 && this.lastAgentState?.state === 'error' && !lockContention;
       const reason = this.lastAgentState?.lastError ?? `Agent exited (${code === null ? String(signal) : `code ${String(code)}`}).`;
       if (terminal) {
         this.localState = 'error';

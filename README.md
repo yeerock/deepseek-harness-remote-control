@@ -197,25 +197,47 @@ prompt is approved immediately, so there is no dashboard login, no pending
 device and no approval click. A shared edge can omit the flag and approve
 devices manually.
 
-## Remote sessions (v0.2.10)
+## Remote sessions
 
-Clicking a Harness under **Remote Workspaces** opens its UI in a **native
-Electron child window** parented to DSH:
+Every computer that ran the setup prompt is a **host**. In the Remote Control
+panel, **Share This Computer** decides whether your other computers may open it
+(on by default; the choice survives restarts). Double-click the computer name
+there, or the **Rename** link, to rename it.
 
-- full remote Harness: sessions, chat, files, uploads, terminal and WebSocket;
-- the host plugin mints a one-time embed ticket and injects a short-lived edge
-  session through a loopback proxy, so there is **no edge login page**;
-- no Safari/browser tab.
+Under **Remote Workspaces** in the sidebar:
 
-Why not inside the page: DSH stops iframe boot at “Loading plugins…”, and its
-main process blocks arbitrary `<webview>` tags. The native child window is the
-working v0.2.10 path.
+1. **Select a Computer** from the drop-down. The computer you are on is not
+   listed; its sessions are already in the normal Workspaces section.
+2. Its sessions appear grouped by workspace. **Click a session** and the
+   conversation opens in the main area, exactly where local conversations
+   open, with a composer to keep chatting and a **Stop** button while it works.
+   The session keeps running on that computer; its files, tools and
+   permissions stay there.
+3. **+** on a workspace (or on the computer) starts a new session there.
+4. **Double-click** a computer or session to rename it.
 
-True **in-sidebar remote sessions** — remote workspaces and sessions appearing
-as first-class DSH objects — is specified in
-[ADR-0002](docs/adr/0002-native-remote-sessions.md): a host RPC projection with
-virtual workspace/session IDs, streaming prompts, approvals and file/terminal
-routing. That is the next build, not another embedding hack.
+On macOS the installer adds a small watchdog (`com.dshrc.watchdog`) that
+relaunches DeepSeek Harness at login or within two minutes if it is not
+running, so an office computer comes back by itself. It also reopens a Harness
+you quit on purpose: `touch ~/.dsh-rc/watchdog.off` pauses it, deleting that
+file resumes it. While sharing, the Mac is kept from idle sleep (closing the
+lid still sleeps it).
+
+**Open Full View** in the conversation header opens that computer's own
+interface in a side tab, for files and the terminal.
+
+How it works: the panel is registered in DSH's `main` slot. The host plugin of
+the computer you are on relays `session.history`, `session.prompt`,
+`session.cancel` and `session.create` over the edge to the owning computer's
+plugin, which calls its own Harness session API and returns a compact
+transcript (raw tool output is clipped, request headers never leave). Both
+computers need plugin v0.3.0 or later for sessions to list and open.
+
+Security: a request that arrives through the edge (another computer, or a
+browser) can only reach read-only status and these session endpoints on a
+host; the Share switch, renames, sharing controls and onward calls to other
+computers work only from that computer's own window. Guest sessions cannot
+reach the host plugin at all.
 
 ## Pair another DeepSeek Harness
 

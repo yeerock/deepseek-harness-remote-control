@@ -73,6 +73,9 @@ export function assertProxyPath(path: string): void {
   }
 }
 
+/** Set by the agent on every proxied request; the host plugin narrows its API for these. */
+export const VIA_EDGE_HEADER = 'x-dsh-rc-via';
+
 /**
  * Build the upstream header set: allow-listed browser headers, loopback Host,
  * and the agent's in-memory DSH cookie. The browser's Cookie/Authorization
@@ -92,6 +95,9 @@ export function buildUpstreamHeaders(open: Open, target: DshTarget, cookie: stri
   }
   headers['host'] = target.hostHeader;
   if (cookie !== undefined && cookie !== '') headers['cookie'] = cookie;
+  // Trusted marker: this request came through the edge, not the local window.
+  // filterRequestHeaders drops any client-supplied x-dsh-rc-* first.
+  headers[VIA_EDGE_HEADER] = 'edge';
   return headers;
 }
 

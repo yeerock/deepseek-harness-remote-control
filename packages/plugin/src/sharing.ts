@@ -239,6 +239,13 @@ export class SharingClient {
     return normalizeSharing(body);
   }
 
+  /** Rename a paired computer (any approved device of the owner may). */
+  async renameDevice(deviceId: string, name: string): Promise<{ id: string; name: string }> {
+    const body = await this.request('POST', `/v1/devices/${encodeURIComponent(deviceId)}/rename`, { name });
+    if (!isRecord(body) || typeof body['name'] !== 'string') throw new Error('edge did not confirm the new name');
+    return { id: deviceId, name: body['name'] };
+  }
+
   /** One-time iframe embed URL for an approved peer Harness. */
   async embedTicket(deviceId: string): Promise<string> {
     const body = await this.request('POST', '/v1/devices/me/embed-ticket', { deviceId });

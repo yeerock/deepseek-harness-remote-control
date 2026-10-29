@@ -627,6 +627,11 @@ export class EdgeDatabase {
     return this.getDevice(id);
   }
 
+  renameDevice(id: string, name: string): DeviceRow | undefined {
+    this.database.prepare('UPDATE devices SET name = ? WHERE id = ?').run(name, id);
+    return this.getDevice(id);
+  }
+
   revokeDevice(id: string, now: number): DeviceRow | undefined {
     this.database.prepare("UPDATE devices SET status = 'revoked', revoked_at = ? WHERE id = ?").run(now, id);
     return this.getDevice(id);

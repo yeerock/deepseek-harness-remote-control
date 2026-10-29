@@ -3,6 +3,42 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.0 — 2026-10-29
+
+Remote sessions open like local ones.
+
+### Added
+
+- **Remote conversation panel.** Clicking a remote session opens its
+  conversation in DSH's main area (the `main` slot), where local conversations
+  open: messages, collapsible reasoning, tool calls, a composer, **Stop** while
+  the remote agent works, and **+** to start a session in a remote workspace.
+  The session keeps running on the computer that owns it.
+- **Host picker.** Remote Workspaces asks you to **Select a Computer** first and
+  lists only that computer's sessions, grouped by workspace. The computer you
+  are on is not listed.
+- **Share This Computer** switch in the Remote Control panel (persisted).
+- **Rename** computers and sessions by double-clicking them. New edge endpoint
+  `POST /v1/devices/:id/rename` (device-authenticated, validated, audited).
+- Host RPCs `remote.list`, `remote.history`, `remote.prompt`, `remote.cancel`,
+  `remote.create`, `remote.renameSession`; the owning computer reduces history
+  to a compact transcript, so raw request headers never cross the edge.
+- macOS: the Mac is kept from idle-sleeping while sharing (`caffeinate`);
+  `scripts/dsh-watchdog.sh` relaunches DeepSeek Harness at login or if it quits.
+
+### Fixed
+
+- A plugin reload no longer leaves the agent stopped: the new instance waits
+  for the old one to finish tearing down, and agent-lock contention is retried.
+- Offline computers are refused with a message instead of opening a
+  "Device offline" page.
+- The non-working native-window path was removed; Open Full View uses DSH's
+  own Browser tab.
+
+### Upgrade
+
+Both computers need v0.3.0 for remote sessions to list and open.
+
 ## v0.2.10 — 2026-10-29
 
 Native remote window; embedding experiments removed.
