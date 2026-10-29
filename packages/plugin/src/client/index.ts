@@ -689,18 +689,14 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-banner-title { font-weight: 600; }
 .dsh-rc-remote-banner-hint { margin-top: 1px; font-size: 10.5px; color: #a5b4d4; }
 #dsh-rc-remote-workspaces {
-  margin: 8px 4px 4px;
-  padding: 5px;
-  border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.18));
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-subtle, rgba(127,127,127,0.04));
+  margin: 16px 0 24px;
 }
 .dsh-rc-remote-ws-header {
   display: flex;
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 6px;
+  padding: 0 4px;
   margin: 0 0 2px;
 }
 .dsh-rc-remote-ws-gear {
@@ -1686,19 +1682,31 @@ function createComponent(React: any): (props: AnyProps) => any {
     ReactUse.useEffect(() => {
       if (typeof document === 'undefined') return undefined;
       const slot = document.querySelector('[data-slot="sidebar.workspaces"]');
-      const region = slot?.parentElement;
-      if (slot === null || slot === undefined || region === null || region === undefined) return undefined;
+      if (slot === null) return undefined;
+      // The local Workspaces list is the sidebar's one scroller; living at its
+      // end makes Remote Workspaces scroll with it like any other section.
+      const findScroller = (): HTMLElement | undefined => {
+        for (const node of Array.from(slot.querySelectorAll('div'))) {
+          if (/auto|scroll/.test(getComputedStyle(node).overflowY)) return node;
+        }
+        return undefined;
+      };
+      if (slot.parentElement === null) return undefined;
       let container = document.getElementById('dsh-rc-remote-workspaces');
       if (container === null) {
         container = document.createElement('div');
         container.id = 'dsh-rc-remote-workspaces';
         container.className = 'dsh-rc-remote-ws';
       }
-      // Separate card below the entire local Workspaces section, never mixed
-      // into the local workspace list.
-      if (container.parentElement !== region || container.previousElementSibling !== slot) {
-        region.insertBefore(container, slot.nextSibling);
-      }
+      // Re-resolved on every attach: the host may mount or replace its list later.
+      const attach = (): boolean => {
+        const region = findScroller() ?? slot.parentElement;
+        if (container === null || region === null) return false;
+        if (container.parentElement === region && region.lastElementChild === container) return false;
+        region.append(container);
+        return true;
+      };
+      attach();
       const render = (): void => {
         if (container === null || inlineEditing) return;
         container.replaceChildren();
@@ -1916,13 +1924,13 @@ function createComponent(React: any): (props: AnyProps) => any {
         }
       };
       render();
-      const observer = new MutationObserver(() => {
-        if (container !== null && container.parentElement !== region) {
-          region.insertBefore(container, slot.nextSibling);
-          render();
-        }
+      const observer = new MutationObserver((records: MutationRecord[]) => {
+        // Our own renders happen inside the container; only host changes matter.
+        if (records.every((record) => container?.contains(record.target) === true)) return;
+        // React adds or drops local rows; keep this section last, after them.
+        if (attach()) render();
       });
-      observer.observe(region, { childList: true });
+      observer.observe(slot, { childList: true, subtree: true });
       return () => {
         observer.disconnect();
         container?.remove();
