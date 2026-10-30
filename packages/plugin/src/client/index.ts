@@ -19,6 +19,7 @@ import { createRemoteChat, REMOTE_CHAT_CSS, REMOTE_PANEL_ID, remoteChatStore } f
 import type { RemoteTarget } from './remote-chat.js';
 import { openNewSessionDialog, parseConfig, SESSION_SETTINGS_CSS, SETTINGS_LOCALE_EN, SETTINGS_LOCALE_ZH } from './session-settings.js';
 import type { NewSessionChoice } from './session-settings.js';
+import type { SpeechService } from './composer-extras.js';
 
 // Which remote workspace groups are folded, kept across reloads (per viewer only).
 const COLLAPSED_KEY = 'dsh-rc.remote.collapsed';
@@ -374,6 +375,19 @@ const EN: Record<string, string> = {
   chatThinking: 'Thinking',
   chatRunning: 'running',
   chatFailed: 'Failed',
+  chatAttach: 'Attach Files',
+  chatRemoveFile: 'Remove {name}',
+  chatFileFailed: 'Upload Failed',
+  chatFileTooBig: '{name} is larger than {size} and was not attached.',
+  chatTooManyFiles: 'Up to {count} files can go with one message.',
+  chatVoice: 'Voice Input',
+  chatVoiceListening: 'Listening',
+  chatVoiceTranscribing: 'Transcribing…',
+  chatVoiceCancel: 'Cancel',
+  chatVoiceStop: 'Stop',
+  chatVoiceEmpty: 'No speech was heard. Try again.',
+  chatVoiceNoMic: 'The microphone is not available. Allow microphone access for DeepSeek Harness and try again.',
+  chatVoiceNotReady: 'Voice input is not ready on this computer. Set it up in Plugins, then try again.',
   chatNoOutput: '(no output)',
   chatRemoteHint: 'This session runs on that computer. Its files, tools and permissions stay there.',
   chatUntitled: 'New Session',
@@ -545,6 +559,19 @@ const ZH: Record<string, string> = {
   chatThinking: '思考过程',
   chatRunning: '运行中',
   chatFailed: '失败',
+  chatAttach: '添加文件',
+  chatRemoveFile: '移除 {name}',
+  chatFileFailed: '上传失败',
+  chatFileTooBig: '{name} 超过 {size}，未添加。',
+  chatTooManyFiles: '每条消息最多 {count} 个文件。',
+  chatVoice: '语音输入',
+  chatVoiceListening: '正在聆听',
+  chatVoiceTranscribing: '正在转写…',
+  chatVoiceCancel: '取消',
+  chatVoiceStop: '停止',
+  chatVoiceEmpty: '没有听到语音，请再试一次。',
+  chatVoiceNoMic: '麦克风不可用。请允许 DeepSeek Harness 使用麦克风后重试。',
+  chatVoiceNotReady: '这台电脑的语音输入尚未就绪。请在插件中完成设置后重试。',
   chatNoOutput: '（无输出）',
   chatRemoteHint: '此会话运行在那台电脑上，其文件、工具和权限都保留在那里。',
   chatUntitled: '新会话',
@@ -2731,7 +2758,7 @@ function apply(ctx: ClientContext): void {
   const remoteChat = createRemoteChat(requireReact());
   ctx.slots.inject('main', () =>
     ctx.slots.register(
-      { name: 'main', key: REMOTE_PANEL_ID, locale: LOCALE_NAMESPACE, inject: () => ({ call, t, openFullView }) },
+      { name: 'main', key: REMOTE_PANEL_ID, locale: LOCALE_NAMESPACE, inject: () => ({ call, t, openFullView, speech: () => (ctx as unknown as { remote?: { speech?: SpeechService } }).remote?.speech }) },
       remoteChat,
     ),
   );

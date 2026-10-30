@@ -3,6 +3,12 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.8 - 2026-10-30
+
+- **Send files to a remote session, like a local one.** The **+** button (or paste, or drag and drop onto the message box) attaches up to 10 files of up to 20 MB each. They show as chips with a preview or icon and an upload progress bar. Files travel to the other computer in pieces and are attached there the Harness's own way: images inline (their type is read from the file itself, never its name), other files through its upload service. Files stay on that computer only until the message is accepted, so a failed send can be retried; unfinished uploads are freed after a minute.
+- **Dictate with the microphone, like a local session.** The microphone records on this computer and DeepSeek Harness's own voice input turns it into text here; only the text goes into the message box, and no audio leaves the computer. It shows a live level, a timer, Cancel and Stop, and stops at the voice input's length limit. It appears when voice input is turned on in Plugins on this computer.
+- New peer calls `remote.uploadBegin`, `remote.uploadChunk` and `remote.uploadDiscard` (your own computers only). The other computer needs 0.4.8 or later to receive files; before that, the + button does not appear.
+
 ## v0.4.7 - 2026-10-30
 
 - **A spinner while connecting, never a false "nothing here".** Remote Workspaces shows "Connecting to your computers…" or "Connecting to Peter-Portable…" with a spinner while it loads, instead of "None of your other computers can be opened right now" or an empty panel. A computer that keeps failing gets a plain reason after about 40 seconds, and a computer whose list refresh fails once keeps its sessions on screen. Each computer is asked separately, so one slow computer no longer delays the others.

@@ -36,6 +36,7 @@ import { buildTranscript, isSessionId } from './transcript.js';
 import type { Transcript } from './transcript.js';
 import { randomUUID } from 'node:crypto';
 import { RemoteViewServer } from './remote-view.js';
+import { AttachmentStaging, MAX_FILE_BYTES, MAX_FILES_PER_PROMPT, sniffImage } from './attachments.js';
 import { normalizeModelCatalog, normalizePermissionCatalog, sessionSettingsOf, validatePermission, validateSelection } from './session-config.js';
 import type { ModelSelection, SessionConfig } from './session-config.js';
 import type { CreatedInvite, PeerList, SharingState } from './sharing.js';
@@ -112,7 +113,10 @@ interface SessionActions {
   pinned(): string[];
   /** Archived session ids (hidden from lists, as in the local sidebar). */
   archived(): string[];
-  prompt(sessionId: string, text: string): Promise<void>;
+  /** Queue a prompt; `content` is Harness prompt parts (text, image, file receipt). */
+  prompt(sessionId: string, content: unknown[]): Promise<void>;
+  /** Store one non-image file through the Harness upload service; returns its receipt. */
+  uploadFile(sessionId: string, name: string, base64: string): Promise<string>;
   cancel(sessionId: string): Promise<void>;
   create(cwd: string): Promise<string>;
   /** The Harness model catalog (`session/modelCatalog`), raw. */
@@ -170,6 +174,8 @@ class DshRcService {
   private readonly renameSession: (sessionId: string, title: string) => Promise<void>;
   private readonly history: (sessionId: string, maxMessages: number, throughSeq?: number) => Promise<unknown[]>;
   private readonly sessions: SessionActions;
+  private readonly staging = new AttachmentStaging();
+  private promptWithFilesBusy = false;
   private readonly stateDir: string;
   private readonly edgeUrl: string;
   private readonly updates: UpdateManager;
@@ -289,9 +295,54 @@ class DshRcService {
     return buildTranscript(records, { hasMore: firstSeq > 1, running, title, firstSeq });
   }
 
-  async localPrompt(sessionId: string, text: string): Promise<{ accepted: true }> {
-    await this.sessions.prompt(sessionId, text);
+  async localPrompt(sessionId: string, text: string, uploadIds: unknown[] = []): Promise<{ accepted: true }> {
+    if (uploadIds.length > MAX_FILES_PER_PROMPT) throw new Error(`Up to ${String(MAX_FILES_PER_PROMPT)} files can go with one message.`);
+    if (uploadIds.length === 0) return this.sendPrompt(sessionId, [{ type: 'text', text }]);
+    // One message with files at a time keeps memory bounded (each file is held as bytes, base64 and JSON).
+    if (this.promptWithFilesBusy) throw new Error('That computer is still taking the previous files. Try again in a moment.');
+    this.promptWithFilesBusy = true;
+    try {
+      return await this.promptWithFiles(sessionId, text, uploadIds);
+    } finally {
+      this.promptWithFilesBusy = false;
+    }
+  }
+
+  private async sendPrompt(sessionId: string, content: unknown[]): Promise<{ accepted: true }> {
+    await this.sessions.prompt(sessionId, content);
     return { accepted: true };
+  }
+
+  private async promptWithFiles(sessionId: string, text: string, uploadIds: unknown[]): Promise<{ accepted: true }> {
+    // Check every file first; files leave staging only after the prompt is accepted, so a failure can be retried.
+    this.staging.assertReady(uploadIds);
+    const content: unknown[] = [];
+    for (const uploadId of uploadIds) {
+      const { name, bytes } = this.staging.peek(uploadId);
+      const image = sniffImage(bytes);
+      // Images go inline like the local composer sends them; other files by Harness receipt.
+      if (image !== undefined) content.push({ type: 'image', mediaType: image, data: bytes.toString('base64'), name });
+      else content.push({ type: 'file', receiptId: await this.sessions.uploadFile(sessionId, name, bytes.toString('base64')) });
+    }
+    if (text.trim() !== '') content.push({ type: 'text', text });
+    await this.sessions.prompt(sessionId, content);
+    for (const uploadId of uploadIds) this.staging.discard(uploadId);
+    this.logger.info('peer sent a prompt with files', { sessionId, files: uploadIds.length });
+    return { accepted: true };
+  }
+
+  /** Start receiving one file from a peer (served over the edge). */
+  uploadBegin(name: unknown, size: unknown): { uploadId: string; chunkBytes: number } {
+    return this.staging.begin(name, size);
+  }
+
+  uploadChunk(uploadId: unknown, offset: unknown, data: unknown): { received: number; complete: boolean } {
+    return this.staging.append(uploadId, offset, data);
+  }
+
+  uploadDiscard(uploadId: unknown): { ok: true } {
+    this.staging.discard(uploadId);
+    return { ok: true };
   }
 
   async localCancel(sessionId: string): Promise<{ ok: true }> {
@@ -336,7 +387,7 @@ class DshRcService {
     ]);
     let permissions: SessionConfig['permissions'] = null;
     try { permissions = normalizePermissionCatalog(this.sessions.permissionCatalog()); } catch { /* no presets on this Harness */ }
-    return { models, permissions, ...(session === undefined ? {} : { session }) };
+    return { models, permissions, capabilities: { attachments: true, maxFileBytes: MAX_FILE_BYTES, maxFiles: MAX_FILES_PER_PROMPT }, ...(session === undefined ? {} : { session }) };
   }
 
   async localSelectModel(sessionId: string, requested: unknown): Promise<{ selected: ModelSelection }> {
@@ -589,13 +640,21 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
       pinned: () => registryIds(ctx, 'pinnedSessionIds'),
       workspaces: () => registryWorkspaces(ctx),
       archived: () => registryIds(ctx, 'archivedSessionIds'),
-      prompt: async (sessionId, text) => {
+      prompt: async (sessionId, content) => {
         const controller = sessionControllerOf(ctx);
         if (typeof controller.prompt !== 'function') throw new Error('This Harness cannot accept prompts right now.');
         await controller.prompt(
-          { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] },
-          AbortSignal.timeout(30_000),
+          { requestId: randomUUID(), sessionId, mode: 'queue', content },
+          AbortSignal.timeout(60_000),
         );
+      },
+      uploadFile: async (sessionId, name, base64) => {
+        const uploads = getService<{ upload?: (agent: unknown, request: unknown, signal: AbortSignal) => Promise<unknown> }>(ctx, 'fileUploads');
+        if (typeof uploads?.upload !== 'function') throw new Error('This computer cannot receive files right now.');
+        const agent = await lookupOf(ctx, 'agent', sessionId);
+        const stored = await uploads.upload(agent, { data: base64, name }, AbortSignal.timeout(60_000));
+        if (!isRecord(stored) || typeof stored['receiptId'] !== 'string') throw new Error('The file was not stored.');
+        return stored['receiptId'];
       },
       cancel: async (sessionId) => {
         const controller = sessionControllerOf(ctx);
@@ -733,6 +792,9 @@ const PEER_ENDPOINTS = new Set([
   'remote.selectModel',
   'remote.setPermission',
   'remote.update',
+  'remote.uploadBegin',
+  'remote.uploadChunk',
+  'remote.uploadDiscard',
 ]);
 
 /** True for the calls another computer may make through the edge; everything else is local only. */
@@ -851,7 +913,10 @@ export interface SharingRpcTarget {
   openRemoteWindow(deviceId: string, newSession: boolean, sessionId?: string): Promise<{ url: string; opened: boolean }>;
   setHostEnabled(enabled: boolean): Promise<DshRcStatus>;
   localTranscript(sessionId: string, beforeSeq?: number): Promise<Transcript>;
-  localPrompt(sessionId: string, text: string): Promise<{ accepted: true }>;
+  localPrompt(sessionId: string, text: string, uploadIds?: unknown[]): Promise<{ accepted: true }>;
+  uploadBegin(name: unknown, size: unknown): { uploadId: string; chunkBytes: number };
+  uploadChunk(uploadId: unknown, offset: unknown, data: unknown): { received: number; complete: boolean };
+  uploadDiscard(uploadId: unknown): { ok: true };
   localCancel(sessionId: string): Promise<{ ok: true }>;
   localCreate(workspaceId: string, settings?: { model?: unknown; permission?: unknown }): Promise<{ sessionId: string; warnings: string[] }>;
   localConfig(sessionId?: string): Promise<SessionConfig>;
@@ -948,8 +1013,17 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'remote.prompt': {
         if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
         const text = typeof input['text'] === 'string' ? input['text'] : '';
-        if (text.trim() === '' || text.length > 100_000) return rpcFail('bad-request', 'text must be 1-100000 characters.');
-        return rpcOk(await target.localPrompt(input['sessionId'], text));
+        const uploads = Array.isArray(input['uploadIds']) ? input['uploadIds'] : [];
+        if (text.length > 100_000) return rpcFail('bad-request', 'text must be at most 100000 characters.');
+        if (text.trim() === '' && uploads.length === 0) return rpcFail('bad-request', 'Write a message or attach a file.');
+        return rpcOk(await target.localPrompt(input['sessionId'], text, uploads));
+      }
+      case 'remote.uploadBegin':
+        return rpcOk(target.uploadBegin(input['name'], input['size']));
+      case 'remote.uploadChunk':
+        return rpcOk(target.uploadChunk(input['uploadId'], input['offset'], input['data']));
+      case 'remote.uploadDiscard': {
+        return rpcOk(target.uploadDiscard(input['uploadId']));
       }
       case 'remote.cancel': {
         if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
@@ -986,7 +1060,10 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'session.selectModel':
       case 'session.setPermission':
       case 'session.update':
-      case 'session.status': {
+      case 'session.status':
+      case 'session.uploadBegin':
+      case 'session.uploadChunk':
+      case 'session.uploadDiscard': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
         const { deviceId: _omit, ...rest } = input;

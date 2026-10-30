@@ -46,6 +46,8 @@ export interface PermissionOption {
 export interface SessionConfig {
   models: { groups: ModelGroup[]; default: ModelSelection | null };
   permissions: { options: PermissionOption[]; defaultPreset: string | null } | null;
+  /** What this computer can take from a peer; absent on computers older than 0.4.8. */
+  capabilities?: { attachments: boolean; maxFileBytes: number; maxFiles: number };
   /** Present when a session was named: its next-request model and current preset. */
   session?: { model: ModelSelection | null; permission: string | null };
 }

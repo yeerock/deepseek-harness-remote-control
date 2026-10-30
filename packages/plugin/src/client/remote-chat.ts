@@ -10,6 +10,8 @@ import {
   renderPermissionTrigger,
 } from './session-settings.js';
 import type { ModelSelection, SessionConfig } from './session-settings.js';
+import { formatBytes, pendingFile, releaseFile, startRecording, transcribe, uploadFile, voiceReadiness } from './composer-extras.js';
+import type { PendingFile, Recording, SpeechService, VoiceReadiness } from './composer-extras.js';
 
 /**
  * Remote conversation panel.
@@ -228,6 +230,28 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-input { display: block; box-sizing: border-box; width: 100%; min-height: 48px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: var(--dsh-content-font-size, 14px); line-height: 24px; padding: 12px 16px 4px; }
 .dsh-rc-chat-input::placeholder { color: var(--dsw-alias-label-tertiary, #9ca3af); }
 .dsh-rc-chat-toolbar { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 8px 8px 10px; }
+.dsh-rc-chat-card[data-dragging="true"] { box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary, #4d6bfe); }
+.dsh-rc-chat-round { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; margin-right: 2px; border: .5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.3)); border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); cursor: pointer; }
+.dsh-rc-chat-round:hover:not(:disabled), .dsh-rc-chat-mic:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-chat-round:disabled, .dsh-rc-chat-mic:disabled { opacity: .5; cursor: default; }
+.dsh-rc-chat-mic { flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); cursor: pointer; }
+.dsh-rc-chat-files { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px 0; }
+.dsh-rc-chat-file { position: relative; display: flex; align-items: center; gap: 8px; max-width: 220px; height: 44px; padding: 0 28px 0 6px; border: .5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.25)); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-module-platform, rgba(127,127,127,0.06)); overflow: hidden; }
+.dsh-rc-chat-file[data-failed="true"] { border-color: var(--dsw-alias-state-error-primary, #dc2626); }
+.dsh-rc-chat-file-thumb { flex: none; width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
+.dsh-rc-chat-file-icon { flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-secondary, #6b7280); }
+.dsh-rc-chat-file-text { min-width: 0; display: flex; flex-direction: column; font-size: 12px; line-height: 16px; }
+.dsh-rc-chat-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-chat-file-size { color: var(--dsw-alias-label-tertiary, #8a8f98); }
+.dsh-rc-chat-file[data-failed="true"] .dsh-rc-chat-file-size { color: var(--dsw-alias-state-error-primary, #dc2626); }
+.dsh-rc-chat-file-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--dsw-alias-state-business-primary, #4d6bfe); transition: width .15s; }
+.dsh-rc-chat-file-x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: var(--dsw-alias-label-tertiary, #8a8f98); cursor: pointer; }
+.dsh-rc-chat-file-x:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-chat-voice { display: flex; align-items: center; gap: 10px; margin: 10px 12px 0; padding: 6px 6px 6px 12px; border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-module-platform, rgba(127,127,127,0.08)); font-size: 13px; color: var(--dsw-alias-label-secondary, #6b7280); }
+.dsh-rc-chat-voice-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--dsw-alias-state-error-primary, #dc2626); transition: transform .1s; }
+.dsh-rc-chat-voice-text { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
+.dsh-rc-chat-voice-btn { height: 28px; padding: 0 12px; border: .5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.3)); border-radius: var(--dsw-radius-md, 8px); background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.dsh-rc-chat-voice-btn[data-primary="true"] { border-color: transparent; background: var(--dsw-alias-state-business-primary, #4d6bfe); color: #fff; }
 .dsh-rc-chat-send { flex: none; width: 32px; height: 32px; margin-left: 4px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; cursor: pointer; background: var(--dsw-alias-state-business-primary, #4d6bfe); color: #fff; }
 .dsh-rc-chat-send:hover:not([disabled]) { filter: brightness(1.06); }
 .dsh-rc-chat-send[disabled] { background: var(--dsw-alias-state-business-disabled, #b8c4fb); cursor: default; }
@@ -250,6 +274,8 @@ export interface RemoteChatDeps {
   call: (endpoint: string, payload?: unknown) => Promise<any>;
   t: (key: string) => string;
   openFullView: (target: RemoteTarget) => void;
+  /** This computer's DeepSeek Harness speech service, when its voice input is turned on. */
+  speech?: () => SpeechService | undefined;
 }
 
 function messageOf(reason: unknown): string {
@@ -260,7 +286,7 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
   const h = React.createElement;
 
   return function RemoteChat(props: Record<string, any>): any {
-    const { call, t, openFullView } = props as unknown as RemoteChatDeps;
+    const { call, t, openFullView, speech } = props as unknown as RemoteChatDeps;
     const [target, setTarget] = React.useState(remoteChatStore.get());
     const [transcript, setTranscript] = React.useState(undefined as Transcript | undefined);
     const [error, setError] = React.useState(undefined as string | undefined);
@@ -279,6 +305,20 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const [settingsBusy, setSettingsBusy] = React.useState(false);
     // A refresh that lands while a change is in flight must not undo it.
     const settingsWrite = React.useRef(0);
+    // Files waiting to go with the next message, and dictation state.
+    const [files, setFiles] = React.useState([] as PendingFile[]);
+    const filesRef = React.useRef([] as PendingFile[]);
+    filesRef.current = files;
+    const fileInput = React.useRef(null);
+    const [dragging, setDragging] = React.useState(false);
+    const [voice, setVoice] = React.useState(undefined as VoiceReadiness | undefined);
+    const [voicePhase, setVoicePhase] = React.useState('idle' as 'idle' | 'starting' | 'recording' | 'transcribing');
+    const [voiceLevel, setVoiceLevel] = React.useState(0);
+    const [voiceSeconds, setVoiceSeconds] = React.useState(0);
+    const recording = React.useRef(undefined as Recording | undefined);
+    // Bumped on session switch and unmount, so late async results (microphone, upload, transcript) are dropped.
+    const viewGeneration = React.useRef(0);
+    const inputRef = React.useRef(null);
     const permissionRef = React.useRef(null);
     const modelRef = React.useRef(null);
     // Why the controls are missing (older host, or an error), shown instead of hiding them silently.
@@ -317,6 +357,12 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       setTranscript(undefined);
       setConfig(undefined);
       setConfigError(undefined);
+      viewGeneration.current += 1;
+      for (const file of filesRef.current) releaseFile(file);
+      setFiles([]);
+      recording.current?.cancel();
+      recording.current = undefined;
+      setVoicePhase('idle');
       setOlder(undefined);
       setDraft('');
       setError(target?.notice);
@@ -358,6 +404,33 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       const chip = modelRef.current as HTMLButtonElement | null;
       if (chip !== null && config !== undefined) renderModelTrigger(chip, t, config, model);
     });
+
+    // Dictation runs on this computer: check its voice input once the view opens.
+    React.useEffect(() => {
+      let alive = true;
+      voiceReadiness(speech?.()).then((ready) => { if (alive) setVoice(ready); }, () => { if (alive) setVoice(undefined); });
+      return () => { alive = false; };
+    }, [target?.deviceId]);
+
+    // Level meter and timer while recording; release the microphone on unmount.
+    React.useEffect(() => {
+      if (voicePhase !== 'recording') return undefined;
+      const started = Date.now();
+      const timer = setInterval(() => {
+        setVoiceLevel(recording.current?.level() ?? 0);
+        const seconds = Math.floor((Date.now() - started) / 1000);
+        setVoiceSeconds(seconds);
+        // Stop at the speech service's limit instead of recording audio it will refuse.
+        if (voice !== undefined && seconds >= voice.maxDurationSeconds) void finishVoiceRef.current?.();
+      }, 100);
+      return () => clearInterval(timer);
+    }, [voicePhase, voice]);
+    const finishVoiceRef = React.useRef(undefined as (() => Promise<void>) | undefined);
+    React.useEffect(() => () => {
+      viewGeneration.current += 1;
+      recording.current?.cancel();
+      for (const file of filesRef.current) releaseFile(file);
+    }, []);
 
     React.useEffect(() => {
       const note = noteRef.current as HTMLElement | null;
@@ -443,22 +516,115 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         disabled: settingsBusy || config.models.groups.length === 0,
         onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsModelAndEffort'), modelEntries(t, config, model, (value) => void applyModel(value))),
       });
+    const maxFiles = config?.capabilities?.maxFiles ?? 10;
+    const maxFileBytes = config?.capabilities?.maxFileBytes ?? 20 * 1024 * 1024;
+    const canAttach = config?.capabilities?.attachments === true;
+    const addFiles = (list: FileList | File[] | null | undefined): void => {
+      if (list === null || list === undefined || !canAttach) return;
+      const incoming = Array.from(list);
+      const tooBig = incoming.find((file) => file.size > maxFileBytes);
+      if (tooBig !== undefined) setError(t('chatFileTooBig').replace('{name}', tooBig.name).replace('{size}', formatBytes(maxFileBytes)));
+      const accepted = incoming.filter((file) => file.size > 0 && file.size <= maxFileBytes);
+      setFiles((previous: PendingFile[]) => {
+        const room = Math.max(0, maxFiles - previous.length);
+        if (accepted.length > room) setError(t('chatTooManyFiles').replace('{count}', String(maxFiles)));
+        return [...previous, ...accepted.slice(0, room).map(pendingFile)];
+      });
+    };
+    const removeFile = (key: string): void => {
+      setFiles((previous: PendingFile[]) => {
+        const gone = previous.find((file) => file.key === key);
+        if (gone !== undefined) releaseFile(gone);
+        return previous.filter((file) => file.key !== key);
+      });
+    };
     const send = async (): Promise<void> => {
       const text = draft.trim();
-      if (text === '' || sending) return;
+      const attached = filesRef.current;
+      if ((text === '' && attached.length === 0) || sending) return;
+      const generation = viewGeneration.current;
+      const stillHere = (): boolean => viewGeneration.current === generation;
       setSending(true);
       setError(undefined);
       try {
-        await call('session.prompt', { deviceId: target.deviceId, sessionId: target.sessionId, text });
+        // Upload each file in pieces first, showing progress; then send the message with them.
+        const uploadIds: string[] = [];
+        for (const file of attached) {
+          if (file.uploadId !== undefined) { uploadIds.push(file.uploadId); continue; }
+          const update = (patch: Partial<PendingFile>): void => setFiles((previous: PendingFile[]) => previous.map((item) => (item.key === file.key ? { ...item, ...patch } : item)));
+          update({ progress: 0, failed: undefined });
+          const { failed: _ignored, ...clean } = file;
+          void _ignored;
+          const uploadId = await uploadFile(call, target.deviceId, clean, (fraction) => update({ progress: fraction })).catch((reason: unknown) => {
+            update({ failed: messageOf(reason) });
+            throw reason;
+          });
+          update({ uploadId, progress: 1 });
+          uploadIds.push(uploadId);
+        }
+        try {
+          await call('session.prompt', { deviceId: target.deviceId, sessionId: target.sessionId, text, ...(uploadIds.length === 0 ? {} : { uploadIds }) });
+        } catch (reason) {
+          // The other computer keeps the pieces only briefly: upload again on the next try.
+          if (stillHere()) setFiles((previous: PendingFile[]) => previous.map((item) => { const { uploadId: _drop, ...rest } = item; void _drop; return rest; }));
+          throw reason;
+        }
+        if (!stillHere()) return;
+        for (const file of attached) releaseFile(file);
+        setFiles([]);
         setDraft('');
         pinned.current = true;
         setTick((value: number) => value + 1);
       } catch (reason) {
-        setError(messageOf(reason));
+        if (stillHere()) setError(messageOf(reason));
       } finally {
-        setSending(false);
+        if (stillHere()) setSending(false);
       }
     };
+    const startVoice = async (): Promise<void> => {
+      if (voice === undefined || voicePhase !== 'idle') return;
+      if (!voice.ready) { setError(t('chatVoiceNotReady')); return; }
+      setError(undefined);
+      setVoicePhase('starting');
+      const generation = viewGeneration.current;
+      try {
+        const started = await startRecording();
+        // The view moved on while the permission prompt was open: release the microphone at once.
+        if (viewGeneration.current !== generation) { started.cancel(); return; }
+        recording.current = started;
+        setVoiceSeconds(0);
+        setVoicePhase('recording');
+      } catch {
+        recording.current = undefined;
+        setVoicePhase('idle');
+        setError(t('chatVoiceNoMic'));
+      }
+    };
+    const cancelVoice = (): void => {
+      recording.current?.cancel();
+      recording.current = undefined;
+      setVoicePhase('idle');
+    };
+    const finishVoice = async (): Promise<void> => {
+      const active = recording.current;
+      const service = speech?.();
+      if (active === undefined || service === undefined || voice === undefined) return;
+      recording.current = undefined;
+      setVoicePhase('transcribing');
+      const generation = viewGeneration.current;
+      try {
+        const text = (await transcribe(service, voice, await active.stop())).trim();
+        if (viewGeneration.current !== generation) return;
+        if (text === '') setError(t('chatVoiceEmpty'));
+        else setDraft((previous: string) => (previous.trim() === '' ? text : `${previous.replace(/\s+$/, '')} ${text}`));
+        (inputRef.current as HTMLTextAreaElement | null)?.focus();
+      } catch (reason) {
+        if (viewGeneration.current === generation) setError(messageOf(reason));
+      } finally {
+        if (viewGeneration.current === generation) setVoicePhase('idle');
+      }
+    };
+    finishVoiceRef.current = finishVoice;
     const stop = async (): Promise<void> => {
       try {
         await call('session.cancel', { deviceId: target.deviceId, sessionId: target.sessionId });
@@ -565,8 +731,46 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         settingsNote,
         h(
           'div',
-          { className: 'dsh-rc-chat-card' },
+          {
+            className: 'dsh-rc-chat-card',
+            'data-dragging': dragging ? 'true' : undefined,
+            onDragOver: (event: any) => { if (canAttach && Array.from(event.dataTransfer?.types ?? []).includes('Files')) { event.preventDefault(); setDragging(true); } },
+            onDragLeave: (event: any) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false); },
+            onDrop: (event: any) => { if (!canAttach) return; event.preventDefault(); setDragging(false); addFiles(event.dataTransfer?.files); },
+          },
+          files.length === 0
+            ? null
+            : h('div', { className: 'dsh-rc-chat-files' }, ...files.map((file: PendingFile) => h(
+              'div',
+              { key: file.key, className: 'dsh-rc-chat-file', 'data-failed': file.failed === undefined ? undefined : 'true', title: file.failed ?? file.name },
+              file.preview === undefined
+                ? h('span', { className: 'dsh-rc-chat-file-icon', 'aria-hidden': 'true' }, h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }), h('path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' })))
+                : h('img', { className: 'dsh-rc-chat-file-thumb', src: file.preview, alt: '' }),
+              h('span', { className: 'dsh-rc-chat-file-text' }, h('span', { className: 'dsh-rc-chat-file-name' }, file.name), h('span', { className: 'dsh-rc-chat-file-size' }, file.failed === undefined ? formatBytes(file.size) : t('chatFileFailed'))),
+              sending && file.uploadId === undefined && file.failed === undefined ? h('span', { className: 'dsh-rc-chat-file-bar', style: { width: `${String(Math.round(file.progress * 100))}%` } }) : null,
+              h('button', { type: 'button', className: 'dsh-rc-chat-file-x', 'aria-label': t('chatRemoveFile').replace('{name}', file.name), title: t('chatRemoveFile').replace('{name}', file.name), disabled: sending, onClick: () => removeFile(file.key) },
+                h('svg', { width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinecap: 'round', 'aria-hidden': 'true' }, h('path', { d: 'M18 6 6 18' }), h('path', { d: 'm6 6 12 12' }))),
+            ))),
+          voicePhase === 'recording' || voicePhase === 'transcribing'
+            ? h(
+              'div',
+              { className: 'dsh-rc-chat-voice', role: 'status' },
+              h('span', { className: 'dsh-rc-chat-voice-dot', style: { transform: `scale(${String(1 + voiceLevel * 0.8)})` } }),
+              h('span', { className: 'dsh-rc-chat-voice-text' }, voicePhase === 'recording' ? `${t('chatVoiceListening')} ${String(Math.floor(voiceSeconds / 60))}:${String(voiceSeconds % 60).padStart(2, '0')}` : t('chatVoiceTranscribing')),
+              voicePhase === 'recording' ? h('button', { type: 'button', className: 'dsh-rc-chat-voice-btn', onClick: cancelVoice }, t('chatVoiceCancel')) : h('span', { className: 'dsh-rc-spinner' }),
+              voicePhase === 'recording' ? h('button', { type: 'button', className: 'dsh-rc-chat-voice-btn', 'data-primary': 'true', onClick: () => void finishVoice() }, t('chatVoiceStop')) : null,
+            )
+            : null,
+          h('input', { ref: fileInput, type: 'file', multiple: true, hidden: true, onChange: (event: any) => { addFiles(event.target.files); event.target.value = ''; } }),
           h('textarea', {
+            ref: inputRef,
+            onPaste: (event: any) => {
+              const pasted = Array.from(event.clipboardData?.files ?? []) as File[];
+              if (!canAttach || pasted.length === 0) return;
+              addFiles(pasted);
+              // Keep pasted text (e.g. from a document that also carries an image); only a pure file paste is ours.
+              if ((event.clipboardData?.getData('text/plain') ?? '') === '') event.preventDefault();
+            },
             className: 'dsh-rc-chat-input',
             rows: 1,
             value: draft,
@@ -588,13 +792,21 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
           h(
             'div',
             { className: 'dsh-rc-chat-toolbar' },
+            canAttach
+              ? h('button', { type: 'button', className: 'dsh-rc-chat-round', title: t('chatAttach'), 'aria-label': t('chatAttach'), disabled: sending || files.length >= maxFiles, onClick: () => (fileInput.current as HTMLInputElement | null)?.click() },
+                h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', 'aria-hidden': 'true' }, h('path', { d: 'M12 5v14' }), h('path', { d: 'M5 12h14' })))
+              : null,
             permissionChip,
             h('span', { className: 'dsh-rc-set-spacer' }),
             modelChip,
-            running && draft.trim() === ''
+            voice === undefined
+              ? null
+              : h('button', { type: 'button', className: 'dsh-rc-chat-mic', title: t('chatVoice'), 'aria-label': t('chatVoice'), 'aria-pressed': voicePhase === 'recording' ? 'true' : 'false', disabled: voicePhase !== 'idle' || sending, onClick: () => void startVoice() },
+                h('svg', { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }, h('rect', { x: 9, y: 2, width: 6, height: 12, rx: 3 }), h('path', { d: 'M19 10v1a7 7 0 0 1-14 0v-1' }), h('path', { d: 'M12 18v4' }))),
+            running && draft.trim() === '' && files.length === 0
               ? h('button', { type: 'button', className: 'dsh-rc-chat-send', 'data-stop': 'true', title: t('chatStop'), 'aria-label': t('chatStop'), onClick: () => void stop() },
                 h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': 'true' }, h('rect', { x: 1, y: 1, width: 10, height: 10, rx: 2, fill: 'currentColor' })))
-              : h('button', { type: 'button', className: 'dsh-rc-chat-send', title: t('chatSend'), 'aria-label': t('chatSend'), disabled: sending || draft.trim() === '', onClick: () => void send() },
+              : h('button', { type: 'button', className: 'dsh-rc-chat-send', title: t('chatSend'), 'aria-label': t('chatSend'), disabled: sending || (draft.trim() === '' && files.length === 0), onClick: () => void send() },
                 h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
                   h('path', { d: 'M12 19V5' }), h('path', { d: 'm5 12 7-7 7 7' }))),
           ),
