@@ -17,6 +17,8 @@ import { PLUGIN_VERSION } from '../onboard.js';
 import { encodeQr, qrToSvg } from './qr.js';
 import { createRemoteChat, REMOTE_CHAT_CSS, REMOTE_PANEL_ID, remoteChatStore } from './remote-chat.js';
 import type { RemoteTarget } from './remote-chat.js';
+import { openNewSessionDialog, parseConfig, SESSION_SETTINGS_CSS, SETTINGS_LOCALE_EN, SETTINGS_LOCALE_ZH } from './session-settings.js';
+import type { NewSessionChoice } from './session-settings.js';
 
 // Which remote workspace groups are folded, kept across reloads (per viewer only).
 const COLLAPSED_KEY = 'dsh-rc.remote.collapsed';
@@ -467,6 +469,7 @@ const EN: Record<string, string> = {
   sharingGuestUnknown: 'Guest',
   sharingExpires: 'expires',
   sharingUses: 'uses',
+  ...SETTINGS_LOCALE_EN,
 };
 
 const ZH: Record<string, string> = {
@@ -632,6 +635,7 @@ const ZH: Record<string, string> = {
   sharingGuestUnknown: '访客',
   sharingExpires: '到期',
   sharingUses: '已用',
+  ...SETTINGS_LOCALE_ZH,
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -865,7 +869,7 @@ function ensureStyles(): void {
   if (document.getElementById('dsh-rc-sidebar-style') !== null) return;
   const style = document.createElement('style');
   style.id = 'dsh-rc-sidebar-style';
-  style.textContent = REMOTE_CHAT_CSS + `
+  style.textContent = REMOTE_CHAT_CSS + SESSION_SETTINGS_CSS + `
 div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   flex-direction: column;
   align-items: stretch;
@@ -2244,15 +2248,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               setRenameError(t('remoteNoWorkspace'));
               return;
             }
-            openRowMenu(add, [
-              { label: t('remoteChooseFolder'), run: () => undefined, heading: true },
-              ...folders.map((folder) => ({
-                label: folder.workspaceName,
-                hint: folder.workspaceId,
-                icon: rowIcon('folder', 16),
-                run: () => { void props.newRemoteSession(peer.id, peer.name, folder.workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason))); },
-              })),
-            ]);
+            props.newRemoteSession(peer.id, peer.name, folders);
           }).catch((reason: unknown) => {
             add.removeAttribute('aria-busy');
             setRenameError(messageOf(reason));
@@ -2385,7 +2381,11 @@ function createComponent(React: any): (props: AnyProps) => any {
                   event.stopPropagation();
                   const workspaceId = bucket[0]?.workspaceId;
                   if (workspaceId === undefined) return;
-                  void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
+                  // Every folder stays choosable; this workspace is preselected.
+                  void loadRemoteWorkspaces(peer.id).then((folders) => {
+                    const list = folders.some((row) => row.workspaceId === workspaceId) ? folders : [{ workspaceId, workspaceName: bucket[0]?.workspaceName ?? workspaceId }, ...folders];
+                    props.newRemoteSession(peer.id, peer.name, list, workspaceId);
+                  });
                 });
                 group.append(folder, chevron, groupName, groupAdd);
                 container.append(group);
@@ -2645,10 +2645,21 @@ function apply(ctx: ClientContext): void {
     remoteChatStore.set(target);
     ctx.layout?.selectPanel(REMOTE_PANEL_ID);
   };
-  const newRemoteSession = async (deviceId: string, deviceName: string, workspaceId: string): Promise<void> => {
-    const created = (await call('session.create', { deviceId, workspaceId })) as { sessionId?: string };
-    if (typeof created.sessionId !== 'string') throw new Error('The new session was not created.');
-    openRemoteSession({ deviceId, deviceName, sessionId: created.sessionId, title: '' });
+  // New Remote Session: folder, model and effort, permissions; an older computer offers the folder only.
+  const newRemoteSession = (deviceId: string, deviceName: string, folders: Array<{ workspaceId: string; workspaceName: string }>, initialFolder?: string): void => {
+    openNewSessionDialog({
+      t,
+      deviceName,
+      folders,
+      ...(initialFolder === undefined ? {} : { initialFolder }),
+      loadConfig: async () => parseConfig(await call('session.config', { deviceId })),
+      create: async (choice: NewSessionChoice) => {
+        const created = (await call('session.create', { deviceId, ...choice })) as { sessionId?: string; warnings?: unknown };
+        if (typeof created.sessionId !== 'string') throw new Error('The new session was not created.');
+        const warnings = Array.isArray(created.warnings) ? created.warnings.filter((item): item is string => typeof item === 'string') : [];
+        openRemoteSession({ deviceId, deviceName, sessionId: created.sessionId, title: '', ...(warnings.length === 0 ? {} : { notice: warnings.join(' ') }) });
+      },
+    });
   };
   // Escape hatch for files and terminal: the remote's own full interface.
   const openFullView = (target: RemoteTarget): void => {

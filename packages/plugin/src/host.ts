@@ -36,6 +36,8 @@ import { buildTranscript, isSessionId } from './transcript.js';
 import type { Transcript } from './transcript.js';
 import { randomUUID } from 'node:crypto';
 import { RemoteViewServer } from './remote-view.js';
+import { normalizeModelCatalog, normalizePermissionCatalog, sessionSettingsOf, validatePermission, validateSelection } from './session-config.js';
+import type { ModelSelection, SessionConfig } from './session-config.js';
 import type { CreatedInvite, PeerList, SharingState } from './sharing.js';
 
 /** Minimal structural view of the cordis context this plugin uses. */
@@ -113,6 +115,16 @@ interface SessionActions {
   prompt(sessionId: string, text: string): Promise<void>;
   cancel(sessionId: string): Promise<void>;
   create(cwd: string): Promise<string>;
+  /** The Harness model catalog (`session/modelCatalog`), raw. */
+  modelCatalog(): Promise<unknown>;
+  /** The Harness permission preset catalog (`permissionPresets/catalog`), raw; undefined when not mounted. */
+  permissionCatalog(): unknown;
+  /** One session's live projection snapshot (`session/projections`), raw. */
+  projections(sessionId: string): Promise<unknown>;
+  /** Install a validated model and effort for the session's next request. */
+  selectModel(sessionId: string, selection: ModelSelection): Promise<void>;
+  /** Switch the session's permission preset the way the composer's `/permission` control does. */
+  setPermission(sessionId: string, preset: string): Promise<void>;
   /** Every workspace in the Harness's own sidebar order, including ones with no sessions yet. */
   workspaces(): RemoteWorkspaceRow[];
 }
@@ -297,11 +309,50 @@ class DshRcService {
     return { workspaces: projectFolders(this.sessions.workspaces(), normalizeSessions(await this.listSessions(), Number.MAX_SAFE_INTEGER)) };
   }
 
-  async localCreate(workspaceId: string): Promise<{ sessionId: string }> {
+  async localCreate(workspaceId: string, settings: { model?: unknown; permission?: unknown } = {}): Promise<{ sessionId: string; warnings: string[] }> {
     // Only a folder this Harness already knows: a peer can never point a session at an arbitrary path.
     const known = (await this.remoteWorkspaces()).workspaces.some((row) => row.workspaceId === workspaceId);
     if (!known) throw new Error('That workspace is not on this computer.');
-    return { sessionId: await this.sessions.create(workspaceId) };
+    // Validate every choice before creating anything, so a bad request leaves no empty session behind.
+    const models = settings.model === undefined ? undefined : normalizeModelCatalog(await this.sessions.modelCatalog());
+    const selection = models === undefined ? undefined : validateSelection(models, settings.model);
+    if (typeof selection === 'string') throw new Error(selection);
+    const preset = settings.permission === undefined ? undefined : validatePermission(normalizePermissionCatalog(this.sessions.permissionCatalog()), settings.permission);
+    if (typeof preset === 'object') throw new Error(preset.error);
+    const sessionId = await this.sessions.create(workspaceId);
+    // The session exists now; a setting that fails to apply is reported, not fatal.
+    const warnings: string[] = [];
+    if (selection !== undefined) await this.sessions.selectModel(sessionId, selection).catch((error: unknown) => { warnings.push(`Model not applied: ${messageOf(error)}`); });
+    if (preset !== undefined) this.logger.info('peer created a session with permissions', { sessionId, permission: preset });
+    if (preset !== undefined) await this.sessions.setPermission(sessionId, preset).catch((error: unknown) => { warnings.push(`Permissions not applied: ${messageOf(error)}`); });
+    return { sessionId, warnings };
+  }
+
+  /** Model, effort and permission choices, plus one session's current values (served to peers). */
+  async localConfig(sessionId?: string): Promise<SessionConfig> {
+    const [models, session] = await Promise.all([
+      this.sessions.modelCatalog().then(normalizeModelCatalog),
+      sessionId === undefined ? Promise.resolve(undefined) : this.sessions.projections(sessionId).then(sessionSettingsOf),
+    ]);
+    let permissions: SessionConfig['permissions'] = null;
+    try { permissions = normalizePermissionCatalog(this.sessions.permissionCatalog()); } catch { /* no presets on this Harness */ }
+    return { models, permissions, ...(session === undefined ? {} : { session }) };
+  }
+
+  async localSelectModel(sessionId: string, requested: unknown): Promise<{ selected: ModelSelection }> {
+    const selection = validateSelection(normalizeModelCatalog(await this.sessions.modelCatalog()), requested);
+    if (typeof selection === 'string') throw new Error(selection);
+    await this.sessions.selectModel(sessionId, selection);
+    return { selected: selection };
+  }
+
+  async localSetPermission(sessionId: string, requested: unknown): Promise<{ permission: string }> {
+    const preset = validatePermission(normalizePermissionCatalog(this.sessions.permissionCatalog()), requested);
+    if (typeof preset === 'object') throw new Error(preset.error);
+    await this.sessions.setPermission(sessionId, preset);
+    // Audit trail on this computer for a change made from another one.
+    this.logger.info('peer changed session permissions', { sessionId, permission: preset });
+    return { permission: preset };
   }
 
   /** Forward one `remote.*` call to a peer Harness through the edge. */
@@ -540,6 +591,50 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
         if (!isRecord(created) || typeof created['sessionId'] !== 'string') throw new Error('The new session was not created.');
         return created['sessionId'];
       },
+      modelCatalog: async () => {
+        const controller = sessionControllerOf(ctx);
+        if (typeof controller.modelCatalog !== 'function') throw new Error('This Harness cannot list its models right now.');
+        return controller.modelCatalog();
+      },
+      permissionCatalog: () => {
+        const presets = getService<PermissionPresetsLike>(ctx, 'permissionPresets');
+        if (typeof presets?.catalog !== 'function') return undefined;
+        const catalog = presets.catalog();
+        if (!isRecord(catalog) || !Array.isArray(catalog['options'])) return catalog;
+        // Mark presets that leave the sandbox, whatever they are called, so a peer confirms them like the local picker.
+        const options = catalog['options'].map((option: unknown) => {
+          if (!isRecord(option) || typeof option['value'] !== 'string') return option;
+          let sandbox: unknown;
+          try { sandbox = presets.resolve?.(option['value'])?.sandbox; } catch { /* custom or withdrawn */ }
+          return { ...option, dangerous: sandbox === 'danger-full-access' };
+        });
+        return { ...catalog, options };
+      },
+      projections: async (sessionId) => {
+        const controller = sessionControllerOf(ctx);
+        if (typeof controller.projections !== 'function') throw new Error('This Harness cannot read session settings right now.');
+        return controller.projections({ sessionId }, AbortSignal.timeout(10_000));
+      },
+      selectModel: async (sessionId, selection) => {
+        const controller = sessionControllerOf(ctx);
+        if (typeof controller.selectModel !== 'function') throw new Error('This Harness cannot change models right now.');
+        await controller.selectModel({ sessionId, ...selection });
+      },
+      setPermission: async (sessionId, preset) => {
+        // Same path as the local composer: the /permission command, logged in the session.
+        const agent = await lookupOf(ctx, 'agent', sessionId);
+        const commands = getService<CommandsLike>(ctx, 'commands');
+        if (typeof commands?.execute === 'function') {
+          const outcome = await commands.execute(agent, `/permission ${preset}`, [], AbortSignal.timeout(15_000));
+          const result = isRecord(outcome) && isRecord(outcome['result']) ? outcome['result'] : undefined;
+          if (result === undefined) throw new Error('This Harness has no /permission command.');
+          if (result['kind'] === 'error') throw new Error(typeof result['text'] === 'string' ? result['text'] : 'The permission mode was not changed.');
+          return;
+        }
+        const presets = getService<PermissionPresetsLike>(ctx, 'permissionPresets');
+        if (typeof presets?.set !== 'function' || !isRecord(agent)) throw new Error('This Harness cannot change permissions right now.');
+        presets.set(agent['session'], preset);
+      },
     },
   });
 
@@ -616,6 +711,9 @@ const PEER_ENDPOINTS = new Set([
   'remote.create',
   'remote.renameSession',
   'remote.organize',
+  'remote.config',
+  'remote.selectModel',
+  'remote.setPermission',
 ]);
 
 /** True for the calls another computer may make through the edge; everything else is local only. */
@@ -736,7 +834,10 @@ export interface SharingRpcTarget {
   localTranscript(sessionId: string, beforeSeq?: number): Promise<Transcript>;
   localPrompt(sessionId: string, text: string): Promise<{ accepted: true }>;
   localCancel(sessionId: string): Promise<{ ok: true }>;
-  localCreate(workspaceId: string): Promise<{ sessionId: string }>;
+  localCreate(workspaceId: string, settings?: { model?: unknown; permission?: unknown }): Promise<{ sessionId: string; warnings: string[] }>;
+  localConfig(sessionId?: string): Promise<SessionConfig>;
+  localSelectModel(sessionId: string, requested: unknown): Promise<{ selected: ModelSelection }>;
+  localSetPermission(sessionId: string, requested: unknown): Promise<{ permission: string }>;
   peerCall(deviceId: string, endpoint: string, payload: Record<string, unknown>): Promise<unknown>;
   renameComputer(deviceId: string, name: string): Promise<{ id: string; name: string }>;
   renameLocalSession(sessionId: string, title: string): Promise<{ ok: true }>;
@@ -833,7 +934,23 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       }
       case 'remote.create': {
         const workspace = typeof input['workspaceId'] === 'string' ? input['workspaceId'] : '';
-        return rpcOk(await target.localCreate(workspace));
+        return rpcOk(await target.localCreate(workspace, {
+          ...(input['model'] === undefined ? {} : { model: input['model'] }),
+          ...(input['permission'] === undefined ? {} : { permission: input['permission'] }),
+        }));
+      }
+      case 'remote.config': {
+        const sessionId = input['sessionId'];
+        if (sessionId !== undefined && !isSessionId(sessionId)) return rpcFail('bad-request', 'sessionId is invalid.');
+        return rpcOk(await target.localConfig(sessionId));
+      }
+      case 'remote.selectModel': {
+        if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
+        return rpcOk(await target.localSelectModel(input['sessionId'], input['selection']));
+      }
+      case 'remote.setPermission': {
+        if (!isSessionId(input['sessionId'])) return rpcFail('bad-request', 'sessionId is invalid.');
+        return rpcOk(await target.localSetPermission(input['sessionId'], input['permission']));
       }
       /* Called by this computer's own UI about a peer's session. */
       case 'session.history':
@@ -841,7 +958,10 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'session.cancel':
       case 'session.create':
       case 'session.workspaces':
-      case 'session.organize': {
+      case 'session.organize':
+      case 'session.config':
+      case 'session.selectModel':
+      case 'session.setPermission': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
         const { deviceId: _omit, ...rest } = input;
@@ -1026,6 +1146,28 @@ interface SessionControllerLike {
   projections?: (request: unknown, signal?: AbortSignal) => Promise<unknown>;
   prompt?: (request: unknown, signal: AbortSignal) => Promise<unknown>;
   cancel?: (request: unknown) => Promise<unknown>;
+  modelCatalog?: () => Promise<unknown>;
+  selectModel?: (request: unknown) => Promise<unknown>;
+}
+
+interface PermissionPresetsLike {
+  catalog?: () => unknown;
+  resolve?: (name: string) => { sandbox?: string } | undefined;
+  set?: (session: unknown, name: string) => void;
+}
+
+interface CommandsLike {
+  execute?: (agent: unknown, line: string, attachments: unknown[], signal: AbortSignal) => Promise<unknown>;
+}
+
+/** Resolve a session id the way Harness remote calls do (restores a cold session when needed). */
+async function lookupOf(ctx: CordisContextLike, key: 'agent' | 'session', sessionId: string): Promise<unknown> {
+  const typert = getService<{ lookups?: { get?: (key: string) => { resolve?: (id: string) => Promise<unknown> } | undefined } }>(ctx, 'typert');
+  const provider = typert?.lookups?.get?.(key);
+  if (typeof provider?.resolve !== 'function') throw new Error('This Harness cannot open that session right now.');
+  const found = await provider.resolve(sessionId);
+  if (found === undefined || found === null) throw new Error('That session is not on this computer.');
+  return found;
 }
 
 function sessionControllerOf(ctx: CordisContextLike): SessionControllerLike {

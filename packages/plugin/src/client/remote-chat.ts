@@ -1,3 +1,15 @@
+import {
+  confirmFullAccess,
+  isFullAccess,
+  modelEntries,
+  openChoiceMenu,
+  parseConfig,
+  permissionEntries,
+  renderModelTrigger,
+  renderPermissionTrigger,
+} from './session-settings.js';
+import type { ModelSelection, SessionConfig } from './session-settings.js';
+
 /**
  * Remote conversation panel.
  *
@@ -13,6 +25,8 @@ export interface RemoteTarget {
   deviceName: string;
   sessionId: string;
   title: string;
+  /** Shown once under the composer, e.g. a setting the new session could not take. */
+  notice?: string;
 }
 
 type TranscriptItem =
@@ -166,6 +180,9 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-notice[data-tone="error"] { color: #ef4444; }
 .dsh-rc-chat-empty { margin: 48px auto; text-align: center; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-rc-chat-foot { flex: 0 0 auto; padding: 10px 20px 18px; }
+.dsh-rc-chat-box { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 6px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
+.dsh-rc-chat-box .dsh-rc-chat-composer { max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.dsh-rc-chat-box .dsh-rc-set-bar { margin-left: -8px; }
 .dsh-rc-chat-composer { max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
 .dsh-rc-chat-input { flex: 1 1 auto; min-height: 24px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.5; padding: 4px 0; }
 .dsh-rc-chat-send { flex: 0 0 auto; height: 32px; padding: 0 14px; border: 0; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--dsw-alias-accent, #4c6ef5); color: #fff; }
@@ -208,6 +225,15 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const [older, setOlder] = React.useState(undefined as Older | undefined);
     const [loadingOlder, setLoadingOlder] = React.useState(false);
     const keepOffset = React.useRef(undefined as number | undefined);
+    // Model, effort and permission of the remote session, as the local composer shows them.
+    const [config, setConfig] = React.useState(undefined as SessionConfig | undefined);
+    const [model, setModel] = React.useState(null as ModelSelection | null);
+    const [permission, setPermission] = React.useState(null as string | null);
+    const [settingsBusy, setSettingsBusy] = React.useState(false);
+    // A refresh that lands while a change is in flight must not undo it.
+    const settingsWrite = React.useRef(0);
+    const permissionRef = React.useRef(null);
+    const modelRef = React.useRef(null);
 
     React.useEffect(() => remoteChatStore.subscribe(() => setTarget(remoteChatStore.get())), []);
 
@@ -240,8 +266,38 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       setTranscript(undefined);
       setOlder(undefined);
       setDraft('');
+      setError(target?.notice);
       pinned.current = true;
     }, [target?.deviceId, target?.sessionId]);
+
+    // Read the session's settings when it opens and after each turn (the
+    // owner may also change them on that computer). An older computer
+    // answers with an error: the controls stay hidden.
+    const settledRunning = transcript?.running === true;
+    React.useEffect(() => {
+      if (target === undefined) return undefined;
+      let alive = true;
+      const writeAtStart = settingsWrite.current;
+      call('session.config', { deviceId: target.deviceId, sessionId: target.sessionId }).then(
+        (value: unknown) => {
+          if (!alive) return;
+          const parsed = parseConfig(value);
+          setConfig(parsed);
+          if (settingsWrite.current !== writeAtStart) return;
+          setModel(parsed?.session?.model ?? parsed?.models.default ?? null);
+          setPermission(parsed?.session?.permission ?? null);
+        },
+        () => { if (alive) setConfig(undefined); },
+      );
+      return () => { alive = false; };
+    }, [target?.deviceId, target?.sessionId, settledRunning]);
+
+    React.useEffect(() => {
+      const button = permissionRef.current as HTMLButtonElement | null;
+      if (button !== null && config !== undefined) renderPermissionTrigger(button, t, config, permission);
+      const chip = modelRef.current as HTMLButtonElement | null;
+      if (chip !== null && config !== undefined) renderModelTrigger(chip, t, config, model);
+    });
 
     // Stay at the bottom while the reader is at the bottom; after loading an
     // earlier page, keep the message the reader was looking at in place.
@@ -259,6 +315,60 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     }
 
     const running = transcript?.running === true;
+    const applyModel = async (next: ModelSelection): Promise<void> => {
+      const previous = model;
+      settingsWrite.current += 1;
+      setModel(next);
+      setSettingsBusy(true);
+      try {
+        await call('session.selectModel', { deviceId: target.deviceId, sessionId: target.sessionId, selection: next });
+      } catch (reason) {
+        setModel(previous);
+        setError(messageOf(reason));
+      } finally {
+        setSettingsBusy(false);
+      }
+    };
+    const applyPermission = async (next: string): Promise<void> => {
+      if (next === permission) return;
+      // The same confirmation the local picker asks for before Full access.
+      if (isFullAccess(next, config) && !isFullAccess(permission, config) && !(await confirmFullAccess(t))) return;
+      const previous = permission;
+      settingsWrite.current += 1;
+      setPermission(next);
+      setSettingsBusy(true);
+      try {
+        await call('session.setPermission', { deviceId: target.deviceId, sessionId: target.sessionId, permission: next });
+      } catch (reason) {
+        setPermission(previous);
+        setError(messageOf(reason));
+      } finally {
+        setSettingsBusy(false);
+      }
+    };
+    const settingsBar = config === undefined
+      ? null
+      : h(
+        'div',
+        { className: 'dsh-rc-set-bar' },
+        config.permissions === null
+          ? null
+          : h('button', {
+            type: 'button',
+            ref: permissionRef,
+            className: 'dsh-rc-set-trigger',
+            disabled: settingsBusy,
+            onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsPermissions'), permissionEntries(t, config, permission, (value) => void applyPermission(value))),
+          }),
+        h('span', { className: 'dsh-rc-set-spacer' }),
+        h('button', {
+          type: 'button',
+          ref: modelRef,
+          className: 'dsh-rc-set-trigger',
+          disabled: settingsBusy || config.models.groups.length === 0,
+          onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsModelAndEffort'), modelEntries(t, config, model, (value) => void applyModel(value))),
+        }),
+      );
     const send = async (): Promise<void> => {
       const text = draft.trim();
       if (text === '' || sending) return;
@@ -378,6 +488,9 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         error === undefined ? null : h('div', { className: 'dsh-rc-chat-error' }, error),
         h(
           'div',
+          { className: 'dsh-rc-chat-box' },
+        h(
+          'div',
           { className: 'dsh-rc-chat-composer' },
           h('textarea', {
             className: 'dsh-rc-chat-input',
@@ -401,6 +514,8 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
           running && draft.trim() === ''
             ? h('button', { type: 'button', className: 'dsh-rc-chat-send', 'data-stop': 'true', onClick: () => void stop() }, t('chatStop'))
             : h('button', { type: 'button', className: 'dsh-rc-chat-send', disabled: sending || draft.trim() === '', onClick: () => void send() }, t('chatSend')),
+        ),
+        settingsBar,
         ),
       ),
     );

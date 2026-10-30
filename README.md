@@ -349,13 +349,23 @@ icons, spacing and hover actions. Choose a computer in the drop-down.
 Only computers you can open right now are listed (online, sharing, plugin
 v0.3.0 or later); the computer you are on is never listed, because its
 sessions are already in the normal Workspaces section. **✎** renames the
-computer and **+** starts a new session on it: it asks which project folder
-to use, listing every workspace on that computer in its own order (folders
-with no sessions yet included; hover one for its full path).
+computer and **+** starts a new session on it. New Remote Session asks for
+the same things a new local session uses: the **project folder** (every
+workspace on that computer in its own order, empty folders included; hover
+one for its full path), the **model and reasoning effort**, and the
+**permissions** (Read Only, Workspace Write, Full Access, and Auto Review when
+that computer offers it). It starts on that computer's own defaults, and Full
+Access asks for confirmation first, as it does locally.
 
 <p align="center"><img src="docs/images/09-folder-chooser.webp" alt="Choose a Project Folder menu listing billing-service, product-docs and new-client-portal" width="440"></p>
 
 <p align="center"><img src="docs/images/01-remote-workspaces.webp" alt="Remote Workspaces section listing an Office PC's sessions grouped by workspace" width="300"></p>
+
+**Change settings in a running session.** Under the message box of a remote
+conversation sit the same two controls as a local one: **Permissions** on the
+left, **model and effort** on the right. A change applies to that session's
+next message on that computer, exactly like switching it there. Only choices
+that computer offers are listed, and it checks every change again itself.
 
 **2. Fold what you do not need.** Click a workspace (folder icon) to fold or
 unfold it, just like local workspaces. The choice is remembered on that

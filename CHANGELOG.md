@@ -3,6 +3,14 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.2 - 2026-10-30
+
+- **Remote sessions are configured like local ones.** New Remote Session is now a dialog with **Project Folder**, **Model and Reasoning Effort** and **Permissions**, starting on that computer's own defaults. In an open remote conversation, the same two controls as the local composer sit under the message box: Permissions on the left, model and effort on the right. Changes apply to the session's next message, the same way switching on that computer does (the model through the Harness's own model selection, permissions through its `/permission` command, so they are recorded in the session).
+- Full Access (and Auto Review) asks for confirmation first, with the same warning as the local picker.
+- A model change made from another computer also becomes that computer's default for new sessions, exactly as switching in its own composer does.
+- Safe by design: new peer calls `remote.config`, `remote.selectModel` and `remote.setPermission` are for your own computers only (guests are refused at the edge, as for every host call). Every model, effort and preset is checked against that computer's own catalog before it reaches the Harness, and a new session is only created after its settings pass that check.
+- A computer still on an older version keeps working: the dialog offers the folder only and says it updates by itself.
+
 ## v0.4.1 - 2026-10-30
 
 - **Choose the project folder for a new remote session.** The **+** next to the computer picker opens Choose a Project Folder, listing every workspace on that computer in its own sidebar order, including folders with no sessions yet (it used to pick the first session's folder silently). Hover shows the full path. A computer still on an older version falls back to the folders known from its sessions. New peer call `remote.workspaces`; creating a session still only accepts a folder that computer already knows.
