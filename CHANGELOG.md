@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.7 - 2026-10-30
+
+- **A spinner while connecting, never a false "nothing here".** Remote Workspaces shows "Connecting to your computers…" or "Connecting to Peter-Portable…" with a spinner while it loads, instead of "None of your other computers can be opened right now" or an empty panel. A computer that keeps failing gets a plain reason after about 40 seconds, and a computer whose list refresh fails once keeps its sessions on screen. Each computer is asked separately, so one slow computer no longer delays the others.
+- **Remote conversations look like local ones.** A centred spinner while the conversation connects; messages, thinking, tool calls and code blocks use DeepSeek Harness's own chat styles (bubble, content width, quiet tool and thinking rows with a chevron, indented output, code blocks). A running tool shows a small spinner; a failed one says Failed.
+
 ## v0.4.6 - 2026-10-30
 
 - **The remote message box now looks like DeepSeek Harness's own.** One rounded card with the message field on top and a toolbar underneath: Permissions on the left, the model (with its release tag as a small pill, for example DeepSeek-V4.1-Flash **1017**) and effort on the right, and a round send button that turns into a stop button while the agent works. Attach and voice are left out because remote sessions cannot send files or audio.

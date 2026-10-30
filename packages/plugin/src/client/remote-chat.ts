@@ -195,20 +195,25 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-link { flex: 0 0 auto; border: 0; background: transparent; color: var(--dsw-alias-label-secondary, #8a8f98); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 .dsh-rc-chat-link:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
 .dsh-rc-chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.dsh-rc-chat-col { max-width: 760px; margin: 0 auto; padding: 20px 20px 32px; display: flex; flex-direction: column; gap: 14px; }
-.dsh-rc-chat-user { align-self: flex-end; max-width: 85%; padding: 9px 13px; border-radius: 14px; background: var(--dsw-alias-bg-secondary, rgba(127,127,127,0.14)); white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.55; }
-.dsh-rc-chat-assistant { font-size: 14px; line-height: 1.65; word-break: break-word; }
-.dsh-rc-chat-assistant p { margin: 0 0 10px; }
+.dsh-rc-chat-col { max-width: var(--dsh-chat-content-width, 748px); margin: 0 auto; padding: 16px 16px 32px; display: flex; flex-direction: column; gap: 16px; }
+.dsh-rc-chat-user { align-self: flex-end; max-width: min(calc(var(--dsh-chat-content-width, 748px) * .702), 82%); padding: 8px 14px; border-radius: var(--dsw-radius-xl, 16px); background: var(--dsw-specific-bubble, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--dsh-content-font-size, 14px); line-height: calc(22px + var(--dsh-content-font-delta, 0px)); }
+.dsh-rc-chat-assistant { font-size: var(--dsh-content-font-size, 14px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); color: var(--dsw-alias-label-primary, inherit); overflow-wrap: anywhere; }
+.dsh-rc-chat-assistant p { margin: 0 0 12px; }
 .dsh-rc-chat-assistant ul, .dsh-rc-chat-assistant ol { margin: 0 0 10px; padding-left: 22px; }
 .dsh-rc-chat-assistant a { color: var(--dsw-alias-label-link, #4c8bf5); }
-.dsh-rc-chat-h { font-weight: 650; margin: 12px 0 6px; }
-.dsh-rc-chat-code { font-family: var(--dsh-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; padding: 1px 5px; border-radius: 5px; background: rgba(127,127,127,0.15); }
-.dsh-rc-chat-pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: rgba(127,127,127,0.12); overflow-x: auto; overflow-y: hidden; font-family: var(--dsh-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; line-height: 1.5; white-space: pre; }
-.dsh-rc-chat-think, .dsh-rc-chat-tool { font-size: 12.5px; color: var(--dsw-alias-label-secondary, #8a8f98); }
-.dsh-rc-chat-think summary, .dsh-rc-chat-tool summary { cursor: pointer; padding: 3px 0; list-style: none; }
+.dsh-rc-chat-h { font-weight: 600; margin: 16px 0 8px; }
+.dsh-rc-chat-code { font-family: var(--dsh-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.9em; padding: 1px 5px; border-radius: var(--dsw-radius-xs, 4px); background: var(--dsw-alias-markdown-code-inline, rgba(127,127,127,0.14)); }
+.dsh-rc-chat-pre { margin: 0 0 12px; padding: 10px 12px; border: .5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.25)); border-radius: var(--dsw-radius-lg, 12px); background: var(--dsw-alias-markdown-code-block, rgba(127,127,127,0.08)); overflow-x: auto; overflow-y: hidden; font-family: var(--dsh-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; line-height: 1.55; white-space: pre; }
+.dsh-rc-chat-think, .dsh-rc-chat-tool { font-size: var(--dsh-content-font-size-secondary, 13px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); color: var(--dsw-alias-label-tertiary, #8a8f98); }
+.dsh-rc-chat-think summary, .dsh-rc-chat-tool summary { cursor: pointer; display: flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%; padding: 0 4px 0 0; border-radius: var(--dsw-radius-sm, 6px); list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dsh-rc-chat-think summary:hover, .dsh-rc-chat-tool summary:hover { color: var(--dsw-alias-label-secondary, #6b7280); }
+.dsh-rc-chat-think summary::before, .dsh-rc-chat-tool summary::before { content: ''; flex: none; width: 16px; height: 16px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 14px no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 14px no-repeat; transition: transform .12s; }
+.dsh-rc-chat-think[open] summary::before, .dsh-rc-chat-tool[open] summary::before { transform: rotate(90deg); }
 .dsh-rc-chat-think summary::-webkit-details-marker, .dsh-rc-chat-tool summary::-webkit-details-marker { display: none; }
-.dsh-rc-chat-think-body { white-space: pre-wrap; padding: 6px 0 6px 12px; border-left: 2px solid rgba(127,127,127,0.25); margin: 4px 0 8px; }
-.dsh-rc-chat-tool-name { font-weight: 600; color: var(--dsw-alias-label-primary, inherit); }
+.dsh-rc-chat-think-body { white-space: pre-wrap; padding: 4px 0 4px 22px; margin: 0 0 8px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
+.dsh-rc-chat-tool .dsh-rc-chat-pre { box-sizing: border-box; width: calc(100% - 22px); max-height: 141px; overflow-y: auto; margin: 4px 0 8px 22px; border: 0; border-radius: var(--dsw-radius-md, 8px); font-size: 12px; }
+.dsh-rc-chat-tool-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--dsw-alias-label-secondary, #6b7280); }
+.dsh-rc-chat-tool-failed { color: var(--dsw-alias-state-error-primary, #dc2626); }
 .dsh-rc-chat-notice { align-self: center; font-size: 12px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-rc-chat-notice[data-tone="error"] { color: #ef4444; }
 .dsh-rc-chat-empty { margin: 48px auto; text-align: center; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
@@ -227,6 +232,10 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-send:hover:not([disabled]) { filter: brightness(1.06); }
 .dsh-rc-chat-send[disabled] { background: var(--dsw-alias-state-business-disabled, #b8c4fb); cursor: default; }
 .dsh-rc-chat-send[data-stop="true"] { background: var(--dsw-alias-label-primary, #1f2329); color: var(--dsw-alias-bg-primary, #fff); }
+.dsh-rc-chat-connecting { margin: 72px auto; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
+.dsh-rc-spinner { display: inline-block; flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.25)); border-top-color: var(--dsw-alias-label-secondary, #6b7280); animation: dsh-rc-spin 0.8s linear infinite; }
+.dsh-rc-spinner-lg { width: 22px; height: 22px; }
+@keyframes dsh-rc-spin { to { transform: rotate(360deg); } }
 .dsh-rc-chat-older {
   align-self: center; margin: 0 0 8px; padding: 4px 12px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25));
   border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); font: inherit; font-size: 12px; cursor: pointer;
@@ -507,7 +516,7 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         return h(
           'details',
           { key, className: 'dsh-rc-chat-tool' },
-          h('summary', null, item.tool.failed === true ? '✕ ' : '› ', h('span', { className: 'dsh-rc-chat-tool-name' }, item.tool.name), item.tool.output === undefined ? ` · ${t('chatRunning')}` : ''),
+          h('summary', null, h('span', { className: 'dsh-rc-chat-tool-name' }, item.tool.name), item.tool.failed === true ? h('span', { className: 'dsh-rc-chat-tool-failed' }, t('chatFailed')) : null, item.tool.output === undefined ? h('span', { className: 'dsh-rc-spinner', role: 'img', 'aria-label': t('chatRunning') }) : null),
           h('pre', { className: 'dsh-rc-chat-pre' }, item.tool.input),
           item.tool.output === undefined ? null : h('pre', { className: 'dsh-rc-chat-pre' }, item.tool.output === '' ? t('chatNoOutput') : item.tool.output),
         );
@@ -538,7 +547,9 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         h(
           'div',
           { className: 'dsh-rc-chat-col' },
-          transcript === undefined && error === undefined ? h('div', { className: 'dsh-rc-chat-empty' }, t('chatLoading')) : null,
+          transcript === undefined && error === undefined
+            ? h('div', { className: 'dsh-rc-chat-connecting', role: 'status' }, h('span', { className: 'dsh-rc-spinner dsh-rc-spinner-lg', 'aria-hidden': 'true' }), h('span', null, t('chatConnecting').replace('{name}', target.deviceName)))
+            : null,
           canLoadOlder
             ? h('button', { type: 'button', className: 'dsh-rc-chat-older', disabled: loadingOlder, onClick: () => void loadOlder() }, loadingOlder ? t('chatLoading') : t('chatLoadEarlier'))
             : null,

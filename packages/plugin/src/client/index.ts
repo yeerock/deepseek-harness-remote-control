@@ -373,12 +373,14 @@ const EN: Record<string, string> = {
   chatImages: 'image(s)',
   chatThinking: 'Thinking',
   chatRunning: 'running',
+  chatFailed: 'Failed',
   chatNoOutput: '(no output)',
   chatRemoteHint: 'This session runs on that computer. Its files, tools and permissions stay there.',
   chatUntitled: 'New Session',
   chatFullView: 'Open Full View',
   chatFullViewHint: "Open that computer's own interface (files, terminal) in a side tab",
   chatLoading: 'Loading conversation…',
+  chatConnecting: 'Connecting to {name}…',
   chatLoadEarlier: 'Load Earlier Messages',
   chatEmpty: 'No messages yet. Send the first one below.',
   chatWorking: 'Working…',
@@ -446,6 +448,9 @@ const EN: Record<string, string> = {
   remoteNewSession: 'New Session on This Computer',
   remoteChooseFolder: 'Choose a Project Folder',
   remoteSessionsLoading: 'Loading sessions…',
+  remoteConnecting: 'Connecting to your computers…',
+  remoteConnectingTo: 'Connecting to {name}…',
+  remoteCannotReach: '{name} is online but did not answer: {reason}',
   remoteSessionsUnavailable: 'Sessions unavailable (update the plugin on that computer)',
   remoteSessionsEmpty: 'No sessions yet',
   remoteShowAll: 'Show all ({count})',
@@ -539,12 +544,14 @@ const ZH: Record<string, string> = {
   chatImages: '张图片',
   chatThinking: '思考过程',
   chatRunning: '运行中',
+  chatFailed: '失败',
   chatNoOutput: '（无输出）',
   chatRemoteHint: '此会话运行在那台电脑上，其文件、工具和权限都保留在那里。',
   chatUntitled: '新会话',
   chatFullView: '打开完整视图',
   chatFullViewHint: '在侧边标签中打开那台电脑自身的界面（文件、终端）',
   chatLoading: '正在加载对话…',
+  chatConnecting: '正在连接 {name}…',
   chatLoadEarlier: '加载更早的消息',
   chatEmpty: '暂无消息，在下方发送第一条。',
   chatWorking: '处理中…',
@@ -612,6 +619,9 @@ const ZH: Record<string, string> = {
   remoteNewSession: '在此 Harness 新建会话',
   remoteChooseFolder: '选择项目文件夹',
   remoteSessionsLoading: '正在加载会话…',
+  remoteConnecting: '正在连接你的电脑…',
+  remoteConnectingTo: '正在连接 {name}…',
+  remoteCannotReach: '{name} 在线但没有响应：{reason}',
   remoteSessionsUnavailable: '无法读取会话（请更新对方电脑上的插件）',
   remoteSessionsEmpty: '暂无会话',
   remoteShowAll: '显示全部（{count}）',
@@ -1146,6 +1156,8 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
   height: 28px; margin: 0; padding: 0 8px 0 36px; border: 0; background: transparent; cursor: pointer;
   font: inherit; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c);
 }
+.dsh-rc-remote-ws-loading { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 8px 6px 10px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-tertiary, #81858c); }
+@media (prefers-reduced-motion: reduce) { .dsh-rc-spinner { animation: none; } }
 .dsh-rc-remote-ws-note { margin: 0; padding: 2px 8px 2px 4px; font-size: 12px; color: var(--dsw-alias-label-tertiary, #81858c); }
 .dsh-rc-remote-ws-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rc-remote-ws-new {
@@ -1422,13 +1434,15 @@ function createComponent(React: any): (props: AnyProps) => any {
     const ReactUse = React;
     const [status, setStatus] = ReactUse.useState(undefined as DshRcStatusView | undefined);
     const [harnessPeers, setHarnessPeers] = ReactUse.useState([] as HarnessPeerView[]);
+    // False until the first computer list arrives: show a spinner, never "no computers", meanwhile.
+    const [peersLoaded, setPeersLoaded] = ReactUse.useState(false);
     const [harnessPublicUrl, setHarnessPublicUrl] = ReactUse.useState('');
     const [selectedHost, setSelectedHost] = ReactUse.useState(
       (() => { try { return globalThis.localStorage?.getItem('dsh-rc.remoteHost') ?? ''; } catch { return ''; } })() as string,
     );
     const [ownNameDraft, setOwnNameDraft] = ReactUse.useState(undefined as string | undefined);
     const [renameError, setRenameError] = ReactUse.useState(undefined as string | undefined);
-    const [remoteSessions, setRemoteSessions] = ReactUse.useState({} as Record<string, { sessions?: RemoteSessionView[]; error?: string }>);
+    const [remoteSessions, setRemoteSessions] = ReactUse.useState({} as Record<string, { sessions?: RemoteSessionView[]; error?: string; failures?: number }>);
     const [showAll, setShowAll] = ReactUse.useState({} as Record<string, boolean>);
     const [embedUrl, setEmbedUrl] = ReactUse.useState(undefined as string | undefined);
     const [open, setOpen] = ReactUse.useState(false);
@@ -1479,14 +1493,19 @@ function createComponent(React: any): (props: AnyProps) => any {
     // Paired Harnesses for the sidebar switcher; metadata only, no secrets.
     ReactUse.useEffect(() => {
       let alive = true;
+      let failedLists = 0;
       const tick = async (): Promise<void> => {
         try {
           const result = (await call('harness.list')) as { peers?: HarnessPeerView[]; publicUrl?: string };
           if (!alive) return;
           setHarnessPeers(Array.isArray(result.peers) ? result.peers : []);
+          setPeersLoaded(true);
           if (typeof result.publicUrl === 'string') setHarnessPublicUrl(result.publicUrl);
         } catch {
-          // The agent may still be connecting; keep the last known list.
+          // The agent may still be connecting; keep the last known list, but stop
+          // the spinner after about 15 s so the panel shows its normal state.
+          failedLists += 1;
+          if (failedLists >= 3 && alive) setPeersLoaded(true);
         }
       };
       void tick();
@@ -2030,18 +2049,19 @@ function createComponent(React: any): (props: AnyProps) => any {
     ReactUse.useEffect(() => {
       if (onlineKey === '' || props.wide === false) return undefined;
       let cancelled = false;
-      let inFlight = false;
+      // Per computer, so one slow computer never stacks requests for the others.
+      const inFlight = new Set<string>();
       const load = (): void => {
-        // Skip a tick while the previous request is still out (slow or offline peer).
-        if (inFlight) return;
-        inFlight = true;
         for (const id of onlineKey.split(',')) {
-          void call('remote.sessions', { deviceId: id }).finally(() => { inFlight = false; }).then(
+          // Skip a tick while this computer's previous request is still out.
+          if (inFlight.has(id)) continue;
+          inFlight.add(id);
+          void call('remote.sessions', { deviceId: id }).finally(() => { inFlight.delete(id); }).then(
             (value: { sessions?: RemoteSessionView[] }) => {
               if (!cancelled) setRemoteSessions((previous: any) => ({ ...previous, [id]: { sessions: value.sessions ?? [] } }));
             },
             (reason: unknown) => {
-              if (!cancelled) setRemoteSessions((previous: any) => ({ ...previous, [id]: { error: messageOf(reason) } }));
+              if (!cancelled) setRemoteSessions((previous: any) => ({ ...previous, [id]: previous[id]?.sessions !== undefined ? previous[id] : { error: messageOf(reason), failures: (previous[id]?.failures ?? 0) + 1 } }));
             },
           );
         }
@@ -2130,6 +2150,22 @@ function createComponent(React: any): (props: AnyProps) => any {
         });
         header.append(...(pill === null ? [title, gear] : [title, pill, gear]));
         container.append(header);
+        const loadingNote = (text: string): HTMLDivElement => {
+          const note = document.createElement('div');
+          note.className = 'dsh-rc-remote-ws-loading';
+          note.setAttribute('role', 'status');
+          const spinner = document.createElement('span');
+          spinner.className = 'dsh-rc-spinner';
+          spinner.setAttribute('aria-hidden', 'true');
+          const label = document.createElement('span');
+          label.textContent = text;
+          note.append(spinner, label);
+          return note;
+        };
+        if (!peersLoaded) {
+          container.append(loadingNote(t('remoteConnecting')));
+          return;
+        }
         if (harnessPeers.length === 0) {
           const empty = document.createElement('div');
           empty.className = 'dsh-rc-remote-ws-empty';
@@ -2163,10 +2199,32 @@ function createComponent(React: any): (props: AnyProps) => any {
         const others = harnessPeers.filter((peer: HarnessPeerView) =>
           peer.id !== status?.deviceId && peer.online === true && remoteSessions[peer.id]?.sessions !== undefined);
         const peer = others.find((candidate: HarnessPeerView) => candidate.id === selectedHost) ?? (others.length === 1 ? others[0] : undefined);
+        // Online computers whose sessions are still on their way: connecting, not "none".
+        const pending = harnessPeers.filter((candidate: HarnessPeerView) =>
+          candidate.id !== status?.deviceId && candidate.online === true && remoteSessions[candidate.id]?.sessions === undefined
+          && (remoteSessions[candidate.id]?.failures ?? 0) < 2);
+        if (others.length === 0 && pending.length > 0) {
+          // A failed attempt is retried on the next poll, so it is still "connecting"; the reason stays on hover.
+          const note = loadingNote(pending.length === 1 ? t('remoteConnectingTo').replace('{name}', pending[0]?.name ?? '') : t('remoteConnecting'));
+          const reason = pending.map((candidate: HarnessPeerView) => remoteSessions[candidate.id]?.error).find((value: string | undefined) => value !== undefined);
+          if (reason !== undefined) note.title = reason;
+          container.append(note);
+          return;
+        }
         if (others.length === 0) {
           const hint = document.createElement('div');
           hint.className = 'dsh-rc-remote-ws-note';
           hint.style.marginLeft = '8px';
+          // An online computer that keeps failing: say which one and why, in plain words.
+          const failing = harnessPeers.find((candidate: HarnessPeerView) => candidate.id !== status?.deviceId && candidate.online === true && remoteSessions[candidate.id]?.error !== undefined);
+          if (failing !== undefined) {
+            const reason = remoteSessions[failing.id]?.error ?? '';
+            hint.textContent = /not available over the edge|answered HTTP 40[34]/i.test(reason)
+              ? t('remoteSessionsUnavailable')
+              : t('remoteCannotReach').replace('{name}', failing.name).replace('{reason}', reason);
+            container.append(hint);
+            return;
+          }
           hint.textContent = t('remoteNoneOnline');
           container.append(hint);
           return;
@@ -2261,10 +2319,7 @@ function createComponent(React: any): (props: AnyProps) => any {
           {
             const entry = remoteSessions[peer.id];
             if (entry === undefined) {
-              const note = document.createElement('div');
-              note.className = 'dsh-rc-remote-ws-note';
-              note.textContent = t('remoteSessionsLoading');
-              container.append(note);
+              container.append(loadingNote(t('remoteSessionsLoading')));
             } else if (entry.error !== undefined) {
               const note = document.createElement('div');
               note.className = 'dsh-rc-remote-ws-note';
@@ -2415,7 +2470,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         observer.disconnect();
         container?.remove();
       };
-    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, status?.version, (status as any)?.updateState, (status as any)?.updatePercent, (status as any)?.latestVersion, (status as any)?.updateMessage, t, stateLabel, color, setOpen]);
+    }, [harnessPeers, peersLoaded, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, status?.version, (status as any)?.updateState, (status as any)?.updatePercent, (status as any)?.latestVersion, (status as any)?.updateMessage, t, stateLabel, color, setOpen]);
 
     return h(
       'div',
