@@ -257,6 +257,7 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-file-x:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); color: var(--dsw-alias-label-primary, inherit); }
 .dsh-rc-chat-voice { display: flex; align-items: center; gap: 10px; margin: 10px 12px 0; padding: 6px 6px 6px 12px; border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-module-platform, rgba(127,127,127,0.08)); font-size: 13px; color: var(--dsw-alias-label-secondary, #6b7280); }
 .dsh-rc-chat-voice-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--dsw-alias-state-error-primary, #dc2626); transition: transform .1s; }
+@media (prefers-reduced-motion: reduce) { .dsh-rc-chat-file-bar, .dsh-rc-chat-voice-dot, .dsh-rc-chat-think summary::before, .dsh-rc-chat-tool summary::before, .dsh-rc-chat-process > summary::after { transition: none; } }
 .dsh-rc-chat-voice-text { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
 .dsh-rc-chat-voice-btn { height: 28px; padding: 0 12px; border: .5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.3)); border-radius: var(--dsw-radius-md, 8px); background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
 .dsh-rc-chat-voice-btn[data-primary="true"] { border-color: transparent; background: var(--dsw-alias-state-business-primary, #4d6bfe); color: #fff; }
@@ -397,6 +398,7 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       recording.current?.cancel();
       recording.current = undefined;
       setVoicePhase('idle');
+      setSettingsBusy(false);
       setOlder(undefined);
       setDraft('');
       setError(target?.notice);
@@ -501,16 +503,19 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const running = transcript?.running === true;
     const applyModel = async (next: ModelSelection): Promise<void> => {
       const previous = model;
+      const generation = viewGeneration.current;
       settingsWrite.current += 1;
       setModel(next);
       setSettingsBusy(true);
       try {
         await call('session.selectModel', { deviceId: target.deviceId, sessionId: target.sessionId, selection: next });
       } catch (reason) {
-        setModel(previous);
-        setError(messageOf(reason));
+        if (viewGeneration.current === generation) {
+          setModel(previous);
+          setError(messageOf(reason));
+        }
       } finally {
-        setSettingsBusy(false);
+        if (viewGeneration.current === generation) setSettingsBusy(false);
       }
     };
     const applyPermission = async (next: string): Promise<void> => {
@@ -518,16 +523,19 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       // The same confirmation the local picker asks for before Full access.
       if (isFullAccess(next, config) && !isFullAccess(permission, config) && !(await confirmFullAccess(t))) return;
       const previous = permission;
+      const generation = viewGeneration.current;
       settingsWrite.current += 1;
       setPermission(next);
       setSettingsBusy(true);
       try {
         await call('session.setPermission', { deviceId: target.deviceId, sessionId: target.sessionId, permission: next });
       } catch (reason) {
-        setPermission(previous);
-        setError(messageOf(reason));
+        if (viewGeneration.current === generation) {
+          setPermission(previous);
+          setError(messageOf(reason));
+        }
       } finally {
-        setSettingsBusy(false);
+        if (viewGeneration.current === generation) setSettingsBusy(false);
       }
     };
     // The local composer's toolbar: Permissions on the left, model and effort on the right.
@@ -663,11 +671,12 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     };
     finishVoiceRef.current = finishVoice;
     const stop = async (): Promise<void> => {
+      const generation = viewGeneration.current;
       try {
         await call('session.cancel', { deviceId: target.deviceId, sessionId: target.sessionId });
-        setTick((value: number) => value + 1);
+        if (viewGeneration.current === generation) setTick((value: number) => value + 1);
       } catch (reason) {
-        setError(messageOf(reason));
+        if (viewGeneration.current === generation) setError(messageOf(reason));
       }
     };
 

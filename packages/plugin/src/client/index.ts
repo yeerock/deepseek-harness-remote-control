@@ -451,8 +451,8 @@ const EN: Record<string, string> = {
   qrHint: 'Scan to open the pairing link in a browser.',
   unconfigured: 'Set edgeUrl in the plugin config before starting.',
   sharingTitle: 'Share this Harness with guests',
-  sharingOffHint: 'Off — nobody else can connect.',
-  sharingOnHint: 'On — anyone with an invite link can request access. You approve every guest.',
+  sharingOffHint: 'Off. Nobody else can connect.',
+  sharingOnHint: 'On. Anyone with an invite link can request access. You approve every guest.',
   sharingOn: 'On',
   sharingOff: 'Off',
   sharingTtl: 'Invite expires',
@@ -476,7 +476,7 @@ const EN: Record<string, string> = {
   sharingRevokeAll: 'Revoke all',
   sharingConfirmRevoke: 'Revoke this guest? Their browser session ends immediately.',
   sharingConfirmRevokeAll: 'Revoke all guests? Every guest session ends immediately.',
-  sharingMultiWarning: 'Multiple guests share this one desktop — workspace, terminal and tools. They can interfere with each other.',
+  sharingMultiWarning: 'Multiple guests share this one desktop: workspace, terminal and tools. They can interfere with each other.',
   sharingLoopbackWarning: 'Guests need a public edge URL. This edge advertises a loopback or unknown address, so an invite link will not open from another machine. Use Tailscale Funnel or a VPS edge.',
   sharingInvites: 'Outstanding invites',
   harnessTitle: 'Harnesses',
@@ -662,8 +662,8 @@ const ZH: Record<string, string> = {
   qrHint: '扫码在浏览器中打开配对链接。',
   unconfigured: '请先在插件配置中设置 edgeUrl。',
   sharingTitle: '与访客共享此 Harness',
-  sharingOffHint: '已关闭——其他人无法连接。',
-  sharingOnHint: '已开启——任何持有邀请链接的人都可以申请访问。每位访客都需要你批准。',
+  sharingOffHint: '已关闭。其他人无法连接。',
+  sharingOnHint: '已开启。任何持有邀请链接的人都可以申请访问。每位访客都需要你批准。',
   sharingOn: '开',
   sharingOff: '关',
   sharingTtl: '邀请有效期',
@@ -687,7 +687,7 @@ const ZH: Record<string, string> = {
   sharingRevokeAll: '全部撤销',
   sharingConfirmRevoke: '撤销此访客？其浏览器会话将立即结束。',
   sharingConfirmRevokeAll: '撤销全部访客？所有访客会话都将立即结束。',
-  sharingMultiWarning: '多位访客共享同一台桌面——工作区、终端和工具都可被操作，他们可能互相干扰。',
+  sharingMultiWarning: '多位访客共享同一台桌面：工作区、终端和工具都可被操作，他们可能互相干扰。',
   sharingLoopbackWarning: '访客需要可公开访问的边缘地址。当前边缘节点广播的是回环或未知地址，因此邀请链接无法从其他机器打开。请使用 Tailscale Funnel 或 VPS 边缘节点。',
   sharingInvites: '未使用的邀请',
   harnessTitle: 'Harness 主机',
@@ -906,7 +906,7 @@ function relativeAge(timestamp: number): string {
 }
 
 function formatSince(since: number | undefined): string {
-  if (since === undefined || !Number.isFinite(since) || since <= 0) return '—';
+  if (since === undefined || !Number.isFinite(since) || since <= 0) return '-';
   const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
   if (seconds < 60) return `${String(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
@@ -1866,10 +1866,10 @@ function createComponent(React: any): (props: AnyProps) => any {
     };
 
     const rows: any[] = [
-      [t('version'), status?.version ?? '—', true],
+      [t('version'), status?.version ?? '-', true],
       [t('state'), h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '6px' } }, h('span', { style: styles.dot(color) }), stateLabel)],
-      [t('device'), redact(status?.deviceName ?? '—')],
-      [t('edge'), redact(status?.edgeUrl ?? '—')],
+      [t('device'), redact(status?.deviceName ?? '-')],
+      [t('edge'), redact(status?.edgeUrl ?? '-')],
     ];
     if (status?.deviceId !== undefined) rows.push([t('device') + ' ID', status.deviceId, true]);
     if (status?.latencyMs !== undefined) rows.push([t('latency'), `${String(status.latencyMs)} ms`]);
@@ -1998,7 +1998,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                   listRow(
                     `approval-${approval.id ?? approval.ip ?? 'unknown'}`,
                     approval.label !== undefined && approval.label !== '' ? approval.label : t('sharingGuestUnknown'),
-                    `${approval.ip ?? '—'} · ${formatSince(approval.createdAt)}`,
+                    `${approval.ip ?? '-'} · ${formatSince(approval.createdAt)}`,
                     [
                       h('button', { key: 'approve', type: 'button', style: styles.smallButton, disabled: sharingBusy, onClick: () => decideApproval(approval.id, 'approve') }, t('sharingApprove')),
                       h('button', { key: 'deny', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => decideApproval(approval.id, 'deny') }, t('sharingDeny')),
@@ -2019,7 +2019,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                   listRow(
                     `guest-${guest.sessionId ?? guest.ip ?? 'unknown'}`,
                     guest.label !== undefined && guest.label !== '' ? guest.label : t('sharingGuestUnknown'),
-                    `${guest.ip ?? '—'} · ${t('since')} ${formatSince(guest.since)}`,
+                    `${guest.ip ?? '-'} · ${t('since')} ${formatSince(guest.since)}`,
                     [
                       h('button', { key: 'revoke', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => revokeGuest(guest.sessionId) }, t('sharingRevoke')),
                     ],
@@ -2035,7 +2035,7 @@ function createComponent(React: any): (props: AnyProps) => any {
               : sharingInvites.map((row: SharingInviteView) =>
                   listRow(
                     `invite-${row.id ?? 'unknown'}`,
-                    row.label !== undefined && row.label !== '' ? row.label : (row.id ?? '—'),
+                    row.label !== undefined && row.label !== '' ? row.label : (row.id ?? '-'),
                     `${t('sharingExpires')}: ${formatExpiry(row.expiresAt, t('ttlNever'))} · ${String(row.uses ?? 0)}/${String(row.maxUses ?? 1)} ${t('sharingUses')}`,
                     [
                       h('button', { key: 'revoke-invite', type: 'button', style: styles.dangerButton, disabled: sharingBusy, onClick: () => revokeInvite(row.id) }, t('sharingRevokeInvite')),
@@ -2619,7 +2619,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                             onDoubleClick: () => setOwnNameDraft(status?.deviceName ?? ''),
                             style: { fontSize: '12.5px', fontWeight: 600 },
                           },
-                          redact(status?.deviceName ?? '—'),
+                          redact(status?.deviceName ?? '-'),
                         )
                       : h('input', {
                           autoFocus: true,

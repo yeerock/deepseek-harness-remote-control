@@ -295,7 +295,10 @@ class DshRcService {
     return buildTranscript(records, { hasMore: firstSeq > 1, running, title, firstSeq });
   }
 
-  async localPrompt(sessionId: string, text: string, uploadIds: unknown[] = []): Promise<{ accepted: true }> {
+  async localPrompt(sessionId: string, text: string, rawUploadIds: unknown[] = []): Promise<{ accepted: true }> {
+    if (rawUploadIds.length > MAX_FILES_PER_PROMPT * 2) throw new Error(`Up to ${String(MAX_FILES_PER_PROMPT)} files can go with one message.`);
+    // The same file listed twice is attached once; anything that is not an id is refused by staging.
+    const uploadIds = [...new Set(rawUploadIds)];
     if (uploadIds.length > MAX_FILES_PER_PROMPT) throw new Error(`Up to ${String(MAX_FILES_PER_PROMPT)} files can go with one message.`);
     if (uploadIds.length === 0) return this.sendPrompt(sessionId, [{ type: 'text', text }]);
     // One message with files at a time keeps memory bounded (each file is held as bytes, base64 and JSON).
@@ -489,6 +492,8 @@ class DshRcService {
     return this.status();
   }
 
+  private lastPeerUpdateCheck = 0;
+
   /**
    * Update asked for by another of the owner's computers: install the latest
    * release now, or load an installed one. Never restarts while a session
@@ -503,6 +508,9 @@ class DshRcService {
       this.updates.restartForPeer();
       return this.status();
     }
+    // A check reaches GitHub; one a minute from afar is plenty.
+    if (Date.now() - this.lastPeerUpdateCheck < 60_000) return this.status();
+    this.lastPeerUpdateCheck = Date.now();
     this.logger.info('peer asked for an update check');
     return this.updateCheck();
   }
