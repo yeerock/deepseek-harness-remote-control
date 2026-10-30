@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchEndpoint, isPeerEndpoint, type SharingRpcTarget } from '../src/host.js';
+import { dispatchEndpoint, isPeerEndpoint, normalizeSessions, type SharingRpcTarget } from '../src/host.js';
 import {
   normalizeModelCatalog,
   normalizePermissionCatalog,
@@ -158,3 +158,20 @@ describe('session settings endpoints', () => {
     expect(localCreate).toHaveBeenLastCalledWith('/w/a', {});
   });
 });
+
+describe('replies the Harness client can read', () => {
+  it('every failure carries details, or the client hides the message as an invalid server response', async () => {
+    const reply = await dispatchEndpoint({} as unknown as SharingRpcTarget, 'remote.config', { sessionId: '../x' });
+    expect(reply).toMatchObject({ ok: false, error: { code: expect.any(String), message: expect.any(String), details: {} } });
+  });
+
+  it('leaves subagent sessions out of the list, as the local sidebar does', () => {
+    const rows = normalizeSessions([
+      { sessionId: 'session-a', title: 'Parent', cwd: '/w/a' },
+      { sessionId: '3c165331-e3dc', title: 'You are the documentation engineer', cwd: '/w/a', origin: 'subagent', parentSessionId: 'session-a' },
+      { sessionId: 'session-fork', title: 'A forked session', cwd: '/w/a', parentSessionId: 'session-a' },
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(['session-a', 'session-fork']);
+  });
+});
+

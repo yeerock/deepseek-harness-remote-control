@@ -267,7 +267,7 @@ describe('sharing RPC dispatch', () => {
     });
     await expect(dispatchEndpoint(t, 'sharing.get', {})).resolves.toEqual({
       ok: false,
-      error: { code: 'RATE_LIMITED', message: 'Too many requests.' },
+      error: { code: 'RATE_LIMITED', message: 'Too many requests.', details: {} },
     });
   });
 

@@ -77,14 +77,19 @@ export interface DshRcStatus extends AgentStatus {
 /** RPC reply envelope expected by `ctx.connection.rpc.call` on the client. */
 export type RpcReply<T> =
   | { ok: true; value: T }
-  | { ok: false; error: { code: string; message: string } };
+  | { ok: false; error: { code: string; message: string; details: Record<string, unknown> } };
 
 export function rpcOk<T>(value: T): RpcReply<T> {
   return { ok: true, value };
 }
 
+/**
+ * A failure reply. `details` is required: the Harness client rejects an error
+ * without it as "connection: invalid server-response failure", which hid the
+ * real message of every failed call.
+ */
 export function rpcFail(code: string, message: string): RpcReply<never> {
-  return { ok: false, error: { code, message } };
+  return { ok: false, error: { code, message, details: {} } };
 }
 
 /** Browser-visible RPC channel; the client posts `<channel>/<endpoint>`. */

@@ -820,7 +820,7 @@ async function handleRpcRequest(
     writeRpcJson(response, 400, {
       type: 'server-response',
       rpcId,
-      result: { ok: false, error: { code: 'gateway/bad-request', message: 'invalid client-request envelope' } },
+      result: { ok: false, error: { code: 'gateway/bad-request', message: 'invalid client-request envelope', details: {} } },
     });
     return;
   }
@@ -828,7 +828,7 @@ async function handleRpcRequest(
     writeRpcJson(response, 200, {
       type: 'server-response',
       rpcId,
-      result: { ok: false, error: { code: 'gateway/bad-request', message: `method does not match endpoint ${JSON.stringify(endpoint)}` } },
+      result: { ok: false, error: { code: 'gateway/bad-request', message: `method does not match endpoint ${JSON.stringify(endpoint)}`, details: {} } },
     });
     return;
   }
@@ -1287,6 +1287,9 @@ export function normalizeSessions(rows: unknown[], limit = SESSION_ROWS_MAX): Re
     if (!isRecord(raw)) continue;
     const id = pickString(raw, ['sessionId', 'id']);
     if (id === '' || raw['archived'] === true || raw['archivedAt'] != null || raw['blank'] === true) continue;
+    // Subagent sessions belong to their parent, as in the local sidebar; their history needs the parent's address.
+    // (Forks also carry a parentSessionId but are ordinary sessions, so only `origin` decides.)
+    if (raw['origin'] === 'subagent') continue;
     const workspace = isRecord(raw['workspace']) ? raw['workspace'] : {};
     const directory = pickString(raw, ['directory', 'cwd', 'workspacePath', 'path']) || pickString(workspace, ['directory', 'path']);
     const workspaceId = pickString(raw, ['workspaceId']) || pickString(workspace, ['id', 'workspaceId']) || directory;

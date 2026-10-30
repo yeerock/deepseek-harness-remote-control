@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.5 - 2026-10-30
+
+- **Fix: errors now show their real message.** Every failed DSH RC call showed "connection: invalid server-response failure" instead of what went wrong, because the replies lacked a field DeepSeek Harness requires. Now you see, for example, that a session is still working or a computer is offline.
+- **Fix: subagent sessions are no longer listed as remote sessions.** Helper sessions started by another session (for example "You are the documentation engineer") appeared as ordinary sessions and could not be opened. They are left out, as in the local sidebar; forked sessions stay listed.
+
 ## v0.4.4 - 2026-10-30
 
 - **Fix: a computer could get stuck on an old version for good.** When an automatic restart did not actually happen, the updater stayed in "restarting" forever and skipped every later update check, so the computer never got newer releases (seen on a Windows host stuck on 0.3.9). A restart that has not happened within 3 minutes now counts as failed: it is retried (still at most twice per release), update checks continue, and the panel says why, from the restart helper's own log.
