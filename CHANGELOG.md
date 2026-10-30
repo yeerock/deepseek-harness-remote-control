@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.10 - 2026-10-30
+
+- **Fix: in New Remote Session, the Project Folder, Model and Permissions menus opened behind the dialog.** They now open on top of it.
+- **Fix: an empty box stayed under Permissions** after the dialog finished loading. It is gone.
+
 ## v0.4.9 - 2026-10-30
 
 - **Fix: the main area could go blank.** Reading DeepSeek Harness's voice service failed on a computer where voice input is off, and that error took the whole remote conversation down. It is now safe, and any failure inside a remote conversation shows "This conversation could not be shown." with Try Again instead of an empty screen.
