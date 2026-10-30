@@ -139,6 +139,19 @@ export function modelLabel(config: SessionConfig, selection: ModelSelection | nu
   return { model: model?.name ?? selection?.model ?? '', effort };
 }
 
+/**
+ * DSH shows a model's release tag as a small pill ("DeepSeek-V4.1-Flash" + "1017").
+ * The tag is a trailing 4-digit token of the name, or of the id when the name lacks it.
+ */
+export function splitModelBadge(name: string, id: string): { name: string; badge: string } {
+  // A year ("Model 2025") is part of the name, not a release tag.
+  const isYear = (tag: string | undefined): boolean => tag !== undefined && /^(19|20)\d\d$/.test(tag);
+  const fromName = /^(.*\S)[\s-]+(\d{4})$/.exec(name);
+  if (fromName !== null && !isYear(fromName[2])) return { name: fromName[1] ?? name, badge: fromName[2] ?? '' };
+  const fromId = /[-_](\d{4})$/.exec(id);
+  return { name, badge: fromId === null || isYear(fromId[1]) || fromName !== null ? '' : fromId[1] ?? '' };
+}
+
 /** Keep a selection valid when the model changes: same effort if offered, else the model's default. */
 export function withModel(model: ModelOption, provider: string, effort: string | undefined): ModelSelection {
   const keep = effort !== undefined && model.efforts.some((candidate) => candidate.id === effort) ? effort : model.defaultEffort;
@@ -208,9 +221,9 @@ export const SESSION_SETTINGS_CSS = `
 .dsh-rc-set-trigger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12)); }
 .dsh-rc-set-trigger:focus-visible { box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #4c6ef5)); }
 .dsh-rc-set-trigger:disabled { color: var(--dsw-alias-label-dimmed, #9ca3af); cursor: default; }
-.dsh-rc-set-trigger[data-danger="true"] { color: var(--dsw-alias-state-warn-label, #b45309); }
 .dsh-rc-set-trigger svg { flex: none; }
 .dsh-rc-set-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-rc-set-badge { flex: none; height: 18px; display: inline-flex; align-items: center; padding: 0 5px; border-radius: 5px; background: var(--dsw-alias-state-business-bg, rgba(77,107,254,0.1)); color: var(--dsw-alias-state-business-primary, #4d6bfe); font-size: 11px; font-weight: 500; line-height: 18px; font-variant-numeric: tabular-nums; }
 .dsh-rc-set-effort { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1000; color: var(--dsw-alias-label-caption, #9ca3af); }
 .dsh-rc-set-chevron { color: var(--dsw-alias-label-caption, #9ca3af); transition: transform .12s; }
 .dsh-rc-set-trigger[aria-expanded="true"] .dsh-rc-set-chevron { transform: rotate(180deg); }
@@ -388,8 +401,9 @@ export function modelEntries(t: T, config: SessionConfig, current: ModelSelectio
       entries.push({ heading: group.name });
     }
     for (const model of group.models) {
+      const split = splitModelBadge(model.name, model.id);
       entries.push({
-        label: model.name,
+        label: split.badge === '' ? model.name : `${split.name} ${split.badge}`,
         ...(model.description === undefined ? {} : { title: model.description }),
         checked: current?.provider === group.id && current.model === model.id,
         run: () => pick(withModel(model, group.id, current?.reasoningEffort)),
@@ -422,7 +436,6 @@ export function renderPermissionTrigger(button: HTMLButtonElement, t: T, config:
   chevron.classList.add('dsh-rc-set-chevron');
   const danger = isFullAccess(value, config);
   button.replaceChildren(icon(danger ? 'shieldAlert' : 'shield', 14), label, chevron);
-  button.dataset['danger'] = danger ? 'true' : 'false';
   button.setAttribute('aria-haspopup', 'menu');
   button.title = t('settingsPermissions');
 }
@@ -430,10 +443,17 @@ export function renderPermissionTrigger(button: HTMLButtonElement, t: T, config:
 /** Fill a trigger button with the model + effort chip content. */
 export function renderModelTrigger(button: HTMLButtonElement, t: T, config: SessionConfig, value: ModelSelection | null): void {
   const { model, effort } = modelLabel(config, value);
+  const { name, badge } = splitModelBadge(model, value?.model ?? '');
   const label = document.createElement('span');
   label.className = 'dsh-rc-set-label';
-  label.textContent = model === '' ? t('settingsModel') : model;
+  label.textContent = name === '' ? t('settingsModel') : name;
   const parts: Node[] = [label];
+  if (badge !== '') {
+    const pill = document.createElement('span');
+    pill.className = 'dsh-rc-set-badge';
+    pill.textContent = badge;
+    parts.push(pill);
+  }
   if (effort !== '') {
     const caption = document.createElement('span');
     caption.className = 'dsh-rc-set-effort';

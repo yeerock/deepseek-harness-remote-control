@@ -212,21 +212,21 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-notice { align-self: center; font-size: 12px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-rc-chat-notice[data-tone="error"] { color: #ef4444; }
 .dsh-rc-chat-empty { margin: 48px auto; text-align: center; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
-.dsh-rc-chat-foot { flex: 0 0 auto; padding: 10px 20px 18px; }
-.dsh-rc-chat-box { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 6px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
-.dsh-rc-chat-box .dsh-rc-chat-composer { align-self: stretch; width: 100%; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .dsh-rc-chat-table-wrap { margin: 0 0 10px; overflow-x: auto; overflow-y: hidden; }
 .dsh-rc-chat-table { border-collapse: collapse; font-size: 13px; line-height: 1.5; }
 .dsh-rc-chat-table th, .dsh-rc-chat-table td { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25)); text-align: left; vertical-align: top; }
 .dsh-rc-chat-table th { font-weight: 600; background: rgba(127,127,127,0.08); }
-.dsh-rc-chat-box .dsh-rc-set-bar { margin-left: -8px; }
-.dsh-rc-chat-settings-note { margin: 2px 0 2px; }
-.dsh-rc-chat-composer { max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
-.dsh-rc-chat-input { flex: 1 1 auto; min-height: 24px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.5; padding: 4px 0; }
-.dsh-rc-chat-send { flex: 0 0 auto; height: 32px; padding: 0 14px; border: 0; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--dsw-alias-accent, #4c6ef5); color: #fff; }
-.dsh-rc-chat-send[disabled] { opacity: 0.45; cursor: default; }
-.dsh-rc-chat-send[data-stop="true"] { background: var(--dsw-alias-label-primary, #333); color: var(--dsw-alias-bg-primary, #fff); }
-.dsh-rc-chat-error { max-width: 760px; margin: 0 auto 8px; font-size: 12px; color: #ef4444; }
+.dsh-rc-chat-foot { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; padding: 6px 20px 16px; }
+.dsh-rc-chat-error, .dsh-rc-chat-settings-note { box-sizing: border-box; width: 100%; max-width: 792px; margin: 0 0 6px; }
+.dsh-rc-chat-error { padding: 4px 8px; border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-interactive-bg-hover-danger, rgba(239,68,68,0.08)); color: var(--dsw-alias-state-error-primary, #dc2626); font-size: 12px; line-height: 18px; }
+.dsh-rc-chat-card { box-sizing: border-box; width: 100%; max-width: 792px; display: flex; flex-direction: column; border-radius: var(--dsw-radius-panel, 20px); background: var(--dsw-specific-input-major, var(--dsw-alias-bg-primary, #fff)); box-shadow: var(--dsw-elevation-soft, 0 0 0 0.5px rgba(127,127,127,0.25), 0 2px 8px rgba(0,0,0,0.06)); }
+.dsh-rc-chat-input { display: block; box-sizing: border-box; width: 100%; min-height: 48px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: var(--dsh-content-font-size, 14px); line-height: 24px; padding: 12px 16px 4px; }
+.dsh-rc-chat-input::placeholder { color: var(--dsw-alias-label-tertiary, #9ca3af); }
+.dsh-rc-chat-toolbar { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 8px 8px 10px; }
+.dsh-rc-chat-send { flex: none; width: 32px; height: 32px; margin-left: 4px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; cursor: pointer; background: var(--dsw-alias-state-business-primary, #4d6bfe); color: #fff; }
+.dsh-rc-chat-send:hover:not([disabled]) { filter: brightness(1.06); }
+.dsh-rc-chat-send[disabled] { background: var(--dsw-alias-state-business-disabled, #b8c4fb); cursor: default; }
+.dsh-rc-chat-send[data-stop="true"] { background: var(--dsw-alias-label-primary, #1f2329); color: var(--dsw-alias-bg-primary, #fff); }
 .dsh-rc-chat-older {
   align-self: center; margin: 0 0 8px; padding: 4px 12px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25));
   border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary, #6b7280); font: inherit; font-size: 12px; cursor: pointer;
@@ -412,29 +412,28 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         setSettingsBusy(false);
       }
     };
-    const settingsBar = config === undefined
-      ? (configError === undefined ? null : h('div', { ref: noteRef, className: 'dsh-rc-modal-note dsh-rc-chat-settings-note', role: 'status' }))
-      : h(
-        'div',
-        { className: 'dsh-rc-set-bar' },
-        config.permissions === null
-          ? null
-          : h('button', {
-            type: 'button',
-            ref: permissionRef,
-            className: 'dsh-rc-set-trigger',
-            disabled: settingsBusy,
-            onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsPermissions'), permissionEntries(t, config, permission, (value) => void applyPermission(value))),
-          }),
-        h('span', { className: 'dsh-rc-set-spacer' }),
-        h('button', {
-          type: 'button',
-          ref: modelRef,
-          className: 'dsh-rc-set-trigger',
-          disabled: settingsBusy || config.models.groups.length === 0,
-          onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsModelAndEffort'), modelEntries(t, config, model, (value) => void applyModel(value))),
-        }),
-      );
+    // The local composer's toolbar: Permissions on the left, model and effort on the right.
+    const settingsNote = config === undefined && configError !== undefined
+      ? h('div', { ref: noteRef, className: 'dsh-rc-modal-note dsh-rc-chat-settings-note', role: 'status' })
+      : null;
+    const permissionChip = config === undefined || config.permissions === null
+      ? null
+      : h('button', {
+        type: 'button',
+        ref: permissionRef,
+        className: 'dsh-rc-set-trigger',
+        disabled: settingsBusy,
+        onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsPermissions'), permissionEntries(t, config, permission, (value) => void applyPermission(value))),
+      });
+    const modelChip = config === undefined
+      ? null
+      : h('button', {
+        type: 'button',
+        ref: modelRef,
+        className: 'dsh-rc-set-trigger',
+        disabled: settingsBusy || config.models.groups.length === 0,
+        onClick: (event: any) => openChoiceMenu(event.currentTarget, t('settingsModelAndEffort'), modelEntries(t, config, model, (value) => void applyModel(value))),
+      });
     const send = async (): Promise<void> => {
       const text = draft.trim();
       if (text === '' || sending) return;
@@ -552,12 +551,10 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         'div',
         { className: 'dsh-rc-chat-foot' },
         error === undefined ? null : h('div', { className: 'dsh-rc-chat-error' }, error),
+        settingsNote,
         h(
           'div',
-          { className: 'dsh-rc-chat-box' },
-        h(
-          'div',
-          { className: 'dsh-rc-chat-composer' },
+          { className: 'dsh-rc-chat-card' },
           h('textarea', {
             className: 'dsh-rc-chat-input',
             rows: 1,
@@ -577,11 +574,19 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
               }
             },
           }),
-          running && draft.trim() === ''
-            ? h('button', { type: 'button', className: 'dsh-rc-chat-send', 'data-stop': 'true', onClick: () => void stop() }, t('chatStop'))
-            : h('button', { type: 'button', className: 'dsh-rc-chat-send', disabled: sending || draft.trim() === '', onClick: () => void send() }, t('chatSend')),
-        ),
-        settingsBar,
+          h(
+            'div',
+            { className: 'dsh-rc-chat-toolbar' },
+            permissionChip,
+            h('span', { className: 'dsh-rc-set-spacer' }),
+            modelChip,
+            running && draft.trim() === ''
+              ? h('button', { type: 'button', className: 'dsh-rc-chat-send', 'data-stop': 'true', title: t('chatStop'), 'aria-label': t('chatStop'), onClick: () => void stop() },
+                h('svg', { width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': 'true' }, h('rect', { x: 1, y: 1, width: 10, height: 10, rx: 2, fill: 'currentColor' })))
+              : h('button', { type: 'button', className: 'dsh-rc-chat-send', title: t('chatSend'), 'aria-label': t('chatSend'), disabled: sending || draft.trim() === '', onClick: () => void send() },
+                h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+                  h('path', { d: 'M12 19V5' }), h('path', { d: 'm5 12 7-7 7 7' }))),
+          ),
         ),
       ),
     );

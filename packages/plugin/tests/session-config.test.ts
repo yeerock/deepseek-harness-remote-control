@@ -175,3 +175,13 @@ describe('replies the Harness client can read', () => {
   });
 });
 
+
+describe('model label', () => {
+  it('splits a trailing release tag into a pill like DSH', async () => {
+    const { splitModelBadge } = await import('../src/client/session-settings.js');
+    expect(splitModelBadge('DeepSeek-V4.1-Flash 1017', 'x')).toEqual({ name: 'DeepSeek-V4.1-Flash', badge: '1017' });
+    expect(splitModelBadge('DeepSeek-V4.1-Flash', 'deepseek-v4.1-flash-1017')).toEqual({ name: 'DeepSeek-V4.1-Flash', badge: '1017' });
+    expect(splitModelBadge('DeepSeek-V4-Pro', 'deepseek-v4-pro')).toEqual({ name: 'DeepSeek-V4-Pro', badge: '' });
+    expect(splitModelBadge('Model 2025', 'model-2025')).toEqual({ name: 'Model 2025', badge: '' });
+  });
+});

@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.6 - 2026-10-30
+
+- **The remote message box now looks like DeepSeek Harness's own.** One rounded card with the message field on top and a toolbar underneath: Permissions on the left, the model (with its release tag as a small pill, for example DeepSeek-V4.1-Flash **1017**) and effort on the right, and a round send button that turns into a stop button while the agent works. Attach and voice are left out because remote sessions cannot send files or audio.
+- Verified against a real Windows host: its models, permissions and a session's current Full Access and Max effort come through.
+
 ## v0.4.5 - 2026-10-30
 
 - **Fix: errors now show their real message.** Every failed DSH RC call showed "connection: invalid server-response failure" instead of what went wrong, because the replies lacked a field DeepSeek Harness requires. Now you see, for example, that a session is still working or a computer is offline.
