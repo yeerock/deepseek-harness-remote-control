@@ -1,5 +1,6 @@
 import {
   confirmFullAccess,
+  explainUnavailable,
   isFullAccess,
   modelEntries,
   openChoiceMenu,
@@ -219,6 +220,7 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-table th, .dsh-rc-chat-table td { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25)); text-align: left; vertical-align: top; }
 .dsh-rc-chat-table th { font-weight: 600; background: rgba(127,127,127,0.08); }
 .dsh-rc-chat-box .dsh-rc-set-bar { margin-left: -8px; }
+.dsh-rc-chat-settings-note { margin: 2px 0 2px; }
 .dsh-rc-chat-composer { max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
 .dsh-rc-chat-input { flex: 1 1 auto; min-height: 24px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.5; padding: 4px 0; }
 .dsh-rc-chat-send { flex: 0 0 auto; height: 32px; padding: 0 14px; border: 0; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--dsw-alias-accent, #4c6ef5); color: #fff; }
@@ -270,6 +272,10 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const settingsWrite = React.useRef(0);
     const permissionRef = React.useRef(null);
     const modelRef = React.useRef(null);
+    // Why the controls are missing (older host, or an error), shown instead of hiding them silently.
+    const [configError, setConfigError] = React.useState(undefined as unknown);
+    const noteRef = React.useRef(null);
+    const noteGeneration = React.useRef(0);
 
     React.useEffect(() => remoteChatStore.subscribe(() => setTarget(remoteChatStore.get())), []);
 
@@ -300,6 +306,8 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
 
     React.useEffect(() => {
       setTranscript(undefined);
+      setConfig(undefined);
+      setConfigError(undefined);
       setOlder(undefined);
       setDraft('');
       setError(target?.notice);
@@ -319,11 +327,18 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
           if (!alive) return;
           const parsed = parseConfig(value);
           setConfig(parsed);
+          if (parsed !== undefined) setConfigError(undefined);
+          else setConfigError((previous: unknown) => previous ?? new Error('remote Harness answered HTTP 403'));
           if (settingsWrite.current !== writeAtStart) return;
           setModel(parsed?.session?.model ?? parsed?.models.default ?? null);
           setPermission(parsed?.session?.permission ?? null);
         },
-        () => { if (alive) setConfig(undefined); },
+        (reason: unknown) => {
+          if (!alive) return;
+          setConfig(undefined);
+          // Keep the same error object when the message is unchanged, so the note is not rebuilt on every reload.
+          setConfigError((previous: unknown) => (previous instanceof Error && reason instanceof Error && previous.message === reason.message ? previous : reason));
+        },
       );
       return () => { alive = false; };
     }, [target?.deviceId, target?.sessionId, settledRunning]);
@@ -334,6 +349,21 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       const chip = modelRef.current as HTMLButtonElement | null;
       if (chip !== null && config !== undefined) renderModelTrigger(chip, t, config, model);
     });
+
+    React.useEffect(() => {
+      const note = noteRef.current as HTMLElement | null;
+      if (note === null || target === undefined || configError === undefined) return undefined;
+      const generation = ++noteGeneration.current;
+      void explainUnavailable(note, {
+        isCurrent: () => noteGeneration.current === generation,
+        t,
+        deviceName: target.deviceName,
+        reason: configError,
+        status: () => call('session.status', { deviceId: target.deviceId }),
+        update: () => call('session.update', { deviceId: target.deviceId }),
+      });
+      return () => { noteGeneration.current += 1; };
+    }, [configError, target?.deviceId, target?.sessionId]);
 
     // Stay at the bottom while the reader is at the bottom; after loading an
     // earlier page, keep the message the reader was looking at in place.
@@ -383,7 +413,7 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       }
     };
     const settingsBar = config === undefined
-      ? null
+      ? (configError === undefined ? null : h('div', { ref: noteRef, className: 'dsh-rc-modal-note dsh-rc-chat-settings-note', role: 'status' }))
       : h(
         'div',
         { className: 'dsh-rc-set-bar' },

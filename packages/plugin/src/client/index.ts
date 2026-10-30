@@ -2653,6 +2653,8 @@ function apply(ctx: ClientContext): void {
       folders,
       ...(initialFolder === undefined ? {} : { initialFolder }),
       loadConfig: async () => parseConfig(await call('session.config', { deviceId })),
+      status: () => call('session.status', { deviceId }),
+      update: () => call('session.update', { deviceId }),
       create: async (choice: NewSessionChoice) => {
         const created = (await call('session.create', { deviceId, ...choice })) as { sessionId?: string; warnings?: unknown };
         if (typeof created.sessionId !== 'string') throw new Error('The new session was not created.');

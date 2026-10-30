@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isDevelopmentCheckout, isNewerVersion, UpdateManager, versionParts } from '../src/update.js';
+import { isDevelopmentCheckout, isNewerVersion, UpdateManager, versionParts, windowsRestartScript } from '../src/update.js';
 
 describe('update version comparison', () => {
   it('parses v-prefixed semver', () => {
@@ -202,6 +202,46 @@ describe('update manager', () => {
     third.stop();
     expect(restartHarness).toHaveBeenCalledTimes(2);
     expect(third.getSnapshot().message).toContain('Restart to Update');
+  });
+
+  it('recovers from a restart that never happened, and keeps checking for releases', async () => {
+    const { repo, state } = setup();
+    let clock = 1_000_000;
+    let feed = 'v0.3.0';
+    const restartHarness = vi.fn(() => true);
+    installed(state, 'v0.3.0');
+    const manager = new UpdateManager({ repoRoot: repo, stateDir: state, currentVersion: '0.2.2', fetchImpl: (async () => new Response(JSON.stringify({ tag_name: feed }), { status: 200 })) as unknown as typeof fetch, spawnInstaller: vi.fn(), restartHarness, isIdle: async () => true, now: () => clock });
+    manager.start();
+    await manager.restartIfIdle();
+    expect(manager.getSnapshot().state).toBe('restarting');
+    writeFileSync(join(state, 'restart-helper.log'), 'restart requested\ncould not find the DeepSeek Harness program\n');
+    // Before the timeout, nothing changes.
+    clock += 60_000;
+    await manager.tick();
+    expect(manager.getSnapshot().state).toBe('restarting');
+    // After it, the restart counts as failed and is retried once (cap of two).
+    clock += 3 * 60_000;
+    await manager.tick();
+    expect(restartHarness).toHaveBeenCalledTimes(2);
+    clock += 4 * 60_000;
+    await manager.tick();
+    expect(manager.getSnapshot()).toMatchObject({ state: 'ready', message: expect.stringContaining('restart-helper.log') });
+    // A peer cannot get around the cap with repeated Update That Computer presses.
+    expect(() => manager.restartForPeer()).toThrow(/restart twice/);
+    expect(restartHarness).toHaveBeenCalledTimes(2);
+    // A newer release is still noticed and installed (it used to be skipped forever).
+    feed = 'v0.4.0';
+    await manager.check(true);
+    expect(manager.getSnapshot()).toMatchObject({ state: 'installing', latest: '0.4.0' });
+    manager.stop();
+  });
+
+  it('writes a Windows restart script with safely quoted paths', () => {
+    const script = windowsRestartScript("C:\\Users\\o'brien\\.dsh-rc\\restart-helper.log", 'C:\\Program Files\\DeepSeek Harness\\DeepSeek Harness.exe');
+    expect(script).toContain("$log = 'C:\\Users\\o''brien\\.dsh-rc\\restart-helper.log'");
+    expect(script).toContain("$fallback = 'C:\\Program Files\\DeepSeek Harness\\DeepSeek Harness.exe'");
+    expect(script).toContain('Start-Process -FilePath $exe');
+    expect(script).not.toContain('/T');
   });
 
   it('lets the user restart while a session is running', async () => {

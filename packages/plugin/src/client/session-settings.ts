@@ -53,6 +53,14 @@ export const SETTINGS_LOCALE_EN: Record<string, string> = {
   settingsPermissionFullAccessHint: 'The agent acts with the fewest confirmations.',
   settingsPermissionAuto: 'Auto Review',
   settingsPermissionAutoHint: 'Full access, with each risky step reviewed automatically.',
+  settingsOutdated: '{name} runs DSH RC {version}. Model, effort and permissions need 0.4.2 or later.',
+  settingsOutdatedUnknown: '{name} is on an older DSH RC. Model, effort and permissions need 0.4.2 or later.',
+  settingsUpdateRemote: 'Update That Computer',
+  settingsUpdating: 'Updating…',
+  settingsUpdateAsked: 'Update requested. {name} installs it and restarts when no session there is working.',
+  settingsUpdateByHand: 'That computer is too old to update from here. On {name}, quit and reopen DeepSeek Harness once; from then on it updates by itself.',
+  settingsLoadFailed: 'Settings could not be loaded from {name}.',
+  settingsUpdateFailed: 'The update request did not reach {name}. Try again in a moment.',
 };
 
 export const SETTINGS_LOCALE_ZH: Record<string, string> = {
@@ -82,6 +90,14 @@ export const SETTINGS_LOCALE_ZH: Record<string, string> = {
   settingsPermissionFullAccessHint: '智能体以最少的确认执行操作。',
   settingsPermissionAuto: '自动审查',
   settingsPermissionAutoHint: '完全访问，每个有风险的步骤都会自动审查。',
+  settingsOutdated: '{name} 运行的是 DSH RC {version}。模型、推理强度和权限需要 0.4.2 或更高版本。',
+  settingsOutdatedUnknown: '{name} 的 DSH RC 版本较旧。模型、推理强度和权限需要 0.4.2 或更高版本。',
+  settingsUpdateRemote: '更新那台电脑',
+  settingsUpdating: '正在更新…',
+  settingsUpdateAsked: '已请求更新。{name} 会安装更新，并在没有会话运行时重启。',
+  settingsUpdateByHand: '那台电脑版本太旧，无法从这里更新。请在 {name} 上退出并重新打开 DeepSeek Harness 一次，之后它会自动更新。',
+  settingsLoadFailed: '无法从 {name} 读取设置。',
+  settingsUpdateFailed: '更新请求未能到达 {name}，请稍后再试。',
 };
 
 /** Harness preset keys with the local picker's wording; others keep the computer's own label. */
@@ -232,6 +248,9 @@ export const SESSION_SETTINGS_CSS = `
 .dsh-rc-modal-note { padding: 8px 12px; border-radius: var(--dsw-radius-md, 8px); border: 0.5px solid var(--dsw-alias-border-l1, rgba(127,127,127,0.25)); background: var(--dsw-alias-bg-module-platform, rgba(127,127,127,0.08)); color: var(--dsw-alias-label-secondary, #6b7280); font-size: 12px; line-height: 18px; }
 .dsh-rc-modal-note[data-tone="error"] { border-color: transparent; background: var(--dsw-alias-interactive-bg-hover-danger, rgba(239,68,68,0.1)); color: var(--dsw-alias-state-error-primary, #dc2626); }
 .dsh-rc-modal-note[data-tone="warn"] { color: var(--dsw-alias-state-warn-label, #b45309); }
+.dsh-rc-modal-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.dsh-rc-modal-note > span { flex: 1 1 220px; min-width: 0; }
+.dsh-rc-set-update { height: 28px; padding: 0 12px; font-size: 12px; color: var(--dsw-alias-label-primary, inherit); }
 `;
 
 /* -------------------------------- menu -------------------------------- */
@@ -537,8 +556,10 @@ export interface NewSessionDialogOptions {
   folders: Array<{ workspaceId: string; workspaceName: string }>;
   /** The folder to start on (e.g. the workspace whose + was pressed). */
   initialFolder?: string;
-  /** Loads the computer's choices; undefined (or a rejection) means an older computer: folder only. */
+  /** Loads the computer's choices; a rejection or undefined means folder only. */
   loadConfig: () => Promise<SessionConfig | undefined>;
+  status?: () => Promise<unknown>;
+  update?: () => Promise<unknown>;
   create: (choice: NewSessionChoice) => Promise<void>;
 }
 
@@ -651,10 +672,13 @@ export function openNewSessionDialog(options: NewSessionDialogOptions): void {
   modal.foot.append(close, spacer, create);
   create.focus();
 
-  void options.loadConfig().catch(() => undefined).then((loaded) => {
+  let failure: unknown = new Error('HTTP 403');
+  void options.loadConfig().catch((reason: unknown) => { failure = reason; return undefined; }).then((loaded) => {
     if (!modal.backdrop.isConnected) return;
     if (loaded === undefined) {
       note.textContent = t('settingsUnavailable');
+      const { status, update } = options;
+      if (status !== undefined && update !== undefined) void explainUnavailable(note, { t, deviceName: options.deviceName, reason: failure, status, update, isCurrent: () => modal.backdrop.isConnected });
       return;
     }
     config = loaded;
@@ -674,4 +698,67 @@ export function openNewSessionDialog(options: NewSessionDialogOptions): void {
     }
     renderSettings();
   });
+}
+
+/* ---------------------------- outdated host ---------------------------- */
+
+/** True when a host refused the settings call because it predates it. */
+export function isOutdatedError(reason: unknown): boolean {
+  const text = reason instanceof Error ? reason.message : String(reason);
+  return /not available over the edge|answered HTTP 40[34]\b/i.test(text);
+}
+
+/**
+ * Fill `note` with why the controls are missing: the host's version and its
+ * own update status, plus an Update That Computer button. Plain DOM, no markup.
+ */
+export async function explainUnavailable(
+  note: HTMLElement,
+  options: { t: T; deviceName: string; reason: unknown; status: () => Promise<unknown>; update: () => Promise<unknown>; isCurrent?: () => boolean },
+): Promise<void> {
+  const current = options.isCurrent ?? ((): boolean => true);
+  const { t, deviceName } = options;
+  const fill = (name: string): string => name.replace('{name}', deviceName);
+  note.replaceChildren();
+  note.dataset['tone'] = 'warn';
+  if (!isOutdatedError(options.reason)) {
+    note.textContent = fill(t('settingsLoadFailed'));
+    note.title = options.reason instanceof Error ? options.reason.message : String(options.reason);
+    return;
+  }
+  let version = '';
+  let updateMessage = '';
+  try {
+    const status = (await options.status()) as Record<string, unknown> | undefined;
+    if (typeof status?.['version'] === 'string') version = status['version'];
+    if (typeof status?.['updateMessage'] === 'string') updateMessage = status['updateMessage'];
+  } catch { /* status is best effort */ }
+  // A newer call (another session, or a reload) owns the note now.
+  if (!current()) return;
+  note.replaceChildren();
+  const text = document.createElement('span');
+  text.textContent = version === '' ? fill(t('settingsOutdatedUnknown')) : fill(t('settingsOutdated')).replace('{version}', version);
+  if (updateMessage !== '') text.textContent += ` ${updateMessage}`;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'dsh-rc-modal-btn dsh-rc-set-update';
+  button.textContent = t('settingsUpdateRemote');
+  button.addEventListener('click', () => {
+    button.disabled = true;
+    button.textContent = t('settingsUpdating');
+    options.update().then(
+      () => { if (current()) { text.textContent = fill(t('settingsUpdateAsked')); button.remove(); } },
+      (reason: unknown) => {
+        button.disabled = false;
+        button.textContent = t('settingsUpdateRemote');
+        if (!current()) return;
+        // A host older than this call cannot be updated from here, only by hand once.
+        const detail = reason instanceof Error ? reason.message : String(reason);
+        text.textContent = isOutdatedError(reason) ? fill(t('settingsUpdateByHand')) : /restart twice|still working/.test(detail) ? detail : fill(t('settingsUpdateFailed'));
+        text.title = detail;
+        if (isOutdatedError(reason)) button.remove();
+      },
+    );
+  });
+  note.append(text, button);
 }

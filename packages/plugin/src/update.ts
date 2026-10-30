@@ -20,7 +20,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export const UPDATE_REPO = 'yeerock/deepseek-harness-remote-control';
 export const UPDATE_INTERVAL_MS = 60 * 60 * 1000;
@@ -29,6 +29,12 @@ const POLL_MS = 5_000;
 const INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 const IDLE_CHECK_MS = 60_000;
 const MAX_RESTARTS_PER_RELEASE = 2;
+/**
+ * A restart that has not happened by now failed (this process is still the
+ * old one). Without this the state stayed `restarting` forever and blocked
+ * every later update check, so a computer froze on an old version.
+ */
+const RESTART_TIMEOUT_MS = 3 * 60_000;
 
 export type UpdateState =
   | 'idle' // up to date
@@ -102,7 +108,9 @@ export interface UpdateManagerOptions {
   /** Starts the installer; tests replace it. */
   spawnInstaller?: (tag: string) => void;
   /** Restarts DeepSeek Harness; tests replace it. */
-  restartHarness?: () => boolean;
+  restartHarness?: (logFile?: string) => boolean;
+  /** Clock; tests replace it. */
+  now?: () => number;
   logger?: { info?: (message: string) => void; warn?: (message: string) => void };
 }
 
@@ -115,6 +123,7 @@ export class UpdateManager {
   private poller: NodeJS.Timeout | undefined;
   private started = false;
   private installStartedAt = 0;
+  private restartStartedAt = 0;
   /** A release whose install failed; only a manual check retries it. */
   private failedVersion: string | undefined;
 
@@ -167,6 +176,7 @@ export class UpdateManager {
    * for an idle moment and skips a failed release.
    */
   async check(manual = false): Promise<UpdateSnapshot> {
+    this.expireRestart();
     const busy: UpdateState[] = ['checking', 'installing', 'restarting', 'development'];
     if (busy.includes(this.snapshot.state)) return this.getSnapshot();
     if (isDevelopmentCheckout(this.options.repoRoot)) {
@@ -221,6 +231,18 @@ export class UpdateManager {
       this.options.logger?.warn?.('dsh-rc update check failed');
       return this.getSnapshot();
     }
+  }
+
+  /**
+   * Restart asked for by another computer: counts toward the per-release
+   * cap, so repeated presses cannot force-restart a failing host forever.
+   */
+  restartForPeer(): UpdateSnapshot {
+    if (this.snapshot.state !== 'ready') return this.getSnapshot();
+    const latest = this.snapshot.latest ?? '';
+    if (this.restartAttempts(latest) >= MAX_RESTARTS_PER_RELEASE) throw new Error('That computer already tried to restart twice for this version. Quit and reopen DeepSeek Harness on it.');
+    this.doRestart(latest, false);
+    return this.getSnapshot();
   }
 
   /** Restart now (the panel button). Ignores the idle rule; the user asked. */
@@ -319,6 +341,7 @@ export class UpdateManager {
 
   /** Called every minute: install a waiting release, or restart for an installed one, when idle. Exposed for tests. */
   async tick(): Promise<void> {
+    this.expireRestart();
     if (this.snapshot.state === 'available') {
       const idle = await this.idle();
       // Re-check after the await: the hourly check may have started the install meanwhile.
@@ -340,16 +363,50 @@ export class UpdateManager {
     if (this.snapshot.state !== 'ready' || process.env['DSHRC_AUTO_RESTART'] === '0') return;
     const latest = this.snapshot.latest ?? '';
     if (this.restartAttempts(latest) >= MAX_RESTARTS_PER_RELEASE) {
-      this.snapshot = { ...this.snapshot, message: `Version ${latest} is installed. Press Restart to Update, or quit and reopen DeepSeek Harness, to load it.` };
+      const reason = this.restartLogTail();
+      this.snapshot = { ...this.snapshot, message: `Version ${latest} is installed. Press Restart to Update, or quit and reopen DeepSeek Harness, to load it.${reason === '' ? '' : ' The last restart attempt did not finish; details are in restart-helper.log.'}` };
       return;
     }
     if (await this.idle()) this.doRestart(latest, false);
   }
 
+  /** A restart still pending after the timeout failed: go back to `ready` so it is retried (within the cap) or done by hand. */
+  private expireRestart(): void {
+    if (this.snapshot.state !== 'restarting') return;
+    if (this.clock() - this.restartStartedAt < RESTART_TIMEOUT_MS) return;
+    const latest = this.snapshot.latest ?? '';
+    const reason = this.restartLogTail();
+    this.snapshot = {
+      ...this.snapshot,
+      state: 'ready',
+      message: `DeepSeek Harness did not restart to load version ${latest}. Press Restart to Update, or quit and reopen it.${reason === '' ? '' : ' Details are in restart-helper.log.'}`,
+    };
+    this.options.logger?.warn?.('dsh-rc restart did not happen; back to ready');
+  }
+
+  private clock(): number {
+    return (this.options.now ?? Date.now)();
+  }
+
+  private get restartLogPath(): string {
+    return join(this.stateDir, 'restart-helper.log');
+  }
+
+  /** Last line the restart helper wrote, for the panel; empty when there is none. */
+  private restartLogTail(): string {
+    try {
+      const lines = readFileSync(this.restartLogPath, 'utf8').split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+      return (lines[lines.length - 1] ?? '').slice(0, 200);
+    } catch {
+      return '';
+    }
+  }
+
   private doRestart(latest: string, manual: boolean): void {
     if (!manual) this.recordRestart(latest);
-    const restarted = (this.options.restartHarness ?? scheduleHarnessRestart)();
+    const restarted = (this.options.restartHarness ?? scheduleHarnessRestart)(this.restartLogPath);
     if (restarted) {
+      this.restartStartedAt = this.clock();
       this.snapshot = { ...this.snapshot, state: 'restarting', message: `Restarting DeepSeek Harness to load version ${latest}.` };
     } else {
       this.snapshot = { ...this.snapshot, message: `Version ${latest} is installed. Quit and reopen DeepSeek Harness to load it.` };
@@ -421,28 +478,50 @@ function updateNodeCommand(): { command: string; env: NodeJS.ProcessEnv } | unde
  * earlier cut off its browser storage and broke the next start
  * ("desktop welcome: Web authentication failed").
  */
-export function scheduleHarnessRestart(): boolean {
+export function scheduleHarnessRestart(logFile?: string): boolean {
   try {
     if (process.platform === 'darwin') {
-      spawn('/bin/sh', ['-c', 'sleep 3; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; i=0; while pgrep -a -x "DeepSeek Harness" >/dev/null 2>&1 && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; pkill -a -TERM -x "DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness"'], { detached: true, stdio: 'ignore' }).unref();
+      const log = logFile === undefined ? '/dev/null' : `'${logFile.replace(/'/g, `'\\''`)}'`;
+      spawn('/bin/sh', ['-c', `exec >>${log} 2>&1; echo "restart requested $(date)"; sleep 3; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; i=0; while pgrep -a -x "DeepSeek Harness" >/dev/null 2>&1 && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; pkill -a -TERM -x "DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness" && echo "reopened" || echo "could not reopen DeepSeek Harness"`], { detached: true, stdio: 'ignore' }).unref();
       return true;
     }
     if (process.platform === 'win32') {
-      const ps = [
-        'Start-Sleep -Seconds 3;',
-        "$procs = @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' });",
-        'if ($procs.Count -gt 0) {',
-        '  $exe = ($procs | Where-Object { $_.Path } | Select-Object -First 1).Path;',
-        '  $procs | ForEach-Object { [void]$_.CloseMainWindow() };',
-        "  & taskkill.exe /IM 'DeepSeek Harness.exe' /T 2>$null | Out-Null;",
-        "  for ($i = 0; $i -lt 60 -and @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' }).Count -gt 0; $i++) { Start-Sleep -Seconds 1 };",
-        "  Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' } | Stop-Process -Force -ErrorAction SilentlyContinue;",
-        '  Start-Sleep -Seconds 3; if ($exe) { Start-Process $exe }',
-        '}',
-      ].join(' ');
-      spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      if (logFile === undefined) return false;
+      // The app's own executable is the fallback when Get-Process cannot read its path.
+      const fallbackExe = /deepseek/i.test(process.execPath) ? process.execPath : '';
+      const script = join(dirname(logFile), 'restart-helper.ps1');
+      writeFileSync(script, windowsRestartScript(logFile, fallbackExe), { encoding: 'utf8', mode: 0o600 });
+      // Started through WMI so the helper is not in DeepSeek Harness's process
+      // tree: closing the app (taskkill /T) can no longer take the helper down
+      // before it reopens the app, which left computers stuck on old versions.
+      const launch = `$ok = $false; try { $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${script.replace(/'/g, "''")}"' }; $ok = ($r.ReturnValue -eq 0) } catch { $ok = $false }; if (-not $ok) { Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','"${script.replace(/'/g, "''")}"') }`;
+      spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launch], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
       return true;
     }
   } catch { /* fall through */ }
   return false;
+}
+
+/** PowerShell for the Windows restart helper; writes each step to `logFile`. Exported for tests. */
+export function windowsRestartScript(logFile: string, fallbackExe: string): string {
+  const quote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+  return [
+    `$log = ${quote(logFile)}`,
+    `$fallback = ${quote(fallbackExe)}`,
+    "function Say($m) { Add-Content -Path $log -Value ((Get-Date -Format s) + ' ' + $m) }",
+    "Say 'restart requested'",
+    'Start-Sleep -Seconds 3',
+    "$procs = @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' })",
+    '$exe = ($procs | Where-Object { $_.Path } | Select-Object -First 1).Path',
+    "if (-not $exe -and $fallback) { $exe = $fallback }",
+    "if (-not $exe) { Say 'could not find the DeepSeek Harness program; quit and reopen it by hand'; exit 1 }",
+    "Say ('closing ' + $procs.Count + ' process(es)')",
+    '$procs | ForEach-Object { [void]$_.CloseMainWindow() }',
+    "& taskkill.exe /IM 'DeepSeek Harness.exe' 2>$null | Out-Null",
+    "for ($i = 0; $i -lt 60 -and @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' }).Count -gt 0; $i++) { Start-Sleep -Seconds 1 }",
+    "$left = @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' })",
+    "if ($left.Count -gt 0) { Say ('forcing ' + $left.Count + ' process(es) to stop'); $left | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3 }",
+    "try { Start-Process -FilePath $exe; Say 'reopened' } catch { Say ('could not reopen: ' + $_.Exception.Message) }",
+    '',
+  ].join('\r\n');
 }

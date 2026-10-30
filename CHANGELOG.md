@@ -3,6 +3,13 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.4 - 2026-10-30
+
+- **Fix: a computer could get stuck on an old version for good.** When an automatic restart did not actually happen, the updater stayed in "restarting" forever and skipped every later update check, so the computer never got newer releases (seen on a Windows host stuck on 0.3.9). A restart that has not happened within 3 minutes now counts as failed: it is retried (still at most twice per release), update checks continue, and the panel says why, from the restart helper's own log.
+- **Fix (Windows): the restart helper runs outside DeepSeek Harness's process tree**, so closing the app can no longer stop it before it reopens the app. It uses the app's own program as a fallback when the path cannot be read, and writes each step to `~/.dsh-rc/restart-helper.log`.
+- **Remote sessions say why model, effort and permissions are missing** instead of hiding them: the other computer's version and its update status, with an **Update That Computer** button. That computer installs the latest release and restarts only when none of its sessions is working. A computer older than this release cannot be updated from afar: quit and reopen DeepSeek Harness on it once.
+- New peer call `remote.update` (your own computers only, as for every host call).
+
 ## v0.4.3 - 2026-10-30
 
 - **Fix: the message box of a remote conversation was squeezed** to a few characters wide (the placeholder wrapped, typing area unusable). It fills the full width again, with the Permissions and model controls underneath.

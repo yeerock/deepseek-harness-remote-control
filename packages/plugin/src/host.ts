@@ -438,6 +438,24 @@ class DshRcService {
     return this.status();
   }
 
+  /**
+   * Update asked for by another of the owner's computers: install the latest
+   * release now, or load an installed one. Never restarts while a session
+   * here is working, so nothing running is cut off from afar.
+   */
+  async remoteUpdate(): Promise<DshRcStatus> {
+    const snapshot = this.updates.getSnapshot();
+    if (snapshot.state === 'ready') {
+      const busy = (await this.listSessions()).some((row) => isRecord(row) && row['running'] === true);
+      if (busy) throw new Error('A session on that computer is still working. It restarts to update as soon as it is idle.');
+      this.logger.info('peer asked to restart for an update', { version: snapshot.latest ?? '' });
+      this.updates.restartForPeer();
+      return this.status();
+    }
+    this.logger.info('peer asked for an update check');
+    return this.updateCheck();
+  }
+
   sharingRevokeAll(): Promise<{ revoked: number }> {
     return this.sharingClient.revokeAllGuests();
   }
@@ -714,6 +732,7 @@ const PEER_ENDPOINTS = new Set([
   'remote.config',
   'remote.selectModel',
   'remote.setPermission',
+  'remote.update',
 ]);
 
 /** True for the calls another computer may make through the edge; everything else is local only. */
@@ -854,6 +873,7 @@ export interface SharingRpcTarget {
   sharingRevokeAll(): Promise<{ revoked: number }>;
   updateCheck(): Promise<DshRcStatus>;
   updateRestart(): DshRcStatus;
+  remoteUpdate(): Promise<DshRcStatus>;
 }
 
 /**
@@ -879,6 +899,9 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
         return rpcOk(await target.updateCheck());
       case 'update.restart':
         return rpcOk(target.updateRestart());
+      // Peers may ask for an update; the restart still waits until no session here is working.
+      case 'remote.update':
+        return rpcOk(await target.remoteUpdate());
       case 'harness.list':
         return rpcOk(await target.harnessList());
       case 'remote.embed': {
@@ -961,12 +984,16 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'session.organize':
       case 'session.config':
       case 'session.selectModel':
-      case 'session.setPermission': {
+      case 'session.setPermission':
+      case 'session.update':
+      case 'session.status': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
         const { deviceId: _omit, ...rest } = input;
         void _omit;
-        return rpcOk(await target.peerCall(deviceId, `remote.${endpoint.slice('session.'.length)}`, rest));
+        // The peer's read-only status endpoint is `status`, not `remote.status`.
+        const onward = endpoint === 'session.status' ? 'status' : `remote.${endpoint.slice('session.'.length)}`;
+        return rpcOk(await target.peerCall(deviceId, onward, rest));
       }
       case 'remote.list':
         return rpcOk(await target.remoteList());

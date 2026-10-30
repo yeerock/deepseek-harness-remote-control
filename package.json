@@ -1,6 +1,6 @@
 {
   "name": "dsh-rc",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "Reliable, single-transport remote access for the DeepSeek Harness desktop app.",
   "license": "MIT",

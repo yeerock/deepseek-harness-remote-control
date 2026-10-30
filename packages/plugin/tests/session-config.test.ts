@@ -135,6 +135,20 @@ describe('session settings endpoints', () => {
     expect(models.groups[0]?.models).toHaveLength(200);
   });
 
+  it('let a peer ask for an update and read status, mapped to the right onward calls', async () => {
+    expect(isPeerEndpoint('remote.update')).toBe(true);
+    expect(isPeerEndpoint('session.update')).toBe(false);
+    expect(isPeerEndpoint('update.restart')).toBe(false);
+    const peerCall = vi.fn(async () => ({ version: '0.4.4' }));
+    const remoteUpdate = vi.fn(async () => ({ state: 'running' }));
+    const target = { peerCall, remoteUpdate } as unknown as SharingRpcTarget;
+    await dispatchEndpoint(target, 'session.status', { deviceId: 'dev_x' });
+    expect(peerCall).toHaveBeenLastCalledWith('dev_x', 'status', {});
+    await dispatchEndpoint(target, 'session.update', { deviceId: 'dev_x' });
+    expect(peerCall).toHaveBeenLastCalledWith('dev_x', 'remote.update', {});
+    await expect(dispatchEndpoint(target, 'remote.update', {})).resolves.toEqual({ ok: true, value: { state: 'running' } });
+  });
+
   it('pass model and permission through remote.create', async () => {
     const localCreate = vi.fn(async () => ({ sessionId: 's2', warnings: [] }));
     const target = { localCreate } as unknown as SharingRpcTarget;
