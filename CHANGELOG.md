@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## 0.4.12 - Full Access from other computers
+
+- New switch on each computer: Allow Full Access From Other Computers. It is on by default. When off, your other computers cannot switch a session on that computer to Full Access or create one with it.
+- Only the computer itself can change the switch. Whoever clicks Full Access, on the host or a remote computer, is still asked to confirm.
+
 ## v0.4.10 - 2026-10-30
 
 - **Fix: in New Remote Session, the Project Folder, Model and Permissions menus opened behind the dialog.** They now open on top of it.

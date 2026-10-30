@@ -198,3 +198,15 @@ describe('turn process title', () => {
     expect(processTitle(['commands'], true, t)).toBe('Running commands');
   });
 });
+
+describe('full access from other computers', () => {
+  it('is a local-only switch', async () => {
+    const { isPeerEndpoint, dispatchEndpoint } = await import('../src/host.js');
+    expect(isPeerEndpoint('host.fullAccess')).toBe(false);
+    const setRemoteFullAccess = vi.fn(async () => ({}));
+    const target = { setRemoteFullAccess } as never;
+    await expect(dispatchEndpoint(target, 'host.fullAccess', { allowed: 'yes' })).resolves.toMatchObject({ ok: false });
+    await dispatchEndpoint(target, 'host.fullAccess', { allowed: false });
+    expect(setRemoteFullAccess).toHaveBeenCalledWith(false);
+  });
+});

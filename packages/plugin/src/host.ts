@@ -183,12 +183,15 @@ class DshRcService {
   private setupError: string | undefined;
   private hostEnabled: boolean;
   private ownName: string | undefined;
+  /** Whether another of the owner's computers may switch a session here to Full Access. */
+  private remoteFullAccess: boolean;
 
   constructor(options: ServiceOptions) {
     this.logger = options.logger;
     const saved = readHostSettings(options.stateDir);
     this.hostEnabled = saved.enabled;
     this.ownName = saved.name;
+    this.remoteFullAccess = saved.remoteFullAccess;
     this.dshUrl = options.dshUrl;
     this.listSessions = options.listSessions;
     this.renameSession = options.renameSession;
@@ -270,7 +273,7 @@ class DshRcService {
     const renamed = await this.sharingClient.renameDevice(deviceId, name);
     if (deviceId === this.supervisor.status().deviceId) {
       this.ownName = renamed.name;
-      await writeHostSettings(this.stateDir, { enabled: this.hostEnabled, name: renamed.name });
+      await this.saveSettings();
     }
     return renamed;
   }
@@ -373,6 +376,7 @@ class DshRcService {
     if (typeof selection === 'string') throw new Error(selection);
     const preset = settings.permission === undefined ? undefined : validatePermission(normalizePermissionCatalog(this.sessions.permissionCatalog()), settings.permission);
     if (typeof preset === 'object') throw new Error(preset.error);
+    if (preset !== undefined) this.assertRemotePermission(preset);
     const sessionId = await this.sessions.create(workspaceId);
     // The session exists now; a setting that fails to apply is reported, not fatal.
     const warnings: string[] = [];
@@ -403,6 +407,7 @@ class DshRcService {
   async localSetPermission(sessionId: string, requested: unknown): Promise<{ permission: string }> {
     const preset = validatePermission(normalizePermissionCatalog(this.sessions.permissionCatalog()), requested);
     if (typeof preset === 'object') throw new Error(preset.error);
+    this.assertRemotePermission(preset);
     await this.sessions.setPermission(sessionId, preset);
     // Audit trail on this computer for a change made from another one.
     this.logger.info('peer changed session permissions', { sessionId, permission: preset });
@@ -523,6 +528,7 @@ class DshRcService {
     const status = this.supervisor.status();
     status.version = PLUGIN_VERSION;
     status.hostEnabled = this.hostEnabled;
+    status.remoteFullAccess = this.remoteFullAccess;
     if (this.ownName !== undefined) status.deviceName = this.ownName;
     const update = this.updates.getSnapshot();
     status.updateState = update.state;
@@ -550,8 +556,28 @@ class DshRcService {
    */
   async setHostEnabled(enabled: boolean): Promise<DshRcStatus> {
     this.hostEnabled = enabled;
-    await writeHostSettings(this.stateDir, { enabled, ...(this.ownName === undefined ? {} : { name: this.ownName }) });
+    await this.saveSettings();
     return enabled ? this.start() : this.supervisor.stop().then(() => this.status());
+  }
+
+  /** "Full Access From Other Computers" switch; persisted with the other host settings. */
+  async setRemoteFullAccess(allowed: boolean): Promise<DshRcStatus> {
+    this.remoteFullAccess = allowed;
+    await this.saveSettings();
+    this.logger.info('full access from other computers changed', { allowed });
+    return this.status();
+  }
+
+  private saveSettings(): Promise<void> {
+    return writeHostSettings(this.stateDir, { enabled: this.hostEnabled, remoteFullAccess: this.remoteFullAccess, ...(this.ownName === undefined ? {} : { name: this.ownName }) });
+  }
+
+  /** Refuse a Full Access preset from a peer when this computer turned that off. */
+  private assertRemotePermission(preset: string): void {
+    if (this.remoteFullAccess) return;
+    const option = normalizePermissionCatalog(this.sessions.permissionCatalog())?.options.find((candidate) => candidate.value === preset);
+    // Fail closed: a preset the catalog cannot vouch for is treated as Full Access.
+    if (option === undefined || option.dangerous) throw new Error('Full Access from other computers is turned off on that computer.');
   }
 
   async start(): Promise<DshRcStatus> {
@@ -920,6 +946,7 @@ export interface SharingRpcTarget {
   embedTicket(deviceId: string): Promise<string>;
   openRemoteWindow(deviceId: string, newSession: boolean, sessionId?: string): Promise<{ url: string; opened: boolean }>;
   setHostEnabled(enabled: boolean): Promise<DshRcStatus>;
+  setRemoteFullAccess(allowed: boolean): Promise<DshRcStatus>;
   localTranscript(sessionId: string, beforeSeq?: number): Promise<Transcript>;
   localPrompt(sessionId: string, text: string, uploadIds?: unknown[]): Promise<{ accepted: true }>;
   uploadBegin(name: unknown, size: unknown): { uploadId: string; chunkBytes: number };
@@ -986,6 +1013,10 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'host.set': {
         if (typeof input['enabled'] !== 'boolean') return rpcFail('bad-request', 'enabled must be a boolean.');
         return rpcOk(await target.setHostEnabled(input['enabled']));
+      }
+      case 'host.fullAccess': {
+        if (typeof input['allowed'] !== 'boolean') return rpcFail('bad-request', 'allowed must be a boolean.');
+        return rpcOk(await target.setRemoteFullAccess(input['allowed']));
       }
       case 'computer.rename': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
@@ -1226,17 +1257,20 @@ interface HostSettings {
   enabled: boolean;
   /** Name the user gave this computer; overrides the configured device name. */
   name?: string;
+  /** Full Access from other computers; on unless the owner turned it off. */
+  remoteFullAccess: boolean;
 }
 
 function readHostSettings(stateDir: string): HostSettings {
   try {
-    const parsed = JSON.parse(readFileSync(join(stateDir, 'host.json'), 'utf8')) as { enabled?: unknown; name?: unknown };
+    const parsed = JSON.parse(readFileSync(join(stateDir, 'host.json'), 'utf8')) as { enabled?: unknown; name?: unknown; remoteFullAccess?: unknown };
     return {
       enabled: parsed.enabled !== false,
+      remoteFullAccess: parsed.remoteFullAccess !== false,
       ...(typeof parsed.name === 'string' && parsed.name.trim() !== '' ? { name: parsed.name.trim() } : {}),
     };
   } catch {
-    return { enabled: true };
+    return { enabled: true, remoteFullAccess: true };
   }
 }
 

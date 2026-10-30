@@ -202,6 +202,7 @@ interface RpcResult<T> {
 interface DshRcStatusView {
   state?: string;
   hostEnabled?: boolean;
+  remoteFullAccess?: boolean;
   deviceName?: string;
   edgeUrl?: string;
   pairUrl?: string;
@@ -441,6 +442,8 @@ const EN: Record<string, string> = {
   shareOff: 'Off. This computer is disconnected and cannot be opened remotely. Your other computers are not affected.',
   shareStateOn: 'Shared',
   shareStateOff: 'Not Shared',
+  fullAccessTitle: 'Allow Full Access From Other Computers',
+  fullAccessHint: 'When on, your other computers can switch a session here to Full Access. You are always asked to confirm on the computer where you click it.',
   remotePick: 'Select a Computer',
   remotePickHint: 'Choose a computer to see its sessions.',
   remoteRestartNeeded: 'The plugin was updated but is only half loaded. Quit DeepSeek Harness fully (including its tray or menu bar icon) and open it again to finish the update.',
@@ -652,6 +655,8 @@ const ZH: Record<string, string> = {
   shareOff: '已关闭。这台电脑已断开，无法被远程打开，不影响你的其他电脑。',
   shareStateOn: '已共享',
   shareStateOff: '未共享',
+  fullAccessTitle: '允许其他电脑开启完全访问',
+  fullAccessHint: '开启后，你的其他电脑可以把这里的会话切换为完全访问。无论在哪台电脑点击，都会先请你确认。',
   remotePick: '选择一台电脑',
   remotePickHint: '选择一台电脑以查看其会话。',
   remoteRestartNeeded: '插件已更新但尚未完全加载。请完全退出 DeepSeek Harness（包括托盘或菜单栏图标）后重新打开，以完成更新。',
@@ -1615,6 +1620,18 @@ function createComponent(React: any): (props: AnyProps) => any {
       try {
         await call('computer.rename', { deviceId: status.deviceId, name });
         setStatus((await call('status')) as DshRcStatusView);
+      } catch (reason) {
+        setError(messageOf(reason));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const setFullAccess = async (allowed: boolean): Promise<void> => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        setStatus((await call('host.fullAccess', { allowed })) as DshRcStatusView);
       } catch (reason) {
         setError(messageOf(reason));
       } finally {
@@ -2661,6 +2678,33 @@ function createComponent(React: any): (props: AnyProps) => any {
                       flex: '0 0 auto', width: '40px', height: '22px', borderRadius: '11px', border: 0, padding: '2px',
                       cursor: 'pointer', background: status?.hostEnabled === false ? 'rgba(127,127,127,0.45)' : '#22c55e',
                       display: 'flex', justifyContent: status?.hostEnabled === false ? 'flex-start' : 'flex-end', transition: 'background 120ms',
+                    },
+                  },
+                  h('span', { style: { width: '18px', height: '18px', borderRadius: '9px', background: '#fff', display: 'block' } }),
+                ),
+              ),
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' } },
+                h(
+                  'div',
+                  { style: { flex: '1 1 auto', minWidth: 0 } },
+                  h('div', { style: { fontSize: '13px', fontWeight: 600 } }, t('fullAccessTitle')),
+                  h('div', { style: { fontSize: '12px', color: '#a1a1aa', marginTop: '2px' } }, t('fullAccessHint')),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    role: 'switch',
+                    'aria-checked': status?.remoteFullAccess !== false,
+                    'aria-label': t('fullAccessTitle'),
+                    disabled: busy || unavailable,
+                    onClick: () => void setFullAccess(status?.remoteFullAccess === false),
+                    style: {
+                      flex: '0 0 auto', width: '40px', height: '22px', borderRadius: '11px', border: 0, padding: '2px',
+                      cursor: 'pointer', background: status?.remoteFullAccess === false ? 'rgba(127,127,127,0.45)' : '#22c55e',
+                      display: 'flex', justifyContent: status?.remoteFullAccess === false ? 'flex-start' : 'flex-end', transition: 'background 120ms',
                     },
                   },
                   h('span', { style: { width: '18px', height: '18px', borderRadius: '9px', background: '#fff', display: 'block' } }),

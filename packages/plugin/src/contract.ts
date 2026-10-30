@@ -54,6 +54,7 @@ export interface DshRcStatus extends AgentStatus {
    * the owner's other computers. Persisted per state dir; on by default.
    */
   hostEnabled?: boolean;
+  remoteFullAccess?: boolean;
   /** True while a child process is alive. */
   agentRunning: boolean;
   /** Resolved launch target, for troubleshooting copy. */
