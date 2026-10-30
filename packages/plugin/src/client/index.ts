@@ -311,6 +311,13 @@ const EN: Record<string, string> = {
   updateNotChecked: 'Not checked yet',
   updateCheckedAgo: 'checked {age}',
   updateCheck: 'Check for Updates',
+  pillUpdate: 'Update',
+  pillRestart: 'Restart to Update',
+  pillPreparing: 'Preparing to Restart…',
+  pillRetry: 'Retry Update',
+  pillAvailableDetail: 'DSH RC update: {v}',
+  pillProgressDetail: 'Installing DSH RC update: {p}%\nTarget version: {v}',
+  pillReadyDetail: 'DSH RC {v} is installed. Restart DeepSeek Harness to load it.',
   updateRestart: 'Restart to Update',
   lastError: 'Last error',
   none: 'None',
@@ -468,6 +475,13 @@ const ZH: Record<string, string> = {
   updateNotChecked: '尚未检查',
   updateCheckedAgo: '{age}前检查',
   updateCheck: '检查更新',
+  pillUpdate: '更新',
+  pillRestart: '重启以更新',
+  pillPreparing: '正在准备重启…',
+  pillRetry: '重试更新',
+  pillAvailableDetail: 'DSH RC 更新：{v}',
+  pillProgressDetail: '正在安装 DSH RC 更新：{p}%\n目标版本：{v}',
+  pillReadyDetail: 'DSH RC {v} 已安装，重启 DeepSeek Harness 以加载。',
   updateRestart: '重启以更新',
   lastError: '最近错误',
   none: '无',
@@ -691,6 +705,69 @@ function clickOrDouble(element: HTMLElement, onClick: () => void, onDouble: () =
   });
 }
 
+const PILL_DOWNLOAD = ['M8 1.95317V10.0469', 'M4.25 6.29688L8 10.0469L11.75 6.29688', 'M1.5 10.0469V13.158C1.5 13.3937 1.60536 13.6198 1.79289 13.7865C1.98043 13.9532 2.23478 14.0469 2.5 14.0469H13.5C13.7652 14.0469 14.0196 13.9532 14.2071 13.7865C14.3946 13.6198 14.5 13.3937 14.5 13.158V10.0469'];
+const PILL_LOADING = ['M12.596 12.596C11.687 13.5049 10.5288 14.1239 9.26798 14.3747C8.00716 14.6255 6.70028 14.4968 5.51261 14.0048C4.32494 13.5129 3.30981 12.6798 2.59557 11.611C1.88134 10.5421 1.50008 9.2855 1.5 7.99998C1.50008 6.71446 1.88134 5.45783 2.59557 4.38898C3.30981 3.32013 4.32494 2.48707 5.51261 1.99513C6.70028 1.50319 8.00716 1.37447 9.26798 1.62524C10.5288 1.87602 11.687 2.49502 12.596 3.40398'];
+
+/**
+ * DSH RC's update status as DeepSeek Harness's own sidebar Update pill
+ * (DesktopUpdateIndicator: same geometry, brand-blue tint, icons and phases).
+ * Hidden when up to date, checking quietly, or a development copy.
+ */
+function updatePill(status: any, t: (key: string) => string, act: (endpoint: 'update.check' | 'update.restart') => void): HTMLElement | null {
+  const phase = String(status?.updateState ?? 'idle');
+  const v = String(status?.latestVersion ?? '');
+  const raw = Number(status?.updatePercent ?? 0);
+  const p = Number.isFinite(raw) ? Math.max(0, Math.min(100, Math.round(raw))) : 0;
+  const fill = (key: string): string => t(key).replace('{v}', v).replace('{p}', String(p));
+  let label: string; let detail: string; let icon: 'download' | 'busy' | 'error'; let endpoint: 'update.check' | 'update.restart' | null;
+  switch (phase) {
+    case 'available': label = t('pillUpdate'); detail = fill('pillAvailableDetail'); icon = 'download'; endpoint = 'update.check'; break;
+    case 'installing': label = `${String(p)}%`; detail = fill('pillProgressDetail'); icon = 'busy'; endpoint = null; break;
+    case 'ready': label = t('pillRestart'); detail = fill('pillReadyDetail'); icon = 'download'; endpoint = 'update.restart'; break;
+    case 'restarting': label = t('pillPreparing'); detail = v === '' ? label : `DSH RC ${v}`; icon = 'busy'; endpoint = null; break;
+    case 'error': label = t('pillRetry'); detail = String(status?.updateMessage ?? label); icon = 'error'; endpoint = 'update.check'; break;
+    default: return null;
+  }
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'dsh-rc-update-pill';
+  button.title = detail;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-live', 'polite');
+  if (endpoint === null) button.setAttribute('aria-disabled', 'true');
+  const iconSeat = document.createElement('span');
+  iconSeat.className = 'dsh-rc-update-pill-icon';
+  iconSeat.setAttribute('aria-hidden', 'true');
+  if (icon === 'error') {
+    const dot = document.createElement('span');
+    dot.className = 'dsh-rc-update-pill-dot';
+    iconSeat.append(dot);
+  } else {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const attrs: Array<[string, string]> = [['width', '14'], ['height', '14'], ['viewBox', '0 0 16 16'], ['fill', 'none'], ['stroke-width', '1']];
+    for (const [k, val] of attrs) svg.setAttribute(k, val);
+    if (icon === 'busy') svg.setAttribute('class', 'dsh-rc-update-pill-spin');
+    for (const d of icon === 'busy' ? PILL_LOADING : PILL_DOWNLOAD) {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('stroke', 'currentColor');
+      svg.append(path);
+    }
+    iconSeat.append(svg);
+  }
+  const text = document.createElement('span');
+  text.textContent = label;
+  button.append(iconSeat, text);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    // One request at a time: a second Restart to Update must never be sent.
+    if (endpoint === null || button.getAttribute('aria-disabled') === 'true') return;
+    button.setAttribute('aria-disabled', 'true');
+    act(endpoint);
+  });
+  return button;
+}
+
 function relativeAge(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (seconds < 60) return 'now';
@@ -907,8 +984,28 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-gear:hover { background: color-mix(in srgb, currentColor 9%, transparent); color: var(--dsw-alias-label-primary, #d4d4d8); }
 .dsh-rc-remote-ws-gear:focus { outline: none; box-shadow: none; }
 .dsh-rc-remote-ws-gear:focus-visible { outline: 1.5px solid var(--dsw-focus-ring-color, #4c8dff); outline-offset: 1px; }
+.dsh-rc-update-pill {
+  --dsh-rc-brand: var(--dsw-alias-brand-primary-new-colorprimary-new-color, #4d6bfe);
+  box-sizing: border-box; flex: none; display: inline-grid; grid-template-columns: 14px max-content; align-items: center; column-gap: 4px;
+  height: 28px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--dsh-rc-brand) 20%, transparent); border-radius: var(--dsw-radius-sm, 8px);
+  background: color-mix(in srgb, var(--dsh-rc-brand) 8%, transparent); color: var(--dsh-rc-brand);
+  font-family: inherit; font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; white-space: nowrap; cursor: pointer;
+}
+.dsh-rc-update-pill[aria-disabled=true] { cursor: default; }
+.dsh-rc-update-pill:focus { outline: none; }
+.dsh-rc-update-pill:focus-visible { outline: 1.5px solid var(--dsw-focus-ring-color, #4c8dff); outline-offset: 1px; }
+.dsh-rc-update-pill-icon { display: grid; place-items: center; width: 14px; height: 14px; }
+.dsh-rc-update-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.dsh-rc-update-pill-spin { animation: dsh-rc-pill-spin 1s linear infinite; }
+@keyframes dsh-rc-pill-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .dsh-rc-update-pill-spin { animation: none; } }
 .dsh-rc-remote-ws-gear-dot { position: absolute; top: 2px; right: 1px; width: 5px; height: 5px; border-radius: 999px; box-shadow: 0 0 0 1.5px var(--dsw-alias-bg-subtle, #161616); }
 .dsh-rc-remote-ws-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
@@ -1968,7 +2065,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         const gear = document.createElement('button');
         gear.type = 'button';
         gear.className = 'dsh-rc-remote-ws-gear';
-        gear.title = `${t('title')} — ${stateLabel}`;
+        gear.title = `${t('title')} · ${stateLabel}`;
         gear.setAttribute('aria-label', t('title'));
         const gearIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         gearIcon.setAttribute('viewBox', '0 0 24 24');
@@ -1988,7 +2085,10 @@ function createComponent(React: any): (props: AnyProps) => any {
         gearDot.style.background = color;
         gear.append(gearIcon, gearDot);
         gear.addEventListener('click', () => setOpen(true));
-        header.append(title, gear);
+        const pill = updatePill(status, t, (endpoint) => {
+          void call(endpoint).then((next) => setStatus(next as DshRcStatusView)).catch(() => undefined);
+        });
+        header.append(...(pill === null ? [title, gear] : [title, pill, gear]));
         container.append(header);
         if (harnessPeers.length === 0) {
           const empty = document.createElement('div');
@@ -2244,7 +2344,7 @@ function createComponent(React: any): (props: AnyProps) => any {
         observer.disconnect();
         container?.remove();
       };
-    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, status?.version, t, stateLabel, color, setOpen]);
+    }, [harnessPeers, selectedHost, renameError, status?.deviceId, remoteSessions, showAll, harnessPublicUrl, props.wide, status?.edgeUrl, status?.version, (status as any)?.updateState, (status as any)?.updatePercent, (status as any)?.latestVersion, (status as any)?.updateMessage, t, stateLabel, color, setOpen]);
 
     return h(
       'div',

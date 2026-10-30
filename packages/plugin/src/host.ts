@@ -380,6 +380,7 @@ class DshRcService {
     if (update.latest !== undefined) status.latestVersion = update.latest;
     if (update.message !== undefined) status.updateMessage = update.message;
     if (update.checkedAt !== undefined) status.updateCheckedAt = update.checkedAt;
+    if (update.percent !== undefined) status.updatePercent = update.percent;
     if (this.setupError !== undefined) status.lastError ??= this.setupError;
     return status;
   }

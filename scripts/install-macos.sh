@@ -24,6 +24,7 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'dsh-rc install: %s\n' "$*" >&2; exit 1; }
 
 [ -n "$NODE_BIN" ] || die "node not found; install Node 24 LTS and retry"
+case "$HOME_DIR$NODE_BIN" in *[\"\$\`]*) die "home folder or node path contains a quote, \$ or backtick; use a plain path" ;; esac
 NODE_VERSION=$("$NODE_BIN" -p 'process.versions.node')
 say "node $NODE_VERSION ($NODE_BIN)"
 "$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number); if(a<24) process.exit(1)' \
@@ -74,7 +75,9 @@ launchctl bootout "gui/$(id -u)" "$AGENTS/com.dshrc.edge.plist" 2>/dev/null || t
 launchctl bootstrap "gui/$(id -u)" "$AGENTS/com.dshrc.edge.plist"
 say "edge agent loaded (com.dshrc.edge)"
 
-if [ -n "$TS_BIN" ] && [ -n "$TS_DAEMON" ]; then
+if [ "${DSHRC_SKIP_TAILSCALED:-}" = 1 ]; then
+  say "tailscaled agent left as is (managed by host-setup)"
+elif [ -n "$TS_BIN" ] && [ -n "$TS_DAEMON" ]; then
   cat > "$AGENTS/com.dshrc.tailscaled.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

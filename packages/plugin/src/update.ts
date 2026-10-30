@@ -45,6 +45,8 @@ export interface UpdateSnapshot {
   latest?: string;
   message?: string;
   checkedAt?: number;
+  /** Install progress 0-100 while installing. */
+  percent?: number;
 }
 
 export function versionParts(value: string): number[] {
@@ -83,6 +85,7 @@ export function isDevelopmentCheckout(repoRoot: string): boolean {
 
 interface InstallerStatus {
   state?: string;
+  percent?: number;
   stashed?: boolean;
   to?: string;
   at?: number;
@@ -295,6 +298,9 @@ export class UpdateManager {
       return;
     }
     // 'busy' (a run already holding the lock) and 'installing' keep polling until the final status.
+    if (fresh && status.state === 'installing' && typeof status.percent === 'number' && this.snapshot.state === 'installing') {
+      this.snapshot = { ...this.snapshot, percent: Math.max(0, Math.min(100, Math.round(status.percent))) };
+    }
     if (Date.now() - this.installStartedAt > INSTALL_TIMEOUT_MS) {
       this.failedVersion = latest;
       settle({ state: 'error', latest, message: 'The update took too long and was abandoned; it will be tried again later.' });
@@ -409,18 +415,30 @@ function updateNodeCommand(): { command: string; env: NodeJS.ProcessEnv } | unde
   return undefined;
 }
 
-/** Quit and reopen DeepSeek Harness from a detached helper. False when unsupported. */
+/**
+ * Quit and reopen DeepSeek Harness from a detached helper. False when unsupported.
+ * It asks the app to quit and waits up to 60 s for a clean exit: forcing it
+ * earlier cut off its browser storage and broke the next start
+ * ("desktop welcome: Web authentication failed").
+ */
 export function scheduleHarnessRestart(): boolean {
   try {
     if (process.platform === 'darwin') {
-      spawn('/bin/sh', ['-c', 'sleep 3; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; sleep 8; pkill -TERM -f "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness"'], { detached: true, stdio: 'ignore' }).unref();
+      spawn('/bin/sh', ['-c', 'sleep 3; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; i=0; while pgrep -a -x "DeepSeek Harness" >/dev/null 2>&1 && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; pkill -a -TERM -x "DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness"'], { detached: true, stdio: 'ignore' }).unref();
       return true;
     }
     if (process.platform === 'win32') {
       const ps = [
         'Start-Sleep -Seconds 3;',
-        "$p = Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' } | Select-Object -First 1;",
-        'if ($p) { $exe = $p.Path; Get-Process | Where-Object { $_.ProcessName -like \'*DeepSeek*Harness*\' } | Stop-Process -Force; Start-Sleep -Seconds 3; if ($exe) { Start-Process $exe } }',
+        "$procs = @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' });",
+        'if ($procs.Count -gt 0) {',
+        '  $exe = ($procs | Where-Object { $_.Path } | Select-Object -First 1).Path;',
+        '  $procs | ForEach-Object { [void]$_.CloseMainWindow() };',
+        "  & taskkill.exe /IM 'DeepSeek Harness.exe' /T 2>$null | Out-Null;",
+        "  for ($i = 0; $i -lt 60 -and @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' }).Count -gt 0; $i++) { Start-Sleep -Seconds 1 };",
+        "  Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' } | Stop-Process -Force -ErrorAction SilentlyContinue;",
+        '  Start-Sleep -Seconds 3; if ($exe) { Start-Process $exe }',
+        '}',
       ].join(' ');
       spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
       return true;

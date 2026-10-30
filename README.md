@@ -19,11 +19,58 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.9.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 315 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.4.0.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 316 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
+
+## Get started in two prompts
+
+You need DeepSeek Harness installed and opened once on each computer. Then you
+paste one prompt into DeepSeek Harness and let its agent do the rest. Everything
+installs, connects and restarts by itself.
+
+### 1. Your first computer (the host, a Mac)
+
+Paste this into DeepSeek Harness on the Mac that will host your edge:
+
+```text
+Set up this Mac as my DSH RC host, by yourself. In Terminal, run:
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- host v0.4.0
+If it prints ACTION NEEDED with a link, show me the link and keep waiting; it continues after I approve.
+If it fails, fix the cause and run it again until it prints DONE. Never print or share the owner password.
+```
+
+It installs Node 24, git and Tailscale if missing, builds DSH RC, starts the
+edge at `https://<name>.<tailnet>.ts.net`, creates your owner account (the
+password is saved to `~/.dsh-rc/owner-password.txt`, readable only by you),
+installs the plugin and restarts DeepSeek Harness. You approve two links once:
+the Tailscale sign-in and, if your tailnet has not enabled it yet, Funnel.
+
+### 2. Every other computer (Mac, Windows or Linux)
+
+On the host, open **Remote Control**, press **Build Setup Prompt**, and paste
+that prompt into DeepSeek Harness on the other computer. It carries your edge
+address and needs no password:
+
+```text
+Install DSH RC 0.4.0 on this computer and connect it to https://<your-edge>, by yourself with no questions to me.
+Windows, in PowerShell: `$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.0'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.ps1 | iex`
+macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.0`
+...
+```
+
+About a minute later the computer appears under **Remote Workspaces** on the
+host. From then on every computer stays connected, reconnects by itself after
+sleep or network changes, and updates itself to new releases.
+
+| Step | Who | Human action |
+| --- | --- | --- |
+| Install DeepSeek Harness and open it once | You | Once per computer |
+| Host prompt | DeepSeek Harness agent | Approve the Tailscale sign-in link (and Funnel, if asked) |
+| Join prompt | DeepSeek Harness agent | None |
+| Updates, reconnects, restarts | DSH RC | None |
 
 ## The problem with the previous remote plugin
 
@@ -55,9 +102,9 @@ and an edge you place near yourself.**
 | --- | --- | --- |
 | 8 s ICE attempt, 15 s handshake | One outbound WSS on 443; no ICE/STUN/TURN to negotiate or time out | `packages/mux`, `apps/agent` |
 | UDP-dependent paths | TCP/TLS only; works through corporate proxies, TLS inspection, CGNAT and IPv6-only networks | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| China-hosted relay by default | Self-hosted edge; for China ↔ abroad put it in Hong Kong, Singapore, Tokyo or Seoul — it is the only hop | [`docs/DEPLOY.md` §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first) |
+| China-hosted relay by default | Self-hosted edge; for China ↔ abroad put it in Hong Kong, Singapore, Tokyo or Seoul - it is the only hop | [`docs/DEPLOY.md` §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first) |
 | Second client drifts | The browser loads the unmodified DSH web app under `/d/<device>/`; feature parity is automatic | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2 |
-| Slow, state-losing reconnect | 15 s heartbeat, 45 s idle, instant reconnect after sleep/wake, full-jitter 250 ms–10 s, self-heal (never stays offline except when you revoke a computer), 30 s presence grace, measured 49 ms forced replacement, no mutation replay | `packages/mux`, `apps/agent` |
+| Slow, state-losing reconnect | 15 s heartbeat, 45 s idle, instant reconnect after sleep/wake, full-jitter 250 ms-10 s, self-heal (never stays offline except when you revoke a computer), 30 s presence grace, measured 49 ms forced replacement, no mutation replay | `packages/mux`, `apps/agent` |
 | Bulk transfer starves the UI | 256 KiB/stream and 8 MiB/tunnel credit returned on consumption; high/normal/low scheduler; p95 3.1 ms under 4 × 16 MiB | `packages/mux` |
 | Native `wrtc` fragility | No native addon; Node built-ins plus `ws` | `package.json` |
 | A crash leaves two agents | Per-state-dir `agent.lock` refuses a second instance; 4004 replacement is retryable, not a fight | [`apps/agent/src/lock.ts`](apps/agent/src/lock.ts) |
@@ -70,7 +117,7 @@ default on a shared edge. The trade-off is explicit:
 the edge terminates TLS and therefore sees plaintext proxied traffic. It is a
 **trusted relay**; [THREAT-MODEL.md](docs/THREAT-MODEL.md) states what that trust
 buys and costs. If you need end-to-end encryption against the relay, this v1 is
-the wrong design — [ADR-0001](docs/adr/0001-no-webrtc.md) explains why we chose
+the wrong design - [ADR-0001](docs/adr/0001-no-webrtc.md) explains why we chose
 it anyway.
 
 ## Architecture
@@ -186,10 +233,10 @@ with no clicks:
 
 1. **Check.** Two minutes after DeepSeek Harness starts, and then every hour,
    the host reads the latest GitHub release.
-2. **Install.** When a newer `vX.Y.Z` exists it runs the cross-platform
-   `scripts/self-update.mjs` in the background: checks out the tag, runs
-   `npm ci` and the build, verifies the version, and (on the macOS owner
-   machine) refreshes the launchd edge.
+2. **Install.** When a newer `vX.Y.Z` exists and no session is running, it
+   runs the cross-platform `scripts/self-update.mjs` in the background: checks
+   out the tag, updates dependencies in place, builds, verifies the version,
+   and (on the macOS host) refreshes the launchd edge.
 3. **Restart.** As soon as no session on that computer is running, DeepSeek
    Harness quits and reopens itself to load the new version.
 
@@ -200,7 +247,24 @@ restarts stop after two tries per release; and the update endpoints are local
 only, so no other computer can trigger them. Progress is logged to
 `~/.dsh-rc/update.log`.
 
-The Remote Control panel shows an **Updates** row (up to date, installing,
+**Update pill.** While an update is under way, the **Remote Workspaces**
+header shows the same pill DeepSeek Harness uses for its own updates (same
+size, brand blue, icons and wording):
+
+<p align="center"><img src="docs/images/08-update-pill.webp" alt="Remote Workspaces update pill in five states: Update, 65%, Restart to Update, Preparing to Restart, Retry Update" width="420"></p>
+
+| Pill | Meaning | Click |
+| --- | --- | --- |
+| **Update** | A newer release was found; it installs as soon as no session is running | Install now |
+| **65%** | Installing, with real progress from the installer | (busy) |
+| **Restart to Update** | Installed; DeepSeek Harness restarts by itself when idle | Restart now |
+| **Preparing to Restart…** | DeepSeek Harness is restarting into the new version | (busy) |
+| **Retry Update** | The last try failed (the tooltip says why) and was rolled back | Try again |
+
+Hover the pill for the version and details. It is hidden when DSH RC is up to
+date.
+
+The Remote Control panel also shows an **Updates** row (up to date, installing,
 ready, restarting, or why it failed, and when it last checked) with **Check for
 Updates** and, when an update is waiting, **Restart to Update**.
 `DSHRC_AUTO_RESTART=0` keeps installs automatic but leaves the restart to you;
@@ -307,11 +371,11 @@ copy the short prompt, and paste it into the other Harness's agent. It is one
 command per operating system:
 
 ```powershell
-$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.9/scripts/install.ps1 | iex
+$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.9/scripts/install.sh | sh -s -- https://your-edge
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- https://your-edge
 ```
 
 The script (pinned to the release tag) does everything and is safe to run
@@ -384,7 +448,7 @@ npm run e2e              # boots a real DSH web profile, edge and agent, then Ch
 the Harness shell, contains no loopback origin, and that the UI renders.
 
 Measured on an Apple M4 Pro (24 GiB, macOS 26, Node 24.18.0, 2026-10-28),
-**loopback edge — these measure tunnel overhead, not internet RTT**:
+**loopback edge - these measure tunnel overhead, not internet RTT**:
 
 | Metric | Value |
 | --- | ---: |
@@ -419,7 +483,7 @@ SHA-256-equal through the tunnel, `remote.mux` OPEN.
 | [`apps/edge`](apps/edge) | Public HTTPS/WSS relay, auth, pairing, SQLite, dashboard |
 | [`apps/agent`](apps/agent) | Desktop tunnel client and loopback proxy |
 | [`packages/plugin`](packages/plugin) | DeepSeek Harness plugin (host + sidebar UI) |
-| [`scripts`](scripts) | `join-edge.sh` (pair a host), `install.sh` / `install.ps1` (one-command setup), `self-update.mjs` (automatic updates), `install-macos.sh`, edge bundle build |
+| [`scripts`](scripts) | `install.sh host` + `host-setup.mjs` (first computer), `install.sh` / `install.ps1` (join any computer), `join-edge.mjs`, `self-update.mjs` (automatic updates), `install-macos.sh`, edge bundle build |
 | [`tests`](tests), [`tools/bench`](tools/bench) | Integration, fault injection, benchmarks |
 | [`docs`](docs) | Architecture, protocol, ADRs, threat model, deployment, runbook |
 
@@ -444,7 +508,7 @@ Compose file, Caddy for TLS, a SQLite file to back up.
 
 **Where should the edge live?** Near enough to both ends that interactive RTT
 stays low. If your desktop is in mainland China and you work from Europe or
-North America, put the edge in Hong Kong, Singapore, Tokyo or Seoul — *not* in
+North America, put the edge in Hong Kong, Singapore, Tokyo or Seoul - *not* in
 mainland China, which is the failure mode this project removes. Measure both
 legs; details in [DEPLOY.md §0](docs/DEPLOY.md#0-choosing-a-region-read-this-first).
 

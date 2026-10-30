@@ -161,16 +161,23 @@ function writeStatus() {
 
 function scheduleRestart() {
   if (platform() === 'darwin') {
-    spawn('/bin/sh', ['-c', 'sleep 5; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; sleep 8; pkill -TERM -f "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness"'], { detached: true, stdio: 'ignore' }).unref();
+    spawn('/bin/sh', ['-c', 'sleep 5; osascript -e "tell application \\"DeepSeek Harness\\" to quit" >/dev/null 2>&1; i=0; while pgrep -a -x "DeepSeek Harness" >/dev/null 2>&1 && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; pkill -a -TERM -x "DeepSeek Harness" 2>/dev/null; sleep 3; open -a "DeepSeek Harness"'], { detached: true, stdio: 'ignore' }).unref();
     log('DeepSeek Harness restart scheduled (macOS)');
     return;
   }
   if (platform() === 'win32') {
     const ps = [
-      'Start-Sleep -Seconds 2;',
-      "$p = Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' } | Select-Object -First 1;",
-      'if ($p) { $exe = $p.Path; Stop-Process -Id $p.Id -Force; Start-Sleep -Seconds 3; if ($exe) { Start-Process $exe } }',
-    ].join(' ');
+        'Start-Sleep -Seconds 2;',
+        "$procs = @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' });",
+        'if ($procs.Count -gt 0) {',
+        '  $exe = ($procs | Where-Object { $_.Path } | Select-Object -First 1).Path;',
+        '  $procs | ForEach-Object { [void]$_.CloseMainWindow() };',
+        "  & taskkill.exe /IM 'DeepSeek Harness.exe' /T 2>$null | Out-Null;",
+        "  for ($i = 0; $i -lt 60 -and @(Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' }).Count -gt 0; $i++) { Start-Sleep -Seconds 1 };",
+        "  Get-Process | Where-Object { $_.ProcessName -like '*DeepSeek*Harness*' } | Stop-Process -Force -ErrorAction SilentlyContinue;",
+        '  Start-Sleep -Seconds 3; if ($exe) { Start-Process $exe }',
+        '}',
+      ].join(' ');
     spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     log('DeepSeek Harness restart scheduled (Windows)');
     return;

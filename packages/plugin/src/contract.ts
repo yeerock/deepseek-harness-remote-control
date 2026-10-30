@@ -70,6 +70,8 @@ export interface DshRcStatus extends AgentStatus {
   updateMessage?: string;
   /** When the release feed was last read (ms since epoch). */
   updateCheckedAt?: number;
+  /** Install progress 0-100 while updateState is 'installing'. */
+  updatePercent?: number;
 }
 
 /** RPC reply envelope expected by `ctx.connection.rpc.call` on the client. */

@@ -254,3 +254,27 @@ describe('update manager races', () => {
     }
   });
 });
+
+describe('update progress', () => {
+  it('passes the installer percent through while installing, and drops it once ready', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dshrc-update-pct-'));
+    try {
+      mkdirSync(join(dir, 'repo', '.git'), { recursive: true });
+      const manager = new UpdateManager({
+        repoRoot: join(dir, 'repo'), stateDir: dir, currentVersion: '0.2.2', spawnInstaller: vi.fn(),
+        fetchImpl: (async () => new Response(JSON.stringify({ tag_name: 'v0.3.0' }), { status: 200 })) as typeof fetch,
+      });
+      await manager.check(true);
+      writeFileSync(join(dir, 'update-status.json'), JSON.stringify({ state: 'installing', to: 'v0.3.0', at: Date.now() + 1, percent: 65 }));
+      manager.pollInstaller('0.3.0');
+      expect(manager.getSnapshot()).toMatchObject({ state: 'installing', percent: 65 });
+      writeFileSync(join(dir, 'update-status.json'), JSON.stringify({ state: 'installed', to: 'v0.3.0', at: Date.now() + 1 }));
+      manager.pollInstaller('0.3.0');
+      expect(manager.getSnapshot().state).toBe('ready');
+      expect(manager.getSnapshot().percent).toBeUndefined();
+      manager.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

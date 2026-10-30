@@ -51,7 +51,9 @@ const from = currentVersion();
 let previous = '';
 let stashed = false;
 try {
-  writeStatus({ state: 'installing', from, to: tag });
+  // percent drives the Update pill; the stages are weighted by how long they usually take.
+  const step = (percent) => writeStatus({ state: 'installing', from, to: tag, percent });
+  step(5);
   previous = git(['rev-parse', 'HEAD']).trim();
   if (git(['status', '--porcelain']).trim() !== '') {
     log('local changes found; stashing them (git stash list to recover)');
@@ -59,9 +61,11 @@ try {
     stashed = true;
   }
   git(['fetch', '--tags', '--force', 'origin']);
+  step(20);
   git(['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`]);
   git(['checkout', '-f', `refs/tags/${tag}`]);
-  build();
+  step(30);
+  build(step);
   const installed = currentVersion();
   if (`v${installed}` !== tag) throw new Error(`built version ${installed} does not match ${tag}`);
   if (!existsSync(join(repo, 'packages', 'plugin', 'dist', 'index.js'))) throw new Error('plugin build output is missing');
@@ -170,13 +174,14 @@ function npm(args) {
   execFileSync(platform() === 'win32' ? 'npm.cmd' : 'npm', args, { cwd: repo, stdio: 'inherit', env, shell: platform() === 'win32', windowsHide: true });
 }
 
-function build() {
+function build(step = () => undefined) {
   try {
     npm(['install', '--no-audit', '--no-fund']);
   } catch {
     log('npm install failed; retrying with a clean npm ci');
     npm(['ci', '--no-audit', '--no-fund']);
   }
+  step(65);
   try {
     npm(['run', 'build']);
   } catch {
@@ -184,6 +189,7 @@ function build() {
     log('build failed; retrying once');
     npm(['run', 'build']);
   }
+  step(95);
   // npm may rewrite the lockfile (platform-specific optional packages); keep the tree clean
   // so the next update does not mistake that for local edits.
   try {

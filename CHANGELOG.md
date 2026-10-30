@@ -3,6 +3,13 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.0 - 2026-10-30
+
+- **One prompt for the first computer.** `install.sh host <tag>` (new `scripts/host-setup.mjs`) sets up the host Mac end to end: Node 24, git and Tailscale (Homebrew) if missing, the Tailscale daemon as a user launchd agent, Tailscale sign-in and Funnel (it relays the approval links as ACTION NEEDED and waits), the edge and watchdog, the owner account with a generated password saved to `~/.dsh-rc/owner-password.txt` (0600, never printed), and the plugin with a DeepSeek Harness restart. Safe to run again.
+- **Update pill in Remote Workspaces.** The same pill DeepSeek Harness uses for its own updates (geometry, brand blue, download and loading icons, wording): Update, a live install percentage, Restart to Update, Preparing to Restart…, Retry Update; tooltip with version and details; hidden when up to date. The installer now reports real progress.
+- **Fix: restarts no longer cut DeepSeek Harness off mid-shutdown.** The automatic restart and the installer forced the app to quit 8 s after asking (on Windows at once). An app still shutting down could lose its login cookie and then fail to start with "desktop welcome: Web authentication failed". They now ask it to quit and wait up to 60 s for a clean exit, forcing only a truly stuck app (macOS and Windows).
+- README front page: **Get started in two prompts** (host prompt, then the join prompt from Build Setup Prompt for every other computer).
+
 ## v0.3.9 - 2026-10-30
 
 - **Fix (Windows): DeepSeek Harness could not start after setup.** The installer wrote the agent path into the profile's `cordis.patch.yml` inside YAML double quotes, so `C:\Users\...` turned `\U` into a Unicode escape and DeepSeek Harness stopped with "YAMLException: expected hexadecimal character". Values are now written as escaped strings that always read back exactly (`scripts/lib/patch-entry.mjs`), tested with a real YAML parser.
@@ -53,7 +60,7 @@ plugin and protocol are declared stable.
 
 - Remote Workspaces now says when an update is only half loaded (the sidebar is new but the background host still runs the old plugin) and asks you to quit and reopen DeepSeek Harness, instead of wrongly saying no computers can be opened.
 
-## v0.3.1 — 2026-10-29
+## v0.3.1 - 2026-10-29
 
 ### Changed
 
@@ -64,7 +71,7 @@ plugin and protocol are declared stable.
   Session** (+) and **Rename Computer** sit beside it. A single available
   computer is selected automatically.
 
-## v0.3.0 — 2026-10-29
+## v0.3.0 - 2026-10-29
 
 Remote sessions open like local ones.
 
@@ -100,7 +107,7 @@ Remote sessions open like local ones.
 
 Both computers need v0.3.0 for remote sessions to list and open.
 
-## v0.2.10 — 2026-10-29
+## v0.2.10 - 2026-10-29
 
 Native remote window; embedding experiments removed.
 
@@ -128,11 +135,11 @@ Native remote window; embedding experiments removed.
 - The proxy URL boots the complete remote UI top-level; the native window is
   the supported v0.2.10 path.
 
-## v0.2.9 — 2026-10-29
+## v0.2.9 - 2026-10-29
 
 Attempted Electron webview remote view (superseded by v0.2.10).
 
-## v0.2.8 — 2026-10-29
+## v0.2.8 - 2026-10-29
 
 Remote Workspaces header control and modal redesign.
 
@@ -143,7 +150,7 @@ Remote Workspaces header control and modal redesign.
   spans both columns.
 - Installer now stashes a dirty checkout instead of discarding it.
 
-## v0.2.7 — 2026-10-29
+## v0.2.7 - 2026-10-29
 
 Plugin-load regression fix.
 
@@ -153,7 +160,7 @@ Plugin-load regression fix.
 - Removed the leftover old `ds-harness-remote` plugin from the reference
   profile so it cannot conflict with `dsh-rc`.
 
-## v0.2.6 — 2026-10-29
+## v0.2.6 - 2026-10-29
 
 Click-to-use remote view attempt; zero-touch pairing.
 
@@ -163,21 +170,21 @@ Click-to-use remote view attempt; zero-touch pairing.
   idempotently, links the plugin and schedules a Harness restart.
 - Iframe embedding was introduced here; it is superseded by v0.2.10.
 
-## v0.2.5 — 2026-10-29
+## v0.2.5 - 2026-10-29
 
 Remote Workspaces design and host-side new session.
 
 - Remote Workspaces aligned with native Workspaces typography and row metrics.
 - `+` opens `/d/<deviceId>/?dsh-rc-new=1`; the host plugin creates a session.
 
-## v0.2.4 — 2026-10-29
+## v0.2.4 - 2026-10-29
 
 Sidebar host switcher.
 
 - Remote Control section lists approved Harnesses with online/offline state.
 - Edge `GET /v1/devices/me/peers` returns metadata only; no secrets.
 
-## v0.2.3 — 2026-10-29
+## v0.2.3 - 2026-10-29
 
 Auto-approval cleanup.
 
@@ -185,7 +192,7 @@ Auto-approval cleanup.
 - Edge startup auto-approves pending Harnesses when
   `--auto-approve-devices` is enabled.
 
-## v0.2.2 — 2026-10-29
+## v0.2.2 - 2026-10-29
 
 Auto-approve, version display, auto-update.
 
@@ -195,7 +202,7 @@ Auto-approve, version display, auto-update.
 - Host checks GitHub releases on start and every six hours; `self-update.sh`
   updates the checkout, plugin and edge bundle.
 
-## v0.2.1 — 2026-10-29
+## v0.2.1 - 2026-10-29
 
 Prompt-only pairing and identifier cleanup.
 
@@ -204,7 +211,7 @@ Prompt-only pairing and identifier cleanup.
 - Public edge renamed to `dsh-rc`; device label `DSH Desktop`.
 - Join prompt uses `/v1/edge`, independent of sharing auth.
 
-## v0.2.0 — 2026-10-28
+## v0.2.0 - 2026-10-28
 
 Guest sharing and operations completion.
 
@@ -214,6 +221,6 @@ Guest sharing and operations completion.
 - `dsh-rc-edge-passwd`; legacy state-dir fallback.
 - macOS launchd supervision and standalone edge bundle.
 
-## v0.1.0 — 2026-10-28
+## v0.1.0 - 2026-10-28
 
 First end-to-end release: protocol, mux, edge, agent, plugin, tests and docs.

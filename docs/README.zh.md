@@ -16,10 +16,32 @@ WebSocket 流转发给它，浏览器打开的就是真正的 DSH 界面。没�
 edge、agent，完成 owner 初始化与配对后，用无头 Chromium 从
 `http://<edge>/d/<device>/` 加载出来的。
 
-> **状态：v0.3.9。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
-> 315 个自动化测试全绿；新电脑只需一条命令即可安装并连接，连接断开（休眠唤醒、网络切换、edge 重置）后自动恢复，每台电脑自动检查、安装并在空闲时重启以保持最新版本，真实 DSH 端到端验证通过，下面的基准数字是实测值。
+> **状态：v0.4.0。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
+> 316 个自动化测试全绿；新电脑只需一条命令即可安装并连接，连接断开（休眠唤醒、网络切换、edge 重置）后自动恢复，每台电脑自动检查、安装并在空闲时重启以保持最新版本，真实 DSH 端到端验证通过，下面的基准数字是实测值。
 > 仍是预发布软件：请把插件当 beta，并在暴露桌面之前阅读
 > [`THREAT-MODEL.md`](THREAT-MODEL.md)。
+
+
+## 两步开始
+
+每台电脑先安装并打开一次 DeepSeek Harness，然后把提示粘贴给 DeepSeek Harness 的 agent，其余全部自动完成。
+
+**1. 第一台电脑（主机，Mac）**：
+
+```text
+Set up this Mac as my DSH RC host, by yourself. In Terminal, run:
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- host v0.4.0
+If it prints ACTION NEEDED with a link, show me the link and keep waiting; it continues after I approve.
+If it fails, fix the cause and run it again until it prints DONE. Never print or share the owner password.
+```
+
+只需批准一次 Tailscale 登录链接（以及 Funnel，如有提示）。主人密码保存在 `~/.dsh-rc/owner-password.txt`（仅你可读）。
+
+**2. 其他每台电脑（Mac、Windows、Linux）**：在主机上打开 **Remote Control**，点击 **Build Setup Prompt**，把生成的提示粘贴到那台电脑的 DeepSeek Harness 中。约一分钟后它会出现在 **Remote Workspaces**，之后自动保持连接并自动更新。
+
+更新时，**Remote Workspaces** 标题右侧显示与 DeepSeek Harness 自身相同的更新按钮：更新、安装进度百分比、重启以更新、正在准备重启、重试更新。
+
+<p align="center"><img src="images/08-update-pill.webp" alt="Remote Workspaces 更新按钮的五种状态" width="420"></p>
 
 ## 上一代远程插件的问题
 
@@ -44,14 +66,14 @@ Remote Control 反过来下注：**一种可靠传输、真实 UI、把 edge 放
 | --- | --- | --- |
 | 8 秒 ICE 尝试、15 秒握手 | 只建立一条 443 出站 WSS；没有 ICE/STUN/TURN 需要协商或等待超时 | `packages/mux`、`apps/agent` |
 | 依赖 UDP 的路径 | 只用 TCP/TLS；可穿过企业代理、TLS 中间人、CGNAT 与纯 IPv6 网络 | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
-| 默认使用中国大陆中继 | 自托管 edge；中国 ↔ 境外可放在香港、新加坡、东京或首尔——它就是唯一一跳 | [`DEPLOY.md` §0](DEPLOY.md#0-choosing-a-region-read-this-first) |
+| 默认使用中国大陆中继 | 自托管 edge；中国 ↔ 境外可放在香港、新加坡、东京或首尔--它就是唯一一跳 | [`DEPLOY.md` §0](DEPLOY.md#0-choosing-a-region-read-this-first) |
 | 第二个客户端会漂移 | 浏览器直接加载 `/d/<device>/` 下未经修改的 DSH Web UI，功能对齐是默认结果 | [`ARCHITECTURE.md`](ARCHITECTURE.md) §2 |
-| 重连慢、丢状态 | 15 秒心跳、45 秒空闲上限、250 ms–20 s full-jitter、30 秒 presence 宽限；实测被 4004 强制替换后 49 ms 恢复；不重放 mutation | `packages/mux`、`apps/agent` |
+| 重连慢、丢状态 | 15 秒心跳、45 秒空闲上限、250 ms-20 s full-jitter、30 秒 presence 宽限；实测被 4004 强制替换后 49 ms 恢复；不重放 mutation | `packages/mux`、`apps/agent` |
 | 批量传输拖垮交互 | 每流 256 KiB、每隧道 8 MiB 信用，按消费归还；high/normal/low 调度；4 × 16 MiB 下交互 p95 3.1 ms | `packages/mux` |
 | 原生 `wrtc` 的脆弱性 | 没有原生插件；只用 Node 内置模块与 `ws` | `package.json` |
 | 崩溃后留下两个 agent | 每个 stateDir 一把 `agent.lock`，拒绝第二个实例；4004 替换按可重试处理，而不是互相抢 | [`apps/agent/src/lock.ts`](../apps/agent/src/lock.ts) |
 
-安全与运维的形态也随之改变：DSH 启动 token 不离开桌面（0600 交接、只在内存中的 cookie），浏览器永远拿不到 DSH 凭证，设备密钥只存 SHA-256，配对码一次性且必须由 owner 配合，edge 可以完全自托管。代价仍然明确：edge 终止 TLS，因此能看到代理流量的明文。它是**受信任的中转**；[`THREAT-MODEL.md`](THREAT-MODEL.md) 写清了这份信任的收益与成本。如果你需要"连中继都无法解密"的端到端加密，这个 v1 不适合你——[ADR-0001](adr/0001-no-webrtc.md) 解释了为什么仍然这样选。
+安全与运维的形态也随之改变：DSH 启动 token 不离开桌面（0600 交接、只在内存中的 cookie），浏览器永远拿不到 DSH 凭证，设备密钥只存 SHA-256，配对码一次性且必须由 owner 配合，edge 可以完全自托管。代价仍然明确：edge 终止 TLS，因此能看到代理流量的明文。它是**受信任的中转**；[`THREAT-MODEL.md`](THREAT-MODEL.md) 写清了这份信任的收益与成本。如果你需要"连中继都无法解密"的端到端加密，这个 v1 不适合你--[ADR-0001](adr/0001-no-webrtc.md) 解释了为什么仍然这样选。
 
 ## 架构
 
@@ -185,7 +207,7 @@ npm run e2e              # 启动真实 DSH web、edge、agent，再用 Chromium
 外壳、不含回环 origin，并且 UI 真的渲染出来。
 
 实测环境：Apple M4 Pro（24 GiB，macOS 26，Node 24.18.0，2026-10-28），
-**edge 在本机回环——这些数字衡量隧道开销，不含公网 RTT**：
+**edge 在本机回环--这些数字衡量隧道开销，不含公网 RTT**：
 
 | 指标 | 数值 |
 | --- | ---: |
