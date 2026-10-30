@@ -113,6 +113,15 @@ interface SessionActions {
   prompt(sessionId: string, text: string): Promise<void>;
   cancel(sessionId: string): Promise<void>;
   create(cwd: string): Promise<string>;
+  /** Every workspace in the Harness's own sidebar order, including ones with no sessions yet. */
+  workspaces(): RemoteWorkspaceRow[];
+}
+
+/** One project folder of this Harness, as a peer's folder chooser shows it. */
+export interface RemoteWorkspaceRow {
+  /** The folder path: what a new session's working directory is set to. */
+  workspaceId: string;
+  workspaceName: string;
 }
 
 /** Plain view of one session, safe to hand to another Harness. */
@@ -128,6 +137,8 @@ export interface RemoteSessionRow {
 /** Events per history page; long tool-heavy turns need far more than a few dozen. */
 const HISTORY_PAGE = 400;
 const SESSION_ROWS_MAX = 200;
+/** Most project folders a peer's chooser lists. */
+const WORKSPACE_ROWS_MAX = 100;
 
 function seqOf(record: unknown): number {
   const event = isRecord(record) && isRecord(record['event']) ? record['event'] : {};
@@ -277,9 +288,19 @@ class DshRcService {
   }
 
   /** New session in one of this computer's known workspaces (never an arbitrary path). */
+  /**
+   * This Harness's project folders for a peer's chooser: the workspace
+   * registry in its own order (folders with no sessions included), then any
+   * folder known only from sessions.
+   */
+  async remoteWorkspaces(): Promise<{ workspaces: RemoteWorkspaceRow[] }> {
+    return { workspaces: projectFolders(this.sessions.workspaces(), normalizeSessions(await this.listSessions(), Number.MAX_SAFE_INTEGER)) };
+  }
+
   async localCreate(workspaceId: string): Promise<{ sessionId: string }> {
-    const known = new Set(normalizeSessions(await this.listSessions()).map((row) => row.workspaceId));
-    if (!known.has(workspaceId)) throw new Error('That workspace is not on this computer.');
+    // Only a folder this Harness already knows: a peer can never point a session at an arbitrary path.
+    const known = (await this.remoteWorkspaces()).workspaces.some((row) => row.workspaceId === workspaceId);
+    if (!known) throw new Error('That workspace is not on this computer.');
     return { sessionId: await this.sessions.create(workspaceId) };
   }
 
@@ -497,6 +518,7 @@ export function apply(ctx: CordisContextLike, rawConfig?: unknown): void {
         }
       },
       pinned: () => registryIds(ctx, 'pinnedSessionIds'),
+      workspaces: () => registryWorkspaces(ctx),
       archived: () => registryIds(ctx, 'archivedSessionIds'),
       prompt: async (sessionId, text) => {
         const controller = sessionControllerOf(ctx);
@@ -587,6 +609,7 @@ const PEER_ENDPOINTS = new Set([
   'status',
   'harness.list',
   'remote.list',
+  'remote.workspaces',
   'remote.history',
   'remote.prompt',
   'remote.cancel',
@@ -594,6 +617,11 @@ const PEER_ENDPOINTS = new Set([
   'remote.renameSession',
   'remote.organize',
 ]);
+
+/** True for the calls another computer may make through the edge; everything else is local only. */
+export function isPeerEndpoint(endpoint: string | undefined): boolean {
+  return endpoint !== undefined && PEER_ENDPOINTS.has(endpoint);
+}
 
 /** Response cap for control requests; the browser never sends more. */
 const MAX_RPC_BODY_BYTES = 256 * 1024;
@@ -651,7 +679,7 @@ async function handleRpcRequest(
   // edge) get only read-only status and the session endpoints. Switches,
   // sharing, renames and calls that reach onward to other computers stay with
   // the local window.
-  if (request.headers[VIA_EDGE_HEADER] !== undefined && (endpoint === undefined || !PEER_ENDPOINTS.has(endpoint))) {
+  if (request.headers[VIA_EDGE_HEADER] !== undefined && !isPeerEndpoint(endpoint)) {
     writeRpcText(response, 403, 'not available over the edge');
     return;
   }
@@ -715,6 +743,7 @@ export interface SharingRpcTarget {
   organizeLocalSession(sessionId: string, action: 'archive' | 'pin' | 'unpin'): Promise<{ ok: true }>;
   renameRemoteSession(deviceId: string, sessionId: string, title: string): Promise<{ ok: true }>;
   remoteList(): Promise<{ sessions: RemoteSessionRow[] }>;
+  remoteWorkspaces(): Promise<{ workspaces: RemoteWorkspaceRow[] }>;
   remoteSessions(deviceId: string): Promise<{ sessions: RemoteSessionRow[] }>;
   sharingSet(enabled: boolean): Promise<{ enabled: boolean }>;
   sharingInvite(input: { label?: string; ttlSeconds?: number; maxUses?: number }): Promise<CreatedInvite>;
@@ -811,6 +840,7 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       case 'session.prompt':
       case 'session.cancel':
       case 'session.create':
+      case 'session.workspaces':
       case 'session.organize': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
@@ -820,6 +850,8 @@ export async function dispatchEndpoint(target: SharingRpcTarget, endpoint: strin
       }
       case 'remote.list':
         return rpcOk(await target.remoteList());
+      case 'remote.workspaces':
+        return rpcOk(await target.remoteWorkspaces());
       case 'remote.sessions': {
         const deviceId = typeof input['deviceId'] === 'string' ? input['deviceId'] : '';
         if (deviceId === '') return rpcFail('bad-request', 'deviceId is required.');
@@ -1105,6 +1137,40 @@ export function normalizeSessions(rows: unknown[], limit = SESSION_ROWS_MAX): Re
   // Pinned rows keep the order their owner gave them, ahead of the rest.
   out.sort((a, b) => (a.pinned === b.pinned ? (a.pinned === true ? 0 : (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) : a.pinned === true ? -1 : 1));
   return out.slice(0, limit);
+}
+
+/** Registry folders first (their order), then folders known only from sessions; no duplicates. */
+export function projectFolders(registry: RemoteWorkspaceRow[], sessions: Array<Pick<RemoteSessionRow, 'workspaceId' | 'workspaceName'>>): RemoteWorkspaceRow[] {
+  const out: RemoteWorkspaceRow[] = [];
+  const seen = new Set<string>();
+  for (const row of [...registry, ...sessions.map((r) => ({ workspaceId: r.workspaceId, workspaceName: r.workspaceName }))]) {
+    if (row.workspaceId === '' || seen.has(row.workspaceId)) continue;
+    seen.add(row.workspaceId);
+    out.push(row);
+  }
+  return out.slice(0, WORKSPACE_ROWS_MAX);
+}
+
+/** The workspace registry in display order (path + title); `[]` when unavailable. */
+export function registryWorkspaces(ctx: CordisContextLike): RemoteWorkspaceRow[] {
+  try {
+    const registry = getService<{ list?: () => unknown[] }>(ctx, 'workspaceRegistry');
+    if (registry === undefined || typeof registry.list !== 'function') return [];
+    const out: RemoteWorkspaceRow[] = [];
+    for (const entity of registry.list()) {
+      // Registry entries are class instances whose path/title are getters, not plain records.
+      if (entity === null || typeof entity !== 'object') continue;
+      const record = entity as Record<string, unknown>;
+      const path = typeof record['path'] === 'string' ? record['path'] : '';
+      if (path === '') continue;
+      const title = typeof record['title'] === 'string' && record['title'] !== '' ? record['title'] : path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path;
+      if (path.length > 1024) continue;
+      out.push({ workspaceId: path, workspaceName: title.slice(0, 120) });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /** Session ids from the Harness workspace registry's pin or archive set; `[]` when unavailable. */

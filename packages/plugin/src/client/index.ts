@@ -105,7 +105,17 @@ function rowIconButton(icon: string, label: string): HTMLButtonElement {
   return button;
 }
 
-interface RowMenuItem { label: string; run: () => void; separator?: boolean }
+interface RowMenuItem {
+  label: string;
+  run: () => void;
+  separator?: boolean;
+  /** Small icon before the label (an SVG built by this file, never markup). */
+  icon?: SVGSVGElement;
+  /** Hover text, e.g. a folder's full path. */
+  hint?: string;
+  /** A non-interactive caption above the items. */
+  heading?: boolean;
+}
 
 /** A small menu under the "..." button; closes on choice, outside click, scroll or Escape. */
 let closeRowMenu: (() => void) | undefined;
@@ -118,6 +128,8 @@ function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[], onClose?: () =
   const menu = document.createElement('div');
   menu.id = 'dsh-rc-row-menu';
   menu.setAttribute('role', 'menu');
+  const caption = entries.find((entry) => entry.heading === true)?.label;
+  if (caption !== undefined) menu.setAttribute('aria-label', caption);
   const close = (): void => {
     menu.remove();
     anchor.setAttribute('aria-expanded', 'false');
@@ -135,11 +147,28 @@ function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[], onClose?: () =
     if (event.key === 'Escape') { close(); anchor.focus(); }
   };
   for (const entry of entries) {
+    if (entry.heading === true) {
+      const caption = document.createElement('div');
+      caption.className = 'dsh-rc-row-menu-heading';
+      caption.setAttribute('role', 'presentation');
+      caption.textContent = entry.label;
+      menu.append(caption);
+      continue;
+    }
     const button = document.createElement('button');
     button.type = 'button';
     button.setAttribute('role', 'menuitem');
     button.className = entry.separator === true ? 'dsh-rc-row-menu-item dsh-rc-row-menu-sep' : 'dsh-rc-row-menu-item';
-    button.textContent = entry.label;
+    if (entry.hint !== undefined) button.title = entry.hint;
+    if (entry.icon !== undefined) {
+      button.classList.add('dsh-rc-row-menu-item-icon');
+      const label = document.createElement('span');
+      label.className = 'dsh-rc-row-menu-label';
+      label.textContent = entry.label;
+      button.append(entry.icon, label);
+    } else {
+      button.textContent = entry.label;
+    }
     button.addEventListener('click', (event: MouseEvent) => { event.stopPropagation(); close(); entry.run(); });
     menu.append(button);
   }
@@ -153,7 +182,7 @@ function openRowMenu(anchor: HTMLElement, entries: RowMenuItem[], onClose?: () =
   menu.style.top = `${String(Math.round((below ? rect.bottom + 4 : rect.top - 4 - height) + window.scrollY))}px`;
   anchor.setAttribute('aria-expanded', 'true');
   closeRowMenu = close;
-  (menu.firstElementChild as HTMLElement | null)?.focus();
+  (menu.querySelector('[role="menuitem"]') as HTMLElement | null)?.focus();
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('blur', close);
@@ -413,6 +442,7 @@ const EN: Record<string, string> = {
   remoteBannerHint: 'You are controlling another computer through DSH RC.',
   remoteWorkspacesEmpty: 'No other Harnesses paired yet.',
   remoteNewSession: 'New Session on This Computer',
+  remoteChooseFolder: 'Choose a Project Folder',
   remoteSessionsLoading: 'Loading sessions…',
   remoteSessionsUnavailable: 'Sessions unavailable (update the plugin on that computer)',
   remoteSessionsEmpty: 'No sessions yet',
@@ -577,6 +607,7 @@ const ZH: Record<string, string> = {
   remoteBannerHint: '你正在通过 DSH RC 控制另一台电脑。',
   remoteWorkspacesEmpty: '尚未配对其他 Harness。',
   remoteNewSession: '在此 Harness 新建会话',
+  remoteChooseFolder: '选择项目文件夹',
   remoteSessionsLoading: '正在加载会话…',
   remoteSessionsUnavailable: '无法读取会话（请更新对方电脑上的插件）',
   remoteSessionsEmpty: '暂无会话',
@@ -1090,9 +1121,14 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 }
 .dsh-rc-remote-ws-icon:hover { color: var(--dsw-alias-label-primary, inherit); }
 #dsh-rc-row-menu {
-  position: absolute; z-index: 1000; min-width: 180px; padding: 4px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.22));
+  position: absolute; z-index: 1000; min-width: 180px; max-width: 280px; max-height: min(60vh, 360px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  padding: 4px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.22));
   border-radius: 10px; background: var(--dsw-alias-bg-elevated, #fff); box-shadow: 0 8px 24px rgba(0,0,0,0.16);
 }
+.dsh-rc-row-menu-heading { padding: 6px 10px 4px; font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #81858c); }
+.dsh-rc-row-menu-item-icon { display: flex; align-items: center; gap: 8px; }
+.dsh-rc-row-menu-item-icon svg { flex: 0 0 auto; color: var(--dsw-alias-label-secondary, #6b6f76); }
+.dsh-rc-row-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rc-row-menu-item {
   display: block; width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent;
   color: var(--dsw-alias-label-primary, #111); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
@@ -2180,14 +2216,49 @@ function createComponent(React: any): (props: AnyProps) => any {
           bar.replaceChild(slot, picker);
           editInline(slot, peer.name, 64, async (value) => { await call('computer.rename', { deviceId: peer.id, name: value }); }, afterRename);
         });
-        const add = iconButton(t('remoteNewSession'), nativeRowIcon(slot, 'newSession', true) ?? rowIcon('plus', 16), () => {
-          const workspaceId = remoteSessions[peer.id]?.sessions?.[0]?.workspaceId;
-          if (workspaceId === undefined) {
-            setRenameError(t('remoteNoWorkspace'));
-            return;
+        /** The peer's project folders; a peer on an older version falls back to folders known from its sessions. */
+        const loadRemoteWorkspaces = async (deviceId: string): Promise<Array<{ workspaceId: string; workspaceName: string }>> => {
+          const fromSessions = (): Array<{ workspaceId: string; workspaceName: string }> => {
+            const seen = new Map<string, string>();
+            for (const row of remoteSessions[deviceId]?.sessions ?? []) if (!seen.has(row.workspaceId)) seen.set(row.workspaceId, row.workspaceName);
+            return [...seen].map(([workspaceId, workspaceName]) => ({ workspaceId, workspaceName }));
+          };
+          try {
+            const value = (await call('session.workspaces', { deviceId })) as { workspaces?: unknown };
+            const rows = Array.isArray(value?.workspaces) ? value.workspaces : [];
+            const folders = rows.flatMap((row: any) => (typeof row?.workspaceId === 'string' && row.workspaceId !== ''
+              ? [{ workspaceId: row.workspaceId as string, workspaceName: typeof row.workspaceName === 'string' && row.workspaceName !== '' ? row.workspaceName as string : row.workspaceId as string }]
+              : []));
+            return folders.length > 0 ? folders : fromSessions();
+          } catch {
+            return fromSessions();
           }
-          void props.newRemoteSession(peer.id, peer.name, workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason)));
+        };
+        const add = iconButton(t('remoteNewSession'), nativeRowIcon(slot, 'newSession', true) ?? rowIcon('plus', 16), () => {
+          // Ask which project folder: the remote computer's own workspace list (empty folders included).
+          if (add.getAttribute('aria-busy') === 'true') return;
+          add.setAttribute('aria-busy', 'true');
+          void loadRemoteWorkspaces(peer.id).then((folders) => {
+            add.removeAttribute('aria-busy');
+            if (folders.length === 0) {
+              setRenameError(t('remoteNoWorkspace'));
+              return;
+            }
+            openRowMenu(add, [
+              { label: t('remoteChooseFolder'), run: () => undefined, heading: true },
+              ...folders.map((folder) => ({
+                label: folder.workspaceName,
+                hint: folder.workspaceId,
+                icon: rowIcon('folder', 16),
+                run: () => { void props.newRemoteSession(peer.id, peer.name, folder.workspaceId).catch((reason: unknown) => setRenameError(messageOf(reason))); },
+              })),
+            ]);
+          }).catch((reason: unknown) => {
+            add.removeAttribute('aria-busy');
+            setRenameError(messageOf(reason));
+          });
         });
+        add.setAttribute('aria-haspopup', 'menu');
         bar.append(rename, add);
         container.append(bar);
         {

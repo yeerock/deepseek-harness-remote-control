@@ -19,57 +19,107 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.4.0.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 316 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.4.1.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 321 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
 
 ## Get started in two prompts
 
-You need DeepSeek Harness installed and opened once on each computer. Then you
-paste one prompt into DeepSeek Harness and let its agent do the rest. Everything
-installs, connects and restarts by itself.
+Works on **macOS, Windows and Linux**, for both steps. Install DeepSeek Harness
+and open it once on each computer. Then paste one prompt into DeepSeek Harness
+and its agent does everything else: download, install, set up, connect and
+restart. Or run the one command for your system yourself.
 
-### 1. Your first computer (the host, a Mac)
+### Step 1. Your first computer (the host)
 
-Paste this into DeepSeek Harness on the Mac that will host your edge:
+The host runs your private edge, the address every other computer connects to.
+Any computer that stays on works: a Mac, a Windows PC or a Linux machine.
+
+**Paste into DeepSeek Harness** (any system):
 
 ```text
-Set up this Mac as my DSH RC host, by yourself. In Terminal, run:
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- host v0.4.0
+Set up this computer as my DSH RC host, by yourself. Run the command for this system:
+Windows (PowerShell): $env:DSHRC_MODE='host'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+macOS or Linux: curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
 If it prints ACTION NEEDED with a link, show me the link and keep waiting; it continues after I approve.
 If it fails, fix the cause and run it again until it prints DONE. Never print or share the owner password.
 ```
 
-It installs Node 24, git and Tailscale if missing, builds DSH RC, starts the
-edge at `https://<name>.<tailnet>.ts.net`, creates your owner account (the
-password is saved to `~/.dsh-rc/owner-password.txt`, readable only by you),
-installs the plugin and restarts DeepSeek Harness. You approve two links once:
-the Tailscale sign-in and, if your tailnet has not enabled it yet, Funnel.
+**Or run it yourself** in a terminal:
 
-### 2. Every other computer (Mac, Windows or Linux)
+<details><summary><b>Windows</b> (PowerShell)</summary>
 
-On the host, open **Remote Control**, press **Build Setup Prompt**, and paste
-that prompt into DeepSeek Harness on the other computer. It carries your edge
-address and needs no password:
+```powershell
+$env:DSHRC_MODE='host'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+```
+</details>
+
+<details><summary><b>macOS</b> (Terminal)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
+```
+</details>
+
+<details><summary><b>Linux</b> (terminal)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
+```
+</details>
+
+What it does by itself: installs Node 24, git and Tailscale if missing (Windows
+via winget; Linux the official static build, checksum-checked, no sudo; macOS
+Homebrew), runs the edge as a background service that starts with the computer
+(macOS launchd, Linux systemd user service, Windows a task at sign-in), publishes
+it at `https://<name>.<tailnet>.ts.net` with Tailscale Funnel, creates your owner
+account (password saved to `~/.dsh-rc/owner-password.txt`, readable only by you),
+installs the plugin and restarts DeepSeek Harness.
+
+You approve at most two links, once: the Tailscale sign-in and, if your tailnet
+has not enabled it yet, Funnel. On Windows, Tailscale's installer may also ask
+Windows for permission. Running it again is always safe.
+
+### Step 2. Every other computer
+
+On the host, open **Remote Control**, press **Build Setup Prompt**, copy it and
+paste it into DeepSeek Harness on the other computer. It already contains your
+edge address and no password. It looks like this:
 
 ```text
-Install DSH RC 0.4.0 on this computer and connect it to https://<your-edge>, by yourself with no questions to me.
-Windows, in PowerShell: `$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.0'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.ps1 | iex`
-macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.0`
-...
+Install DSH RC 0.4.1 on this computer and connect it to https://<your-edge>, by yourself with no questions to me.
+Windows, in PowerShell: `$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex`
+macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.1`
+The command installs everything needed and restarts DeepSeek Harness at the end; that is expected. If it fails, ...
 ```
 
-About a minute later the computer appears under **Remote Workspaces** on the
-host. From then on every computer stays connected, reconnects by itself after
+**Or run it yourself**, with your edge address in place of `https://<your-edge>`:
+
+<details><summary><b>Windows</b> (PowerShell)</summary>
+
+```powershell
+$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+```
+</details>
+
+<details><summary><b>macOS / Linux</b> (terminal)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.1
+```
+</details>
+
+About a minute later the computer appears under **Remote Workspaces** on every
+other computer. From then on it stays connected, reconnects by itself after
 sleep or network changes, and updates itself to new releases.
 
 | Step | Who | Human action |
 | --- | --- | --- |
 | Install DeepSeek Harness and open it once | You | Once per computer |
-| Host prompt | DeepSeek Harness agent | Approve the Tailscale sign-in link (and Funnel, if asked) |
-| Join prompt | DeepSeek Harness agent | None |
+| Step 1, host prompt | DeepSeek Harness agent | Approve the Tailscale sign-in link (and Funnel, if asked) |
+| Step 2, join prompt | DeepSeek Harness agent | None |
 | Updates, reconnects, restarts | DSH RC | None |
 
 ## The problem with the previous remote plugin
@@ -112,7 +162,7 @@ and an edge you place near yourself.**
 Security and operations change shape too: the DSH launch token never leaves the
 desktop (0600 hand-off, memory-only cookie), the browser never receives a DSH
 credential, device secrets are SHA-256 at rest, and the edge can be self-hosted.
-Auto-approval is explicit: it is on in the bundled macOS host and off by
+Auto-approval is explicit: it is on in the one-command host setup (macOS, Windows, Linux) and off by
 default on a shared edge. The trade-off is explicit:
 the edge terminates TLS and therefore sees plaintext proxied traffic. It is a
 **trusted relay**; [THREAT-MODEL.md](docs/THREAT-MODEL.md) states what that trust
@@ -150,7 +200,7 @@ Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 | Component | Requirement |
 | --- | --- |
 | Desktop | DeepSeek Harness **0.2.1-rc.3** (plugin declares `>=0.2.1-rc.3 <0.3.1`) |
-| Edge | Node.js ≥ 24.0 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. macOS hosts use the included launchd installer |
+| Edge | Node.js ≥ 24.0 (tested with **24.22.1**; or the Docker image), a domain for TLS in production. `install.sh host` / `install.ps1` set up a macOS, Windows or Linux host as a background service |
 | Browser | Any current Chromium, Firefox or Safari |
 | Network | Outbound 443 from the desktop; no inbound ports, no UDP |
 
@@ -236,7 +286,7 @@ with no clicks:
 2. **Install.** When a newer `vX.Y.Z` exists and no session is running, it
    runs the cross-platform `scripts/self-update.mjs` in the background: checks
    out the tag, updates dependencies in place, builds, verifies the version,
-   and (on the macOS host) refreshes the launchd edge.
+   and (on a macOS host) refreshes the launchd edge.
 3. **Restart.** As soon as no session on that computer is running, DeepSeek
    Harness quits and reopens itself to load the new version.
 
@@ -274,7 +324,7 @@ Updates** and, when an update is waiting, **Restart to Update**.
 
 ### Auto-approval
 
-The macOS host runs the edge with `--auto-approve-devices` (or
+The host set up by Step 1 runs the edge with `--auto-approve-devices` (or
 `DSHRC_AUTO_APPROVE_DEVICES=1`). A Harness that registers from the setup
 prompt is approved immediately, so there is no dashboard login, no pending
 device and no approval click. A shared edge can omit the flag and approve
@@ -299,7 +349,11 @@ icons, spacing and hover actions. Choose a computer in the drop-down.
 Only computers you can open right now are listed (online, sharing, plugin
 v0.3.0 or later); the computer you are on is never listed, because its
 sessions are already in the normal Workspaces section. **✎** renames the
-computer and **+** starts a new session on it.
+computer and **+** starts a new session on it: it asks which project folder
+to use, listing every workspace on that computer in its own order (folders
+with no sessions yet included; hover one for its full path).
+
+<p align="center"><img src="docs/images/09-folder-chooser.webp" alt="Choose a Project Folder menu listing billing-service, product-docs and new-client-portal" width="440"></p>
 
 <p align="center"><img src="docs/images/01-remote-workspaces.webp" alt="Remote Workspaces section listing an Office PC's sessions grouped by workspace" width="300"></p>
 
@@ -371,11 +425,11 @@ copy the short prompt, and paste it into the other Harness's agent. It is one
 command per operating system:
 
 ```powershell
-$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.ps1 | iex
+$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- https://your-edge
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- https://your-edge
 ```
 
 The script (pinned to the release tag) does everything and is safe to run

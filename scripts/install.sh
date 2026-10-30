@@ -2,7 +2,7 @@
 # DSH RC one-command setup for macOS and Linux.
 #
 #   curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/<tag>/scripts/install.sh | sh -s -- <edge-url> <tag>
-#   curl -fsSL .../<tag>/scripts/install.sh | sh -s -- host <tag>     (the FIRST computer: a Mac that runs the edge)
+#   curl -fsSL .../<tag>/scripts/install.sh | sh -s -- host <tag>     (the FIRST computer: runs the edge; macOS or Linux)
 #
 # Idempotent: safe to run again after any failure. It
 #   1. finds Node 24+, or downloads the official Node 24 build into ~/.dsh-rc/node
@@ -100,7 +100,7 @@ fi
 if [ -n "$TAG" ]; then set -- --tag "$TAG"; else set --; fi
 if [ "$MODE" = host ]; then
   "$NODE" "$DEST/scripts/host-setup.mjs" "$@" || die "host setup stopped (see above); fix the cause and run this command again"
-  say "DONE: this Mac is the host. Other computers join with the prompt from Remote Control, Build Setup Prompt."
+  say "DONE: this computer is the host. Other computers join with the prompt from Remote Control, Build Setup Prompt."
   exit 0
 fi
 "$NODE" "$DEST/scripts/join-edge.mjs" "$EDGE" "$@" || die "install step failed (see above); fix the cause and run this command again"

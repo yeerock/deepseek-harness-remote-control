@@ -3,6 +3,13 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.1 - 2026-10-30
+
+- **Choose the project folder for a new remote session.** The **+** next to the computer picker opens Choose a Project Folder, listing every workspace on that computer in its own sidebar order, including folders with no sessions yet (it used to pick the first session's folder silently). Hover shows the full path. A computer still on an older version falls back to the folders known from its sessions. New peer call `remote.workspaces`; creating a session still only accepts a folder that computer already knows.
+- **Any system can be the host.** Step 1 now works on macOS, Windows and Linux: Tailscale is installed if missing (Homebrew; the official static Linux build, checksum-checked, no sudo; winget on Windows), and the edge runs as a per-user background service (launchd; systemd user service with a cron fallback; a Scheduled Task at sign-in on Windows). `install.ps1` gains host mode (`DSHRC_MODE=host`).
+- An unexpected failure during host setup ends with one plain line to act on instead of a stack trace.
+- README: each step offers one universal prompt for DeepSeek Harness plus a ready-to-copy command for Windows, macOS and Linux.
+
 ## v0.4.0 - 2026-10-30
 
 - **One prompt for the first computer.** `install.sh host <tag>` (new `scripts/host-setup.mjs`) sets up the host Mac end to end: Node 24, git and Tailscale (Homebrew) if missing, the Tailscale daemon as a user launchd agent, Tailscale sign-in and Funnel (it relays the approval links as ACTION NEEDED and waits), the edge and watchdog, the owner account with a generated password saved to `~/.dsh-rc/owner-password.txt` (0600, never printed), and the plugin with a DeepSeek Harness restart. Safe to run again.

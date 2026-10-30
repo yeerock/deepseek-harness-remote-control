@@ -1,5 +1,6 @@
 # DSH RC one-command setup for Windows (PowerShell 5.1 or 7).
 #
+#   $env:DSHRC_MODE='host'; $env:DSHRC_TAG='<tag>'; irm .../install.ps1 | iex     (the FIRST computer: runs the edge)
 #   $env:DSHRC_EDGE='<edge-url>'; $env:DSHRC_TAG='<tag>'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/<tag>/scripts/install.ps1 | iex
 #
 # Idempotent: safe to run again after any failure. It
@@ -19,6 +20,9 @@ $ProgressPreference = 'SilentlyContinue'
 $RepoUrl = 'https://github.com/yeerock/deepseek-harness-remote-control'
 $RepoApi = 'https://api.github.com/repos/yeerock/deepseek-harness-remote-control'
 $Edge = if ($args.Count -gt 0) { $args[0] } else { $env:DSHRC_EDGE }
+# DSHRC_MODE=host sets up THIS computer as the host (the edge everyone joins) instead of joining one.
+$Mode = if ($env:DSHRC_MODE -eq 'host' -or $Edge -eq 'host') { 'host' } else { 'join' }
+if ($Mode -eq 'host') { $Edge = 'http://127.0.0.1:8787' }
 $Dest = if ($env:DSHRC_HOME) { $env:DSHRC_HOME } else { Join-Path $HOME 'dsh-rc' }
 $State = Join-Path $HOME '.dsh-rc'
 $Tag = if ($env:DSHRC_TAG) { $env:DSHRC_TAG } else { '' }
@@ -115,6 +119,14 @@ if ($git) {
 }
 
 # 3. Build, install, connect, restart
+if ($Mode -eq 'host') {
+  $hostArgs = @((Join-Path $Dest 'scripts\host-setup.mjs'))
+  if ($Tag) { $hostArgs += @('--tag', $Tag) }
+  & $Node @hostArgs
+  if ($LASTEXITCODE -ne 0) { Die 'host setup stopped (see above); fix the cause and run this command again' }
+  Say 'DONE: this computer is the host. Other computers join with the prompt from Remote Control, Build Setup Prompt.'
+  return
+}
 $joinArgs = @((Join-Path $Dest 'scripts\join-edge.mjs'), $Edge)
 if ($Tag) { $joinArgs += @('--tag', $Tag) }
 & $Node @joinArgs

@@ -16,32 +16,35 @@ WebSocket 流转发给它，浏览器打开的就是真正的 DSH 界面。没�
 edge、agent，完成 owner 初始化与配对后，用无头 Chromium 从
 `http://<edge>/d/<device>/` 加载出来的。
 
-> **状态：v0.4.0。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
-> 316 个自动化测试全绿；新电脑只需一条命令即可安装并连接，连接断开（休眠唤醒、网络切换、edge 重置）后自动恢复，每台电脑自动检查、安装并在空闲时重启以保持最新版本，真实 DSH 端到端验证通过，下面的基准数字是实测值。
+> **状态：v0.4.1。** 协议、多路复用器、edge、agent、插件、测试与文档均已实现。
+> 321 个自动化测试全绿；新电脑只需一条命令即可安装并连接，连接断开（休眠唤醒、网络切换、edge 重置）后自动恢复，每台电脑自动检查、安装并在空闲时重启以保持最新版本，真实 DSH 端到端验证通过，下面的基准数字是实测值。
 > 仍是预发布软件：请把插件当 beta，并在暴露桌面之前阅读
 > [`THREAT-MODEL.md`](THREAT-MODEL.md)。
 
 
 ## 两步开始
 
-每台电脑先安装并打开一次 DeepSeek Harness，然后把提示粘贴给 DeepSeek Harness 的 agent，其余全部自动完成。
+两个步骤都支持 **macOS、Windows 和 Linux**。每台电脑先安装并打开一次 DeepSeek Harness，然后把提示粘贴给 DeepSeek Harness 的 agent，下载、安装、设置、连接、重启全部自动完成；也可以自己在终端运行对应系统的一条命令。
 
-**1. 第一台电脑（主机，Mac）**：
+**第 1 步，第一台电脑（主机，任何系统）**，粘贴给 DeepSeek Harness：
 
 ```text
-Set up this Mac as my DSH RC host, by yourself. In Terminal, run:
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.0/scripts/install.sh | sh -s -- host v0.4.0
+Set up this computer as my DSH RC host, by yourself. Run the command for this system:
+Windows (PowerShell): $env:DSHRC_MODE='host'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+macOS or Linux: curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
 If it prints ACTION NEEDED with a link, show me the link and keep waiting; it continues after I approve.
 If it fails, fix the cause and run it again until it prints DONE. Never print or share the owner password.
 ```
 
-只需批准一次 Tailscale 登录链接（以及 Funnel，如有提示）。主人密码保存在 `~/.dsh-rc/owner-password.txt`（仅你可读）。
+只需批准一次 Tailscale 登录链接（以及 Funnel，如有提示）；Windows 上安装 Tailscale 时可能还会出现一次系统授权提示。主人密码保存在 `~/.dsh-rc/owner-password.txt`（仅你可读）。
 
-**2. 其他每台电脑（Mac、Windows、Linux）**：在主机上打开 **Remote Control**，点击 **Build Setup Prompt**，把生成的提示粘贴到那台电脑的 DeepSeek Harness 中。约一分钟后它会出现在 **Remote Workspaces**，之后自动保持连接并自动更新。
+**第 2 步，其他每台电脑（Mac、Windows、Linux）**：在主机上打开 **Remote Control**，点击 **Build Setup Prompt**，把生成的提示粘贴到那台电脑的 DeepSeek Harness 中。约一分钟后它会出现在 **Remote Workspaces**，之后自动保持连接并自动更新。
 
 更新时，**Remote Workspaces** 标题右侧显示与 DeepSeek Harness 自身相同的更新按钮：更新、安装进度百分比、重启以更新、正在准备重启、重试更新。
 
 <p align="center"><img src="images/08-update-pill.webp" alt="Remote Workspaces 更新按钮的五种状态" width="420"></p>
+
+在远程电脑上新建会话时，点击 **+** 可以选择项目文件夹（包括还没有会话的文件夹）。
 
 ## 上一代远程插件的问题
 
