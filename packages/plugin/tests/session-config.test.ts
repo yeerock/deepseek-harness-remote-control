@@ -185,3 +185,16 @@ describe('model label', () => {
     expect(splitModelBadge('Model 2025', 'model-2025')).toEqual({ name: 'Model 2025', badge: '' });
   });
 });
+
+describe('turn process title', () => {
+  it('names the steps like the local conversation', async () => {
+    const { processTitle, stepKind } = await import('../src/client/remote-chat.js');
+    const t = (key: string): string => ({ 'stepDone.edit': 'Edited files', 'stepDone.commands': 'Ran commands', 'stepDone.read': 'Read files', 'stepDone.thinking': 'Analysis completed', 'step.commands': 'Running commands', stepJoinTwo: '{first} and {second}', stepMore: '{title}, etc.', stepComma: ', ' } as Record<string, string>)[key] ?? key;
+    expect(['bash', 'edit', 'str_replace_editor', 'read_file', 'Grep'].map(stepKind)).toEqual(['commands', 'edit', 'edit', 'read', 'search']);
+    expect(['TodoWrite', 'update_plan', 'locate', 'cat'].map(stepKind)).toEqual(['plan', 'plan', 'tools', 'read']);
+    expect(processTitle(['edit', 'thinking', 'commands'], false, t)).toBe('Edited files and Ran commands');
+    expect(processTitle(['edit', 'commands', 'read'], false, t)).toBe('Edited files, Ran commands, etc.');
+    expect(processTitle(['thinking'], false, t)).toBe('Analysis completed');
+    expect(processTitle(['commands'], true, t)).toBe('Running commands');
+  });
+});

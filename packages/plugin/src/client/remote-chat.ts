@@ -216,6 +216,14 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-tool .dsh-rc-chat-pre { box-sizing: border-box; width: calc(100% - 22px); max-height: 141px; overflow-y: auto; margin: 4px 0 8px 22px; border: 0; border-radius: var(--dsw-radius-md, 8px); font-size: 12px; }
 .dsh-rc-chat-tool-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--dsw-alias-label-secondary, #6b7280); }
 .dsh-rc-chat-tool-failed { color: var(--dsw-alias-state-error-primary, #dc2626); }
+.dsh-rc-chat-process { font-size: var(--dsh-content-font-size-secondary, 13px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); color: var(--dsw-alias-label-tertiary, #8a8f98); }
+.dsh-rc-chat-process > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%; list-style: none; border-radius: var(--dsw-radius-sm, 6px); }
+.dsh-rc-chat-process > summary::-webkit-details-marker { display: none; }
+.dsh-rc-chat-process > summary:hover { color: var(--dsw-alias-label-secondary, #6b7280); }
+.dsh-rc-chat-process > summary::after { content: ''; flex: none; width: 14px; height: 14px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 14px no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / 14px no-repeat; transition: transform .12s; }
+.dsh-rc-chat-process[open] > summary::after { transform: rotate(90deg); }
+.dsh-rc-chat-process-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-rc-chat-process-body { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding-left: 12px; border-left: 0; }
 .dsh-rc-chat-notice { align-self: center; font-size: 12px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-rc-chat-notice[data-tone="error"] { color: #ef4444; }
 .dsh-rc-chat-empty { margin: 48px auto; text-align: center; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
@@ -270,6 +278,32 @@ export const REMOTE_CHAT_CSS = `
 
 /* -------------------------------- component ------------------------------ */
 
+/** The local conversation's step category for a tool, from its name. */
+export function stepKind(name: string): string {
+  const n = name.toLowerCase();
+  if (/todo|plan/.test(n)) return 'plan';
+  if (/bash|shell|command|exec|terminal|powershell/.test(n)) return 'commands';
+  if (/edit|replace|patch|apply/.test(n)) return 'edit';
+  if (/write|create/.test(n)) return 'write';
+  if (/web.?search/.test(n)) return 'webSearch';
+  if (/fetch|browse|web/.test(n)) return 'webFetch';
+  if (/grep|glob|search|find/.test(n)) return 'search';
+  if (/read|view|(^|[_\W])cat($|[_\W])|open/.test(n)) return 'read';
+  if (/agent|task|subagent/.test(n)) return 'subagents';
+  return 'tools';
+}
+
+/** "Edited files", "Edited files and Ran commands", "Edited files, Ran commands, etc." (or the running forms). */
+export function processTitle(kinds: string[], running: boolean, t: (key: string) => string): string {
+  const label = (kind: string): string => t(`${running ? 'step' : 'stepDone'}.${kind}`);
+  // Thinking names the row only when nothing else happened.
+  const named = kinds.length > 1 ? kinds.filter((kind) => kind !== 'thinking') : kinds;
+  const titles = named.map(label);
+  if (titles.length <= 1) return titles[0] ?? label('tools');
+  if (titles.length === 2) return t('stepJoinTwo').replace('{first}', titles[0] ?? '').replace('{second}', titles[1] ?? '');
+  return t('stepMore').replace('{title}', `${titles[0] ?? ''}${t('stepComma')}${titles[1] ?? ''}`);
+}
+
 export interface RemoteChatDeps {
   call: (endpoint: string, payload?: unknown) => Promise<any>;
   t: (key: string) => string;
@@ -285,7 +319,7 @@ function messageOf(reason: unknown): string {
 export function createRemoteChat(React: any): (props: Record<string, any>) => any {
   const h = React.createElement;
 
-  return function RemoteChat(props: Record<string, any>): any {
+  const RemoteChat = function RemoteChat(props: Record<string, any>): any {
     const { call, t, openFullView, speech } = props as unknown as RemoteChatDeps;
     const [target, setTarget] = React.useState(remoteChatStore.get());
     const [transcript, setTranscript] = React.useState(undefined as Transcript | undefined);
@@ -408,7 +442,9 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     // Dictation runs on this computer: check its voice input once the view opens.
     React.useEffect(() => {
       let alive = true;
-      voiceReadiness(speech?.()).then((ready) => { if (alive) setVoice(ready); }, () => { if (alive) setVoice(undefined); });
+      let service: SpeechService | undefined;
+      try { service = speech?.(); } catch { service = undefined; }
+      voiceReadiness(service).then((ready) => { if (alive) setVoice(ready); }, () => { if (alive) setVoice(undefined); });
       return () => { alive = false; };
     }, [target?.deviceId]);
 
@@ -607,7 +643,8 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     };
     const finishVoice = async (): Promise<void> => {
       const active = recording.current;
-      const service = speech?.();
+      let service: SpeechService | undefined;
+      try { service = speech?.(); } catch { service = undefined; }
       if (active === undefined || service === undefined || voice === undefined) return;
       recording.current = undefined;
       setVoicePhase('transcribing');
@@ -663,32 +700,57 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
         setLoadingOlder(false);
       }
     };
-    const rendered = items.map((item: TranscriptItem) => {
+    const thinkRow = (key: string, reasoning: string): any => h('details', { key, className: 'dsh-rc-chat-think' }, h('summary', null, t('chatThinking')), h('div', { className: 'dsh-rc-chat-think-body' }, reasoning));
+    const toolRow = (key: string, tool: Extract<TranscriptItem, { kind: 'tool' }>['tool']): any => h(
+      'details',
+      { key, className: 'dsh-rc-chat-tool' },
+      h('summary', null, h('span', { className: 'dsh-rc-chat-tool-name' }, tool.name), tool.failed === true ? h('span', { className: 'dsh-rc-chat-tool-failed' }, t('chatFailed')) : null, tool.output === undefined ? h('span', { className: 'dsh-rc-spinner', role: 'img', 'aria-label': t('chatRunning') }) : null),
+      h('pre', { className: 'dsh-rc-chat-pre' }, tool.input),
+      tool.output === undefined ? null : h('pre', { className: 'dsh-rc-chat-pre' }, tool.output === '' ? t('chatNoOutput') : tool.output),
+    );
+    // Like the local conversation, a turn's working steps (tools and thinking)
+    // fold into one row titled by what happened, e.g. "Edited files and Ran commands".
+    const rendered: any[] = [];
+    let group: { key: string; steps: any[]; kinds: string[]; running: boolean } | undefined;
+    const flush = (): void => {
+      if (group === undefined) return;
+      const { key, steps, kinds, running } = group;
+      rendered.push(h(
+        'details',
+        { key, className: 'dsh-rc-chat-process', open: running ? true : undefined },
+        h('summary', null, h('span', { className: 'dsh-rc-chat-process-title' }, processTitle(kinds, running, t)), running ? h('span', { className: 'dsh-rc-spinner', role: 'img', 'aria-label': t('chatRunning') }) : null),
+        h('div', { className: 'dsh-rc-chat-process-body' }, ...steps),
+      ));
+      group = undefined;
+    };
+    const addStep = (key: string, kind: string, node: any, isRunning: boolean): void => {
+      group ??= { key: `p-${key}`, steps: [], kinds: [], running: false };
+      group.steps.push(node);
+      if (!group.kinds.includes(kind)) group.kinds.push(kind);
+      group.running ||= isRunning;
+    };
+    for (const item of items) {
       const key = `${item.kind}-${String(item.seq)}`;
-      if (item.kind === 'user') {
-        return h('div', { key, className: 'dsh-rc-chat-user' }, item.text, item.images > 0 ? `\n[${String(item.images)} ${t('chatImages')}]` : '');
+      if (item.kind === 'tool') {
+        addStep(key, stepKind(item.tool.name), toolRow(key, item.tool), item.tool.output === undefined && running);
+        continue;
       }
       if (item.kind === 'assistant') {
-        return h(
-          'div',
-          { key, className: 'dsh-rc-chat-assistant' },
-          item.reasoning.trim() === ''
-            ? null
-            : h('details', { className: 'dsh-rc-chat-think' }, h('summary', null, t('chatThinking')), h('div', { className: 'dsh-rc-chat-think-body' }, item.reasoning)),
-          ...markdown(h, item.text, key),
-        );
+        if (item.reasoning.trim() !== '') addStep(`${key}-r`, 'thinking', thinkRow(`${key}-r`, item.reasoning), false);
+        if (item.text.trim() === '') continue;
+        flush();
+        rendered.push(h('div', { key, className: 'dsh-rc-chat-assistant' }, ...markdown(h, item.text, key)));
+        continue;
       }
-      if (item.kind === 'tool') {
-        return h(
-          'details',
-          { key, className: 'dsh-rc-chat-tool' },
-          h('summary', null, h('span', { className: 'dsh-rc-chat-tool-name' }, item.tool.name), item.tool.failed === true ? h('span', { className: 'dsh-rc-chat-tool-failed' }, t('chatFailed')) : null, item.tool.output === undefined ? h('span', { className: 'dsh-rc-spinner', role: 'img', 'aria-label': t('chatRunning') }) : null),
-          h('pre', { className: 'dsh-rc-chat-pre' }, item.tool.input),
-          item.tool.output === undefined ? null : h('pre', { className: 'dsh-rc-chat-pre' }, item.tool.output === '' ? t('chatNoOutput') : item.tool.output),
-        );
+      flush();
+      if (item.kind === 'user') {
+        rendered.push(h('div', { key, className: 'dsh-rc-chat-user' }, item.text, item.images > 0 ? `\n[${String(item.images)} ${t('chatImages')}]` : ''));
+      } else {
+        rendered.push(h('div', { key, className: 'dsh-rc-chat-notice', 'data-tone': item.tone }, item.text));
       }
-      return h('div', { key, className: 'dsh-rc-chat-notice', 'data-tone': item.tone }, item.text);
-    });
+    }
+    if (group !== undefined && running) (group as { running: boolean }).running = true;
+    flush();
 
     return h(
       'div',
@@ -814,4 +876,29 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
       ),
     );
   };
+
+  // Any failure inside the conversation shows a message, never a blank main area.
+  class RemoteChatBoundary extends React.Component {
+    declare props: Record<string, any>;
+    declare state: { failed?: string };
+    constructor(props: Record<string, any>) {
+      super(props);
+      this.state = {};
+    }
+    static getDerivedStateFromError(error: unknown): { failed: string } {
+      return { failed: error instanceof Error ? error.message : String(error) };
+    }
+    componentDidCatch(error: unknown): void {
+      // eslint-disable-next-line no-console
+      console.error('dsh-rc remote conversation failed', error);
+    }
+    render(): any {
+      const t = this.props['t'] as (key: string) => string;
+      if (this.state.failed === undefined) return h(RemoteChat, this.props);
+      return h('div', { className: 'dsh-rc-chat' }, h('div', { className: 'dsh-rc-chat-empty', role: 'alert' },
+        h('div', null, t('chatCrashed')),
+        h('button', { type: 'button', className: 'dsh-rc-chat-older', style: { marginTop: '12px' }, onClick: () => this.setState({ failed: undefined }) }, t('chatTryAgain'))));
+    }
+  }
+  return (props: Record<string, any>) => h(RemoteChatBoundary, props);
 }

@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.9 - 2026-10-30
+
+- **Fix: the main area could go blank.** Reading DeepSeek Harness's voice service failed on a computer where voice input is off, and that error took the whole remote conversation down. It is now safe, and any failure inside a remote conversation shows "This conversation could not be shown." with Try Again instead of an empty screen.
+- **A turn's working steps fold into one row, like a local conversation.** Instead of a long list of edit, bash and Thinking rows, each turn shows one line such as "Edited files and Ran commands" (or "Running commands" with a spinner while it works); open it to see every step. The answer shows below.
+
 ## v0.4.8 - 2026-10-30
 
 - **Send files to a remote session, like a local one.** The **+** button (or paste, or drag and drop onto the message box) attaches up to 10 files of up to 20 MB each. They show as chips with a preview or icon and an upload progress bar. Files travel to the other computer in pieces and are attached there the Harness's own way: images inline (their type is read from the file itself, never its name), other files through its upload service. Files stay on that computer only until the message is accepted, so a failed send can be retried; unfinished uploads are freed after a minute.
