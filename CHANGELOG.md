@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.3.9 - 2026-10-30
+
+- **Fix (Windows): DeepSeek Harness could not start after setup.** The installer wrote the agent path into the profile's `cordis.patch.yml` inside YAML double quotes, so `C:\Users\...` turned `\U` into a Unicode escape and DeepSeek Harness stopped with "YAMLException: expected hexadecimal character". Values are now written as escaped strings that always read back exactly (`scripts/lib/patch-entry.mjs`), tested with a real YAML parser.
+- **Repair:** run the setup command again (v0.3.9). It rewrites only the DSH RC block and leaves every other entry alone; DeepSeek Harness does not need to be running for it.
+
 ## v0.3.8 - 2026-10-30
 
 - **Stays connected.** The agent no longer stops for good on anything except an owner's revocation:

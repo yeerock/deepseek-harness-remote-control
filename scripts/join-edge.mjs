@@ -14,6 +14,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, sy
 import { homedir, hostname, platform } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dshRcPatchEntry } from './lib/patch-entry.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..');
@@ -142,18 +143,8 @@ function writePatch(profile) {
   const patchPath = join(homedir(), '.dsh', 'profiles', profile, 'cordis.patch.yml');
   let existing = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : '';
   existing = existing.replace(/^[ \t]*\[\][ \t]*\r?\n?/m, '');
-  const entry = [
-    '- id: dsh-rc',
-    '  config:',
-    '    enabled: true',
-    `    edgeUrl: "${edge}"`,
-    `    deviceName: "${deviceName.replace(/"/g, '')}"`,
-    '    autoStart: true',
-    `    agentEntry: "${join(repo, 'apps', 'agent', 'dist', 'main.js')}"`,
-    '    logLevel: info',
-    '',
-  ].join('\n');
-  const block = /^- id: dsh-rc\r?\n(?:[ \t].*\r?\n)*/m;
+  const entry = dshRcPatchEntry({ edge, deviceName, agentEntry: join(repo, 'apps', 'agent', 'dist', 'main.js') });
+  const block = /^- id: dsh-rc\r?\n(?:[ \t].*(?:\r?\n|$))*/m;
   if (block.test(existing)) {
     existing = existing.replace(block, entry);
   } else {

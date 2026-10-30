@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.3.8.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 313 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.3.9.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 315 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -307,11 +307,11 @@ copy the short prompt, and paste it into the other Harness's agent. It is one
 command per operating system:
 
 ```powershell
-$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.8/scripts/install.ps1 | iex
+$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.9/scripts/install.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.8/scripts/install.sh | sh -s -- https://your-edge
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.3.9/scripts/install.sh | sh -s -- https://your-edge
 ```
 
 The script (pinned to the release tag) does everything and is safe to run
