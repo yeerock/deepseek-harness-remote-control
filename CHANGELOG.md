@@ -3,6 +3,11 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.3 - 2026-10-30
+
+- **Fix: the message box of a remote conversation was squeezed** to a few characters wide (the placeholder wrapped, typing area unusable). It fills the full width again, with the Permissions and model controls underneath.
+- **Tables in remote conversations render as tables**, like in a local session, instead of raw `| --- |` text. Wide tables scroll sideways inside the message.
+
 ## v0.4.2 - 2026-10-30
 
 - **Remote sessions are configured like local ones.** New Remote Session is now a dialog with **Project Folder**, **Model and Reasoning Effort** and **Permissions**, starting on that computer's own defaults. In an open remote conversation, the same two controls as the local composer sit under the message box: Permissions on the left, model and effort on the right. Changes apply to the session's next message, the same way switching on that computer does (the model through the Harness's own model selection, permissions through its `/permission` command, so they are recorded in the session).

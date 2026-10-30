@@ -99,7 +99,14 @@ function inline(h: any, text: string, keyBase: string): any[] {
   return out;
 }
 
-/** Block markdown: fenced code, headings, lists, tables as text, paragraphs. */
+/** Cells of one `| a | b |` table row; escaped pipes stay in the cell. */
+function tableCells(line: string): string[] {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'));
+}
+
+const TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+
+/** Block markdown: fenced code, headings, lists, tables, paragraphs. */
 function markdown(h: any, source: string, keyBase: string): any[] {
   const blocks: any[] = [];
   const parts = source.split(/^```[^\n]*\n?/m);
@@ -111,6 +118,16 @@ function markdown(h: any, source: string, keyBase: string): any[] {
     }
     let list: { ordered: boolean; items: string[] } | undefined;
     let paragraph: string[] = [];
+    let table: string[][] | undefined;
+    const flushTable = (lineKey: string): void => {
+      if (table === undefined) return;
+      const [head = [], ...rows] = table;
+      blocks.push(h('div', { key: `${lineKey}-tw`, className: 'dsh-rc-chat-table-wrap' }, h('table', { className: 'dsh-rc-chat-table' },
+        h('thead', null, h('tr', null, ...head.map((cell, i) => h('th', { key: `h${String(i)}` }, ...inline(h, cell, `${lineKey}-th${String(i)}`))))),
+        h('tbody', null, ...rows.map((row, r) => h('tr', { key: `r${String(r)}` }, ...head.map((_, i) => h('td', { key: `c${String(i)}` }, ...inline(h, row[i] ?? '', `${lineKey}-td${String(r)}-${String(i)}`)))))),
+      )));
+      table = undefined;
+    };
     const flushParagraph = (lineKey: string): void => {
       if (paragraph.length === 0) return;
       blocks.push(h('p', { key: `${lineKey}-p` }, ...inline(h, paragraph.join(' '), `${lineKey}-p`)));
@@ -122,8 +139,22 @@ function markdown(h: any, source: string, keyBase: string): any[] {
       blocks.push(h(list.ordered ? 'ol' : 'ul', { key: `${lineKey}-l` }, ...items));
       list = undefined;
     };
-    part.split('\n').forEach((line, lineIndex) => {
+    const lines = part.split('\n');
+    lines.forEach((line, lineIndex) => {
       const lineKey = `${key}-${String(lineIndex)}`;
+      // A table: a pipe row followed by a --- rule row, then pipe rows.
+      if (table !== undefined) {
+        if (line.includes('|') && line.trim() !== '') {
+          if (!TABLE_RULE.test(line)) table.push(tableCells(line));
+          return;
+        }
+        flushTable(lineKey);
+      } else if (line.includes('|') && TABLE_RULE.test(lines[lineIndex + 1] ?? '') && (lines[lineIndex + 1] ?? '').includes('|')) {
+        flushParagraph(lineKey);
+        flushList(lineKey);
+        table = [tableCells(line)];
+        return;
+      }
       const heading = /^(#{1,4})\s+(.*)$/.exec(line);
       const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
       const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
@@ -147,6 +178,7 @@ function markdown(h: any, source: string, keyBase: string): any[] {
     });
     flushParagraph(`${key}-end`);
     flushList(`${key}-end`);
+    flushTable(`${key}-end`);
   });
   return blocks;
 }
@@ -181,7 +213,11 @@ export const REMOTE_CHAT_CSS = `
 .dsh-rc-chat-empty { margin: 48px auto; text-align: center; font-size: 13px; color: var(--dsw-alias-label-tertiary, #8a8f98); }
 .dsh-rc-chat-foot { flex: 0 0 auto; padding: 10px 20px 18px; }
 .dsh-rc-chat-box { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 8px 8px 6px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
-.dsh-rc-chat-box .dsh-rc-chat-composer { max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.dsh-rc-chat-box .dsh-rc-chat-composer { align-self: stretch; width: 100%; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.dsh-rc-chat-table-wrap { margin: 0 0 10px; overflow-x: auto; overflow-y: hidden; }
+.dsh-rc-chat-table { border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+.dsh-rc-chat-table th, .dsh-rc-chat-table td { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.25)); text-align: left; vertical-align: top; }
+.dsh-rc-chat-table th { font-weight: 600; background: rgba(127,127,127,0.08); }
 .dsh-rc-chat-box .dsh-rc-set-bar { margin-left: -8px; }
 .dsh-rc-chat-composer { max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--dsw-alias-border-subtle, rgba(127,127,127,0.3)); border-radius: 16px; background: var(--dsw-alias-bg-primary, transparent); }
 .dsh-rc-chat-input { flex: 1 1 auto; min-height: 24px; max-height: 200px; resize: none; border: 0; outline: none; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.5; padding: 4px 0; }
