@@ -251,6 +251,8 @@ export const SESSION_SETTINGS_CSS = `
 .dsh-rc-modal-btn[data-primary="true"] { border-color: transparent; background: var(--dsw-alias-state-business-primary, #4c6ef5); color: #fff; }
 .dsh-rc-modal-btn[data-primary="true"]:hover:not(:disabled) { filter: brightness(1.06); background: var(--dsw-alias-state-business-primary, #4c6ef5); }
 .dsh-rc-modal-btn[data-danger="true"] { border-color: transparent; background: var(--dsw-alias-state-error-primary, #dc2626); color: #fff; }
+.dsh-rc-modal-btn[data-danger="true"]:hover:not(:disabled) { filter: brightness(1.08); background: var(--dsw-alias-state-error-primary, #dc2626); }
+.dsh-rc-modal-btn[data-primary="true"]:active:not(:disabled), .dsh-rc-modal-btn[data-danger="true"]:active:not(:disabled) { filter: brightness(0.94); }
 .dsh-rc-modal-btn:disabled { opacity: 0.5; cursor: default; }
 .dsh-rc-modal-lead { margin: 0; color: var(--dsw-alias-label-secondary, #6b7280); }
 .dsh-rc-modal-field { display: flex; flex-direction: column; gap: 6px; }
