@@ -19,8 +19,8 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.4.1.** Protocol, mux, edge, agent, plugin, tests and docs are
-> implemented. 321 automated tests are green, the real-DSH end-to-end proof
+> **Status: v0.4.14.** Protocol, mux, edge, agent, plugin, tests and docs are
+> implemented. 352 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
 > [THREAT-MODEL.md](docs/THREAT-MODEL.md) before exposing a desktop.
@@ -41,8 +41,8 @@ Any computer that stays on works: a Mac, a Windows PC or a Linux machine.
 
 ```text
 Set up this computer as my DSH RC host, by yourself. Run the command for this system:
-Windows (PowerShell): $env:DSHRC_MODE='host'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
-macOS or Linux: curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
+Windows (PowerShell): $env:DSHRC_MODE='host'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.ps1 | iex
+macOS or Linux: curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- host
 If it prints ACTION NEEDED with a link, show me the link and keep waiting; it continues after I approve.
 If it fails, fix the cause and run it again until it prints DONE. Never print or share the owner password.
 ```
@@ -52,21 +52,21 @@ If it fails, fix the cause and run it again until it prints DONE. Never print or
 <details><summary><b>Windows</b> (PowerShell)</summary>
 
 ```powershell
-$env:DSHRC_MODE='host'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+$env:DSHRC_MODE='host'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.ps1 | iex
 ```
 </details>
 
 <details><summary><b>macOS</b> (Terminal)</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- host
 ```
 </details>
 
 <details><summary><b>Linux</b> (terminal)</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- host v0.4.1
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- host
 ```
 </details>
 
@@ -90,8 +90,8 @@ edge address and no password. It looks like this:
 
 ```text
 Install DSH RC 0.4.1 on this computer and connect it to https://<your-edge>, by yourself with no questions to me.
-Windows, in PowerShell: `$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex`
-macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.1`
+Windows, in PowerShell: `$env:DSHRC_EDGE='https://<your-edge>'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.ps1 | iex`
+macOS or Linux: `curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- 'https://<your-edge>'`
 The command installs everything needed and restarts DeepSeek Harness at the end; that is expected. If it fails, ...
 ```
 
@@ -100,14 +100,14 @@ The command installs everything needed and restarts DeepSeek Harness at the end;
 <details><summary><b>Windows</b> (PowerShell)</summary>
 
 ```powershell
-$env:DSHRC_EDGE='https://<your-edge>'; $env:DSHRC_TAG='v0.4.1'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+$env:DSHRC_EDGE='https://<your-edge>'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.ps1 | iex
 ```
 </details>
 
 <details><summary><b>macOS / Linux</b> (terminal)</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- 'https://<your-edge>' v0.4.1
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- 'https://<your-edge>'
 ```
 </details>
 
@@ -435,11 +435,11 @@ copy the short prompt, and paste it into the other Harness's agent. It is one
 command per operating system:
 
 ```powershell
-$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.ps1 | iex
+$env:DSHRC_EDGE='https://your-edge'; irm https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/v0.4.1/scripts/install.sh | sh -s -- https://your-edge
+curl -fsSL https://raw.githubusercontent.com/yeerock/deepseek-harness-remote-control/main/scripts/install.sh | sh -s -- https://your-edge
 ```
 
 The script (pinned to the release tag) does everything and is safe to run

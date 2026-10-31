@@ -1,6 +1,6 @@
 {
   "name": "@dsh-rc/edge",
-  "version": "0.4.13",
+  "version": "0.4.14",
   "private": true,
   "type": "module",
   "description": "DSH RC public edge: auth, pairing, presence, SQLite and the HTTP/WS proxy.",
@@ -13,9 +13,9 @@
     }
   },
   "dependencies": {
-    "@dsh-rc/mux": "0.4.13",
-    "@dsh-rc/protocol": "0.4.13",
-    "@dsh-rc/shared": "0.4.13",
+    "@dsh-rc/mux": "0.4.14",
+    "@dsh-rc/protocol": "0.4.14",
+    "@dsh-rc/shared": "0.4.14",
     "ws": "^8.21.3"
   },
   "scripts": {

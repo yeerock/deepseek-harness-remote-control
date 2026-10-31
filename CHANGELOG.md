@@ -3,6 +3,12 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## 0.4.14 - Fully automatic updates on every system
+
+- Automatic updates now refresh the edge on Linux and Windows hosts too, not only on macOS. Before this, those hosts kept running the old edge after an update.
+- DeepSeek Harness on Linux now restarts by itself after an update, the same as on macOS and Windows.
+- The setup commands in the README always install the latest release instead of an old pinned one.
+
 ## 0.4.13 - Red button hover fix
 
 - The red Turn On Full Access button now stays red when the mouse hovers over it, instead of turning blank.

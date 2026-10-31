@@ -498,8 +498,26 @@ export function scheduleHarnessRestart(logFile?: string): boolean {
       spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', launch], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
       return true;
     }
+    if (process.platform === 'linux') {
+      // The plugin runs inside the app, so its own executable is the program to reopen.
+      const exe = /deepseek/i.test(process.execPath) ? process.execPath : '';
+      if (exe === '') return false;
+      const log = logFile === undefined ? '/dev/null' : `'${logFile.replace(/'/g, `'\\''`)}'`;
+      const app = `'${exe.replace(/'/g, `'\\''`)}'`;
+      // Match processes by their executable, never by command line, so the helper never matches itself.
+      const pids = `for p in /proc/[0-9]*; do [ "$(readlink "$p/exe" 2>/dev/null)" = ${app} ] && echo "\${p#/proc/}"; done`;
+      spawn('/bin/sh', ['-c', `exec >>${log} 2>&1; echo "restart requested $(date)"; sleep 3; kill -TERM $(${pids}) 2>/dev/null; i=0; while [ -n "$(${pids})" ] && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; kill -KILL $(${pids}) 2>/dev/null; sleep 2; setsid ${app} >/dev/null 2>&1 < /dev/null & echo "reopened"`], { detached: true, stdio: 'ignore', env: appEnv() }).unref();
+      return true;
+    }
   } catch { /* fall through */ }
   return false;
+}
+
+/** The environment to reopen the app with: inside a plugin host it may say "run as plain Node". */
+function appEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
 }
 
 /** PowerShell for the Windows restart helper; writes each step to `logFile`. Exported for tests. */

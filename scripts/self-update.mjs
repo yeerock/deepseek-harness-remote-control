@@ -69,7 +69,7 @@ try {
   const installed = currentVersion();
   if (`v${installed}` !== tag) throw new Error(`built version ${installed} does not match ${tag}`);
   if (!existsSync(join(repo, 'packages', 'plugin', 'dist', 'index.js'))) throw new Error('plugin build output is missing');
-  refreshMacEdge();
+  refreshEdge();
   writeStatus({
     state: 'installed', ok: true, from, to: tag, stashed,
     message: stashed
@@ -197,16 +197,43 @@ function build(step = () => undefined) {
   } catch { /* nothing to restore */ }
 }
 
-/** The macOS owner machine also runs the edge from a copied bundle. */
-function refreshMacEdge() {
-  if (platform() !== 'darwin') return;
-  const target = join(homedir(), 'Library', 'Application Support', 'dsh-rc', 'edge', 'main.cjs');
-  if (!existsSync(target)) return;
+/**
+ * The host also runs the edge from a copied bundle: macOS from Application Support
+ * (launchd), Linux and Windows from ~/.dsh-rc/edge-app (systemd user service, cron
+ * loop or the hidden sign-in loop). Copy the new bundle there and restart it, so
+ * an update reaches the edge too, not only the plugin.
+ */
+function refreshEdge() {
+  const macTarget = join(homedir(), 'Library', 'Application Support', 'dsh-rc', 'edge', 'main.cjs');
+  const appTarget = join(stateDir, 'edge-app', 'main.cjs');
+  const target = platform() === 'darwin' && existsSync(macTarget) ? macTarget : existsSync(appTarget) ? appTarget : '';
+  if (target === '') return;
   try {
     npm(['run', 'build:bundle']);
-    copyFileSync(join(repo, 'build', 'edge', 'main.cjs'), target);
-    execFileSync('launchctl', ['kickstart', '-k', `gui/${String(process.getuid?.() ?? '')}/com.dshrc.edge`], { stdio: 'ignore' });
+    const built = join(repo, 'build', 'edge', 'main.cjs');
+    if (readFileSync(built).equals(readFileSync(target))) return;
+    copyFileSync(built, target);
+    restartEdge(target === macTarget);
+    log('edge updated and restarted');
   } catch (error) {
     log(`edge refresh skipped: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+  }
+}
+
+function restartEdge(mac) {
+  const quiet = { stdio: 'ignore', windowsHide: true };
+  if (mac) {
+    execFileSync('launchctl', ['kickstart', '-k', `gui/${String(process.getuid?.() ?? '')}/com.dshrc.edge`], quiet);
+  } else if (platform() === 'win32') {
+    // The hidden run-edge.cmd loop starts the new code within 5 seconds.
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like '*edge-app*main.cjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], quiet);
+  } else {
+    try {
+      execFileSync('systemctl', ['--user', 'restart', 'dsh-rc-edge.service'], quiet);
+    } catch {
+      // No systemd user session: the background loop restarts the edge within 5 seconds.
+      execFileSync('pkill', ['-f', join(stateDir, 'edge-app', 'main.cjs')], quiet);
+    }
   }
 }
