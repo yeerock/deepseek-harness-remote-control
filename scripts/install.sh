@@ -75,7 +75,7 @@ if command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
     git clone --quiet "$REPO_URL" "$DEST" || die "git clone failed (network?)"
   fi
   # Switch to the release first, so its own (current) installer runs below.
-  [ -n "$TAG" ] || TAG=$(git -C "$DEST" tag --list 'v*' --sort=-v:refname | head -1)
+  [ -n "$TAG" ] || TAG=$(git -C "$DEST" tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
   [ -n "$TAG" ] || die "no release tag found"
   if [ -n "$(git -C "$DEST" status --porcelain)" ]; then
     say "local changes in $DEST set aside with git stash"

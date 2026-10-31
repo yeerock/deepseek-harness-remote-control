@@ -19,7 +19,7 @@ from `http://<edge>/d/<device>/` in headless Chromium by
 registration and pairing all driven over HTTP first. Reproduction command is in
 [Verification](#verification).
 
-> **Status: v0.4.14.** Protocol, mux, edge, agent, plugin, tests and docs are
+> **Status: v0.4.15.** Protocol, mux, edge, agent, plugin, tests and docs are
 > implemented. 352 automated tests are green, the real-DSH end-to-end proof
 > passes, and the benchmark numbers below are measured. It is pre-release
 > software: treat the plugin as beta and read
@@ -501,7 +501,7 @@ self-host it if that matters. Residual risk and the full STRIDE pass:
 
 ```bash
 npm run typecheck        # tsc -b across all workspaces
-npm test                 # 288 tests: unit + integration
+npm test                 # 352 tests: unit + integration
 npm run bench:quick      # tools/bench, JSON + markdown to tools/bench/results
 npm run e2e              # boots a real DSH web profile, edge and agent, then Chromium
 ```

@@ -3,21 +3,33 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
-## 0.4.14 - Fully automatic updates on every system
+## v0.4.15 - 2026-10-31
+
+- Linux AppImage installs now reopen by themselves after an update, and a replaced app binary is still found and restarted.
+- If the edge on a host cannot be refreshed during an update, the update status now says so instead of staying silent. The new edge file is written beside the old one and swapped in, never half-written.
+- An update that takes longer than 30 minutes is no longer interrupted by a second one.
+- Installers only pick real release tags (vX.Y.Z), never test or pre-release tags.
+- Dialog buttons: visible keyboard focus ring, stronger text contrast, darker hover on coloured buttons, press feedback on the X button.
+
+## v0.4.14 - 2026-10-31
 
 - Automatic updates now refresh the edge on Linux and Windows hosts too, not only on macOS. Before this, those hosts kept running the old edge after an update.
 - DeepSeek Harness on Linux now restarts by itself after an update, the same as on macOS and Windows.
 - The setup commands in the README always install the latest release instead of an old pinned one.
 
-## 0.4.13 - Red button hover fix
+## v0.4.13 - 2026-10-31
 
 - The red Turn On Full Access button now stays red when the mouse hovers over it, instead of turning blank.
 - Primary and red dialog buttons darken slightly while pressed.
 
-## 0.4.12 - Full Access from other computers
+## v0.4.12 - 2026-10-31
 
 - New switch on each computer: Allow Full Access From Other Computers. It is on by default. When off, your other computers cannot switch a session on that computer to Full Access or create one with it.
 - Only the computer itself can change the switch. Whoever clicks Full Access, on the host or a remote computer, is still asked to confirm.
+
+## v0.4.11 - 2026-10-31
+
+- Audit fixes for session switching, dashes in text and reduced motion.
 
 ## v0.4.10 - 2026-10-30
 

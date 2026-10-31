@@ -502,11 +502,15 @@ export function scheduleHarnessRestart(logFile?: string): boolean {
       // The plugin runs inside the app, so its own executable is the program to reopen.
       const exe = /deepseek/i.test(process.execPath) ? process.execPath : '';
       if (exe === '') return false;
+      // An AppImage runs from a temporary mount that vanishes on exit: reopen the AppImage file itself.
+      const appImage = process.env.APPIMAGE ?? '';
       const log = logFile === undefined ? '/dev/null' : `'${logFile.replace(/'/g, `'\\''`)}'`;
-      const app = `'${exe.replace(/'/g, `'\\''`)}'`;
+      const quoteSh = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+      const app = quoteSh(exe);
+      const relaunch = quoteSh(appImage === '' ? exe : appImage);
       // Match processes by their executable, never by command line, so the helper never matches itself.
-      const pids = `for p in /proc/[0-9]*; do [ "$(readlink "$p/exe" 2>/dev/null)" = ${app} ] && echo "\${p#/proc/}"; done`;
-      spawn('/bin/sh', ['-c', `exec >>${log} 2>&1; echo "restart requested $(date)"; sleep 3; kill -TERM $(${pids}) 2>/dev/null; i=0; while [ -n "$(${pids})" ] && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; kill -KILL $(${pids}) 2>/dev/null; sleep 2; setsid ${app} >/dev/null 2>&1 < /dev/null & echo "reopened"`], { detached: true, stdio: 'ignore', env: appEnv() }).unref();
+      const pids = `for p in /proc/[0-9]*; do [ "$(readlink "$p/exe" 2>/dev/null)" = ${app} ] || [ "$(readlink "$p/exe" 2>/dev/null)" = ${app}' (deleted)' ] && echo "\${p#/proc/}"; done`;
+      spawn('/bin/sh', ['-c', `exec >>${log} 2>&1; echo "restart requested $(date)"; sleep 3; p=$(${pids}); [ -n "$p" ] && kill -TERM $p; i=0; while [ -n "$(${pids})" ] && [ $i -lt 60 ]; do sleep 1; i=$((i+1)); done; p=$(${pids}); [ -n "$p" ] && kill -KILL $p; sleep 2; if [ -x ${relaunch} ]; then setsid ${relaunch} >/dev/null 2>&1 < /dev/null & echo "reopened"; else echo "could not reopen DeepSeek Harness"; fi`], { detached: true, stdio: 'ignore', env: appEnv() }).unref();
       return true;
     }
   } catch { /* fall through */ }

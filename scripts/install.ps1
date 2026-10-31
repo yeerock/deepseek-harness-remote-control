@@ -95,7 +95,7 @@ if ($git) {
     if ($LASTEXITCODE -ne 0) { Die 'git clone failed (network?)' }
   }
   # Switch to the release first, so its own (current) installer runs below.
-  if (-not $Tag) { $Tag = (& git -C $Dest tag --list 'v*' --sort=-v:refname | Select-Object -First 1) }
+  if (-not $Tag) { $Tag = (& git -C $Dest tag --list 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1) }
   if (-not $Tag) { Die 'no release tag found' }
   if (& git -C $Dest status --porcelain) {
     Say "local changes in $Dest set aside with git stash"

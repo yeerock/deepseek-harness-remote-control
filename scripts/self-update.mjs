@@ -69,12 +69,13 @@ try {
   const installed = currentVersion();
   if (`v${installed}` !== tag) throw new Error(`built version ${installed} does not match ${tag}`);
   if (!existsSync(join(repo, 'packages', 'plugin', 'dist', 'index.js'))) throw new Error('plugin build output is missing');
-  refreshEdge();
+  const edge = refreshEdge();
   writeStatus({
-    state: 'installed', ok: true, from, to: tag, stashed,
-    message: stashed
+    state: 'installed', ok: true, from, to: tag, stashed, ...edge,
+    message: (stashed
       ? `Update installed. Local edits in ${repo} were set aside with git stash (git stash list shows them).`
-      : 'Update installed; DeepSeek Harness restarts to load it.',
+      : 'Update installed; DeepSeek Harness restarts to load it.')
+      + (edge.edgeRefreshed === false ? ` The edge on this computer kept its old version (${edge.edgeError}); run the setup command again to refresh it.` : ''),
   });
   log(`installed ${tag}`);
 } catch (error) {
@@ -125,13 +126,27 @@ function takeLock() {
     return true;
   } catch {
     try {
-      if (Date.now() - statSync(lockPath).mtimeMs < LOCK_STALE_MS) return false;
+      const owner = Number.parseInt(readFileSync(lockPath, 'utf8'), 10);
+      // A live owner keeps its lock however slow the build; a dead one frees it at once.
+      // (Two hours caps a reused PID from a crashed run.)
+      if (alive(owner) && Date.now() - statSync(lockPath).mtimeMs < 4 * LOCK_STALE_MS) return false;
+      if (!Number.isFinite(owner) && Date.now() - statSync(lockPath).mtimeMs < LOCK_STALE_MS) return false;
       rmSync(lockPath, { force: true });
       writeFileSync(lockPath, `${String(process.pid)} ${String(Date.now())}\n`, { flag: 'wx', mode: 0o600 });
       return true;
     } catch {
       return false;
     }
+  }
+}
+
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
   }
 }
 
@@ -207,16 +222,22 @@ function refreshEdge() {
   const macTarget = join(homedir(), 'Library', 'Application Support', 'dsh-rc', 'edge', 'main.cjs');
   const appTarget = join(stateDir, 'edge-app', 'main.cjs');
   const target = platform() === 'darwin' && existsSync(macTarget) ? macTarget : existsSync(appTarget) ? appTarget : '';
-  if (target === '') return;
+  if (target === '') return {};
   try {
     npm(['run', 'build:bundle']);
     const built = join(repo, 'build', 'edge', 'main.cjs');
-    if (readFileSync(built).equals(readFileSync(target))) return;
-    copyFileSync(built, target);
+    if (readFileSync(built).equals(readFileSync(target))) return { edgeRefreshed: true };
+    // Copy beside it, then rename: a crash mid-copy never leaves a half-written edge.
+    const temp = `${target}.${String(process.pid)}.tmp`;
+    copyFileSync(built, temp);
+    renameSync(temp, target);
     restartEdge(target === macTarget);
     log('edge updated and restarted');
+    return { edgeRefreshed: true };
   } catch (error) {
-    log(`edge refresh skipped: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+    const reason = error instanceof Error ? error.message.split('\n')[0] : String(error);
+    log(`edge refresh failed: ${reason}`);
+    return { edgeRefreshed: false, edgeError: reason };
   }
 }
 
@@ -233,7 +254,8 @@ function restartEdge(mac) {
       execFileSync('systemctl', ['--user', 'restart', 'dsh-rc-edge.service'], quiet);
     } catch {
       // No systemd user session: the background loop restarts the edge within 5 seconds.
-      execFileSync('pkill', ['-f', join(stateDir, 'edge-app', 'main.cjs')], quiet);
+      // pkill -f takes a regex: escape the path so characters like + or ( still match.
+      execFileSync('pkill', ['-f', join(stateDir, 'edge-app', 'main.cjs').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], quiet);
     }
   }
 }
