@@ -3,6 +3,10 @@
 All notable changes to DSH RC. The project follows a `0.y.z` scheme until the
 plugin and protocol are declared stable.
 
+## v0.4.16 - 2026-10-31
+
+- Remote Workspaces: the session open in the main area is now highlighted in the sidebar, the same way a local session is, and shows a small spinner while its agent is working. The highlight clears when you open a local session.
+
 ## v0.4.15 - 2026-10-31
 
 - Linux AppImage installs now reopen by themselves after an update, and a replaced app binary is still found and restarted.

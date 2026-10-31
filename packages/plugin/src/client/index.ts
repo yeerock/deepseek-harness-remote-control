@@ -899,6 +899,39 @@ function updatePill(status: any, t: (key: string) => string, act: (endpoint: 'up
   return button;
 }
 
+/**
+ * Mark a remote session row the way DSH marks a local one: selected while its chat
+ * is in the main area, with a spinner in the leading seat while its agent works.
+ */
+function markRemoteRow(item: HTMLElement): void {
+  const target = remoteChatStore.get();
+  const view = remoteChatStore.view();
+  // Also require the chat to be on screen, in case DSH hides a panel instead of unmounting it.
+  const onScreen = Array.from(document.querySelectorAll('.dsh-rc-chat')).some((node) => node.getClientRects().length > 0);
+  const current = view.shown && onScreen && target !== undefined && item.dataset.rcDevice === target.deviceId && item.dataset.rcSession === target.sessionId;
+  item.classList.toggle('dsh-rc-remote-ws-current', current);
+  if (current) item.setAttribute('aria-current', 'page');
+  else item.removeAttribute('aria-current');
+  const slot = item.querySelector('.dsh-rc-remote-ws-slot');
+  if (slot === null) return;
+  const working = current && view.running;
+  const spinner = slot.querySelector('.dsh-rc-spinner');
+  if (working && spinner === null) {
+    const mark = document.createElement('span');
+    mark.className = 'dsh-rc-spinner dsh-rc-remote-ws-working';
+    mark.setAttribute('role', 'img');
+    mark.setAttribute('aria-label', item.dataset.rcWorkingLabel ?? '');
+    slot.append(mark);
+  } else if (!working && spinner !== null) {
+    spinner.remove();
+  }
+}
+
+const markRemoteRows = (): void => { document.querySelectorAll<HTMLElement>('.dsh-rc-remote-ws-session').forEach(markRemoteRow); };
+remoteChatStore.subscribe(markRemoteRows);
+// Opening a local session or another panel is a click (or a key) anywhere in DSH: re-check once the main area has switched.
+for (const type of ['click', 'keyup']) document.addEventListener(type, () => setTimeout(markRemoteRows, 250), { capture: true, passive: true });
+
 function relativeAge(timestamp: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (seconds < 60) return 'now';
@@ -1186,6 +1219,10 @@ div[class*="footerActions"]:has([data-dsh-rc-entry]) {
 .dsh-rc-remote-ws-group:hover, .dsh-rc-remote-ws-session:hover, .dsh-rc-remote-ws-session.dsh-rc-menu-open {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,0.12));
 }
+.dsh-rc-remote-ws-session.dsh-rc-remote-ws-current, .dsh-rc-remote-ws-session.dsh-rc-remote-ws-current:hover {
+  background: var(--dsw-alias-interactive-bg-active, rgba(127,127,127,0.18));
+}
+.dsh-rc-remote-ws-working { width: 12px; height: 12px; border-width: 1.5px; }
 .dsh-rc-remote-ws-group:focus-visible, .dsh-rc-remote-ws-session:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, #4c8dff); outline-offset: -2px; }
 .dsh-rc-remote-ws-slot {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 16px; height: 20px;
@@ -2437,6 +2474,9 @@ function createComponent(React: any): (props: AnyProps) => any {
                 item.setAttribute('role', 'button');
                 item.tabIndex = 0;
                 item.className = 'dsh-rc-remote-ws-session';
+                item.dataset.rcDevice = peer.id;
+                item.dataset.rcSession = session.id;
+                item.dataset.rcWorkingLabel = t('chatRunning');
                 item.title = `${session.title} · ${peer.name}`;
                 const lead = document.createElement('span');
                 lead.className = 'dsh-rc-remote-ws-slot';
@@ -2486,6 +2526,7 @@ function createComponent(React: any): (props: AnyProps) => any {
                   () => props.openRemoteSession({ deviceId: peer.id, deviceName: peer.name, sessionId: session.id, title: session.title }),
                   rename,
                 );
+                markRemoteRow(item);
                 container?.append(item);
               };
               // Group by workspace, most recently active workspace first.

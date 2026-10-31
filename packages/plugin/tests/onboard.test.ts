@@ -4,7 +4,7 @@ import { buildJoinPrompt, isLoopbackOrigin, REPO_TAG, REPO_URL } from '../src/on
 describe('join prompt', () => {
   const base = {
     publicUrl: 'https://dsh-rc.example.ts.net',
-    version: '0.4.15',
+    version: '0.4.16',
   };
 
   it('is one short command per OS, pinned to the release tag', () => {
@@ -14,7 +14,7 @@ describe('join prompt', () => {
     expect(prompt).toContain(`/${REPO_TAG}/scripts/install.sh | sh -s -- 'https://dsh-rc.example.ts.net' ${REPO_TAG}`);
     expect(prompt).toContain(`$env:DSHRC_TAG='${REPO_TAG}'`);
     expect(prompt).toContain("$env:DSHRC_EDGE='https://dsh-rc.example.ts.net'");
-    expect(prompt).toContain('DSH RC 0.4.15');
+    expect(prompt).toContain('DSH RC 0.4.16');
     expect(prompt).toContain('DONE');
     expect(prompt.length).toBeLessThan(900);
     expect(REPO_URL).toContain('github.com');

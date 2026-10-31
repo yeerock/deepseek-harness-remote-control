@@ -56,13 +56,24 @@ interface Older {
 /* --------------------------- shared selection --------------------------- */
 
 let current: RemoteTarget | undefined;
+/** Whether the remote chat is on screen, and whether its agent is working: the sidebar marks that row. */
+let view = { shown: false, running: false };
 const listeners = new Set<() => void>();
+const notify = (): void => { for (const listener of listeners) listener(); };
 
 export const remoteChatStore = {
   get: (): RemoteTarget | undefined => current,
   set(target: RemoteTarget | undefined): void {
     current = target;
-    for (const listener of listeners) listener();
+    view = { ...view, running: false };
+    notify();
+  },
+  view: (): { shown: boolean; running: boolean } => view,
+  setView(next: Partial<{ shown: boolean; running: boolean }>): void {
+    const merged = { ...view, ...next };
+    if (merged.shown === view.shown && merged.running === view.running) return;
+    view = merged;
+    notify();
   },
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
@@ -362,6 +373,11 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
     const noteGeneration = React.useRef(0);
 
     React.useEffect(() => remoteChatStore.subscribe(() => setTarget(remoteChatStore.get())), []);
+    // Opening a local session swaps this view out of the main area: the sidebar row stops being the current one.
+    React.useEffect(() => {
+      remoteChatStore.setView({ shown: true });
+      return () => remoteChatStore.setView({ shown: false, running: false });
+    }, []);
 
     // Load the transcript; poll quickly while the remote agent is working.
     React.useEffect(() => {
@@ -376,8 +392,12 @@ export function createRemoteChat(React: any): (props: Record<string, any>) => an
           setTranscript(next);
           setError(undefined);
           running = next.running;
+          remoteChatStore.setView({ running: next.running === true });
         } catch (reason) {
-          if (alive) setError(messageOf(reason));
+          if (alive) {
+            setError(messageOf(reason));
+            remoteChatStore.setView({ running: false });
+          }
         }
         if (alive) timer = setTimeout(() => void load(), running ? 1500 : 5000);
       };
